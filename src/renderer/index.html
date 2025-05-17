@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MySekaiStoryteller</title>
+  <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: mss:; connect-src 'self' mss:"
+  />
+
+  <link href="./assets/main.css" type="text/css" rel="stylesheet" />
+</head>
+
+<body>
+<h1 id="select-file-tips">Please select a story file</h1>
+<div id="app"></div>
+<script type="module" src="src/index.ts"></script>
+<script type="text/javascript" src="assets/live2d.min.js"></script>
+<script type="text/javascript" src="assets/live2dcubismcore.min.js"></script>
+</body>
+</html>

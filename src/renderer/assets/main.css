@@ -1,0 +1,15 @@
+@import "base.css";
+
+div#app {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: fixed;
+}
+
+h1#select-file-tips {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%,-50%);
+}
