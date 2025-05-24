@@ -36,7 +36,7 @@ export default class StoryManager {
 
     for (const image of this.storyData.images) {
       const imageUrl = `mss://load-file/${this.storyFolder}/images/${image.image}`
-      const texture = PIXI.Texture.from(imageUrl)
+      const texture = await PIXI.Texture.fromURL(imageUrl)
 
       result.push({
         id: image.id,
