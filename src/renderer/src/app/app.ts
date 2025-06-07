@@ -6,6 +6,12 @@ import { SelectStoryResponse } from '../../../common/types/ipc_response'
 import StoryManager from '../managers/story_manager'
 import { Live2DModelMap, TextureMap } from '../types/asset_map'
 import BackgroundLayer from '../layers/background'
+import { LayoutModes } from '../../../common/types/story'
+import ModelLayer from '../layers/model_layer'
+import AdvancedModel from '../model/advanced_model'
+import Position_rel from '../types/position_rel'
+import StageUtils from '../utils/stage_utils'
+import AnimationManager from '../managers/animation_manager'
 
 class App {
   private readonly logger: Logger<ILogObj> = getSubLogger('App')
@@ -17,6 +23,9 @@ class App {
   private textures: TextureMap[] = []
 
   private layerBackground!: BackgroundLayer
+  private layerModel!: ModelLayer
+
+  private stage_size!: [number, number]
 
   private async selectStoryFile(): Promise<SelectStoryResponse> {
     const selectResult: SelectStoryResponse = await window.electron.ipcRenderer.invoke(
@@ -74,6 +83,8 @@ class App {
 
     this.pixiApplication.stage.sortableChildren = true
 
+    this.stage_size = [this.pixiApplication.screen.width, this.pixiApplication.screen.height]
+
     this.logger.info('Render initialized')
   }
 
@@ -89,12 +100,19 @@ class App {
 
   private prepareStory(): void {
     this.layerBackground = new BackgroundLayer(this.pixiApplication)
+    this.layerModel = new ModelLayer(this.pixiApplication)
   }
 
   private getTextureById(id: number): PIXI.Texture {
     const data = this.textures
 
     return data.find((image) => image.id === id)!.image
+  }
+
+  private getModelById(id: number): AdvancedModel {
+    const data = this.models
+
+    return data.find((model) => model.id === id)!.model
   }
 
   private async readUntilFinish(): Promise<void> {
@@ -105,6 +123,43 @@ class App {
       switch (snippet.type) {
         case 'ChangeBackgroundImage': {
           this.layerBackground.setBackground(this.getTextureById(snippet.data))
+          break
+        }
+        case 'ChangeLayoutMode': {
+          this.layerModel.layoutMode = LayoutModes[snippet.data]
+          break
+        }
+        case 'LayoutAppear': {
+          const model = this.getModelById(snippet.data.modelId)
+          this.layerModel.addModelAndInitialize(model)
+
+          await model.applyAndWait(snippet.data.motion, snippet.data.facial)
+          this.logger.info(`Model: ${snippet.data.modelId}, pre-show motion finished`)
+
+          const show_task = model.show(200)
+          let move_task: Promise<void> | null = null
+          const from: Position_rel = StageUtils.side_to_position(
+            snippet.data.from.side,
+            this.layerModel.layoutMode,
+            snippet.data.from.offset
+          )
+          const to: Position_rel = StageUtils.side_to_position(
+            snippet.data.to.side,
+            this.layerModel.layoutMode,
+            snippet.data.to.offset
+          )
+          if (from.x === to.x && to.y === to.y) {
+            model.setPositionRel(this.stage_size, to)
+          } else {
+            move_task = model.move(from, to, StageUtils.move_speed_to_num(snippet.data.moveSpeed))
+          }
+
+          AnimationManager.delay(10).then(() =>
+            model.applyAndWait(snippet.data.motion, snippet.data.facial)
+          )
+
+          await show_task
+          if (move_task) await move_task
           break
         }
       }

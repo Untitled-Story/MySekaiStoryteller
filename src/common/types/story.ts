@@ -1,20 +1,35 @@
 import { z } from 'zod'
 
-export const ModelSchema = z.object({
+export enum LayoutModes {
+  Normal = 'Normal',
+  Three = 'Three'
+}
+
+export enum Sides {
+  Center = 'Center'
+}
+
+export enum MoveSpeed {
+  Slow = 'Slow',
+  Normal = 'Normal',
+  Fast = 'Fast'
+}
+
+const ModelSchema = z.object({
   id: z.number(),
   model: z.string()
 })
 
-export const ImageSchema = z.object({
+const ImageSchema = z.object({
   id: z.number(),
   image: z.string()
 })
 
-export const LayoutModeEnum = z.enum(['Normal', 'Three'])
-export const SideEnum = z.enum(['Center'])
-export const MoveSpeedEnum = z.enum(['Slow'])
+const LayoutModeEnum = z.nativeEnum(LayoutModes)
+const SideEnum = z.nativeEnum(Sides)
+const MoveSpeedEnum = z.nativeEnum(MoveSpeed)
 
-export const SnippetSchema = z.discriminatedUnion('type', [
+const SnippetSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('ChangeLayoutMode'),
     data: LayoutModeEnum

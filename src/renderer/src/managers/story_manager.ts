@@ -1,8 +1,9 @@
 import { SelectStoryResponse } from '../../../common/types/ipc_response'
 import { Snippet, Story } from '../../../common/types/story'
-import { Live2DModel } from 'pixi-live2d-display-mulmotion'
 import * as PIXI from 'pixi.js'
 import { TextureMap, Live2DModelMap } from '../types/asset_map'
+import AdvancedModel from '../model/advanced_model'
+import { AlphaFilter } from 'pixi.js'
 
 export default class StoryManager {
   public readonly storyJsonPath: string
@@ -17,15 +18,29 @@ export default class StoryManager {
 
   public async preloadModels(): Promise<Live2DModelMap[]> {
     const result: Live2DModelMap[] = []
-    for (const model of this.storyData.models) {
-      const fullPath = `mss://load-file/${this.storyFolder}/models/${model.model}`
+    for (const model_data of this.storyData.models) {
+      const fullPath = `mss://load-file/${this.storyFolder}/models/${model_data.model}`
+      const model = await AdvancedModel.from(fullPath, {
+        ticker: PIXI.Ticker.shared,
+        autoFocus: false,
+        autoHitTest: false,
+        breathDepth: 0.2
+      })
+
+      // Always true
+      model.visible = true
+
+      // For facial and motion
+      model.internalModel.extendParallelMotionManager(2)
+
+      const alpha_filter = new AlphaFilter(0)
+      alpha_filter.resolution = 2
+
+      model.filters = [alpha_filter]
+
       result.push({
-        id: model.id,
-        model: Live2DModel.fromSync(fullPath, {
-          ticker: PIXI.Ticker.shared,
-          autoFocus: false,
-          autoHitTest: false
-        })
+        id: model_data.id,
+        model: model
       })
     }
     return result
