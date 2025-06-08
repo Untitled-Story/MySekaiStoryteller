@@ -23,7 +23,8 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "pixi-live2d-display-advanced": "^0.1.1"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
@@ -35,7 +36,6 @@
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.1.0",
     "eslint": "^9.24.0",
-    "pixi-live2d-display-mulmotion": "0.5.0-mm-5",
     "pixi.js": "^7.4.3",
     "prettier": "^3.5.3",
     "tslog": "^4.9.3",

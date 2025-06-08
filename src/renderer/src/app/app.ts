@@ -133,7 +133,7 @@ class App {
           const model = this.getModelById(snippet.data.modelId)
           this.layerModel.addModelAndInitialize(model)
 
-          await model.applyAndWait(snippet.data.motion, snippet.data.facial)
+          await model.playMotionLastFrame(snippet.data.motion, snippet.data.facial)
           this.logger.info(`Model: ${snippet.data.modelId}, pre-show motion finished`)
 
           const show_task = model.show(200)

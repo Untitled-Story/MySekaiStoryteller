@@ -1,4 +1,8 @@
-import { Live2DModel, MotionPriority } from 'pixi-live2d-display-mulmotion'
+import {
+  Live2DModel,
+  MotionPriority,
+  Cubism4ParallelMotionManager
+} from 'pixi-live2d-display-advanced'
 import { AlphaFilter } from 'pixi.js'
 import AnimationManager from '../managers/animation_manager'
 import PositionRel from '../types/position_rel'
@@ -66,5 +70,34 @@ export default class AdvancedModel extends Live2DModel {
       this.position.x = (to.x - from.x) * progress + from.x
       this.position.y = (to.y - from.y) * progress + to.y
     }, time_ms)
+  }
+
+  public async playMotionLastFrame(motion?: string, facial?: string): Promise<void> {
+    const motion_manager = this.internalModel.parallelMotionManager[0]
+    const facial_manager = this.internalModel.parallelMotionManager[1]
+
+    const waits: Promise<unknown>[] = []
+
+    if (
+      motion_manager instanceof Cubism4ParallelMotionManager &&
+      facial_manager instanceof Cubism4ParallelMotionManager
+    ) {
+      if (motion) {
+        waits.push(motion_manager.playMotionLastFrame(this, motion, 0))
+      }
+
+      if (facial) {
+        waits.push(facial_manager.playMotionLastFrame(this, facial, 0))
+      }
+
+      await Promise.all(waits)
+
+      await AnimationManager.in_ticker(
+        () => {},
+        () => motion_manager.isFinished() && facial_manager.isFinished()
+      )
+    } else {
+      await this.applyAndWait(motion, facial)
+    }
   }
 }

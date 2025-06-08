@@ -17,6 +17,9 @@ importers:
       electron-updater:
         specifier: ^6.3.9
         version: 6.6.2
+      pixi-live2d-display-advanced:
+        specifier: ^0.1.1
+        version: 0.1.1(pixi.js@7.4.3)
     devDependencies:
       '@electron-toolkit/eslint-config-prettier':
         specifier: ^3.0.0
@@ -45,9 +48,6 @@ importers:
       eslint:
         specifier: ^9.24.0
         version: 9.26.0
-      pixi-live2d-display-mulmotion:
-        specifier: 0.5.0-mm-5
-        version: 0.5.0-mm-5(pixi.js@7.4.3)
       pixi.js:
         specifier: ^7.4.3
         version: 7.4.3
@@ -2239,8 +2239,8 @@ packages:
     resolution: {integrity: sha512-M7BAV6Rlcy5u+m6oPhAPFgJTzAioX/6B0DxyvDlo9l8+T3nLKbrczg2WLUyzd45L8RqfUMyGPzekbMvX2Ldkwg==}
     engines: {node: '>=12'}
 
-  pixi-live2d-display-mulmotion@0.5.0-mm-5:
-    resolution: {integrity: sha512-9vY3BDaXCIkhPS6QsQY7hiWxCSKLmZ4l/BJC5ZxMwLTJsZt7U4JzB6bqcBv5W5TSIe/CDrrW94tP5n62H37Xsw==}
+  pixi-live2d-display-advanced@0.1.1:
+    resolution: {integrity: sha512-oiUnvygoHbEcsuX5i8NnJe8KEpmJ+BhoQ2V1TEf19nehjGqt/mK+tAP4vj+EbQwWJNaxnBzZUXNPTz2neg7MRA==}
     peerDependencies:
       pixi.js: ^7.0.0
 
@@ -5152,7 +5152,7 @@ snapshots:
 
   picomatch@4.0.2: {}
 
-  pixi-live2d-display-mulmotion@0.5.0-mm-5(pixi.js@7.4.3):
+  pixi-live2d-display-advanced@0.1.1(pixi.js@7.4.3):
     dependencies:
       pixi.js: 7.4.3
       terser: 5.39.2
