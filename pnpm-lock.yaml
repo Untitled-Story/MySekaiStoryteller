@@ -17,9 +17,6 @@ importers:
       electron-updater:
         specifier: ^6.3.9
         version: 6.6.2
-      pixi-live2d-display-advanced:
-        specifier: ^0.1.1
-        version: 0.1.1(pixi.js@7.4.3)
     devDependencies:
       '@electron-toolkit/eslint-config-prettier':
         specifier: ^3.0.0
@@ -48,6 +45,9 @@ importers:
       eslint:
         specifier: ^9.24.0
         version: 9.26.0
+      pixi-live2d-display-advanced:
+        specifier: ^0.1.1
+        version: 0.1.1(pixi.js@7.4.3)
       pixi.js:
         specifier: ^7.4.3
         version: 7.4.3
