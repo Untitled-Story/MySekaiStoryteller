@@ -1,4 +1,5 @@
-<div style="text-align: center; margin-top: 10px">
+<!--suppress HtmlDeprecatedAttribute -->
+<div align="center" style="text-align: center; margin-top: 10px">
  <img src="documents/assets/logo.png" style="align-self: center; width: 150px; margin-bottom: 0" alt="Logo" />
  <h3 style="margin-top: 0; text-align: center;">My Sekai Storyteller</h3>
  <p style="text-align: center;">A creative tool to play your own Live2D story in Project Sekai style</p>
