@@ -9,7 +9,7 @@ import BackgroundLayer from '../layers/background'
 import { LayoutModes } from '../../../common/types/story'
 import ModelLayer from '../layers/model_layer'
 import AdvancedModel from '../model/advanced_model'
-import Position_rel from '../types/position_rel'
+import PositionRel from '../types/position_rel'
 import StageUtils from '../utils/stage_utils'
 import AnimationManager from '../managers/animation_manager'
 
@@ -138,12 +138,12 @@ class App {
 
           const show_task = model.show(200)
           let move_task: Promise<void> | null = null
-          const from: Position_rel = StageUtils.side_to_position(
+          const from: PositionRel = StageUtils.side_to_position(
             snippet.data.from.side,
             this.layerModel.layoutMode,
             snippet.data.from.offset
           )
-          const to: Position_rel = StageUtils.side_to_position(
+          const to: PositionRel = StageUtils.side_to_position(
             snippet.data.to.side,
             this.layerModel.layoutMode,
             snippet.data.to.offset

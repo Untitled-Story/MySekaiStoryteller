@@ -46,8 +46,8 @@ importers:
         specifier: ^9.24.0
         version: 9.26.0
       pixi-live2d-display-advanced:
-        specifier: ^0.1.1
-        version: 0.1.1(pixi.js@7.4.3)
+        specifier: ^0.2.0
+        version: 0.2.0(pixi.js@7.4.3)
       pixi.js:
         specifier: ^7.4.3
         version: 7.4.3
@@ -914,6 +914,11 @@ packages:
 
   acorn@8.14.1:
     resolution: {integrity: sha512-OvQ/2pUDKmgfCg++xsTX1wGxfTaszcHVcTctW4UJB4hibJx2HXxxO5UmVgyjMa+ZDsiaf5wWLXYpRWMmBI0QHg==}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
+
+  acorn@8.15.0:
+    resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
     engines: {node: '>=0.4.0'}
     hasBin: true
 
@@ -2239,8 +2244,8 @@ packages:
     resolution: {integrity: sha512-M7BAV6Rlcy5u+m6oPhAPFgJTzAioX/6B0DxyvDlo9l8+T3nLKbrczg2WLUyzd45L8RqfUMyGPzekbMvX2Ldkwg==}
     engines: {node: '>=12'}
 
-  pixi-live2d-display-advanced@0.1.1:
-    resolution: {integrity: sha512-oiUnvygoHbEcsuX5i8NnJe8KEpmJ+BhoQ2V1TEf19nehjGqt/mK+tAP4vj+EbQwWJNaxnBzZUXNPTz2neg7MRA==}
+  pixi-live2d-display-advanced@0.2.0:
+    resolution: {integrity: sha512-vczwAeC5myNnDNoGgBz/GthWJwCluHWivcmjJllGnCyr8QIBAG4AdKJkp4MqKUeSWoTiPsdMVOy6y2K8RfVbtQ==}
     peerDependencies:
       pixi.js: ^7.0.0
 
@@ -3163,6 +3168,7 @@ snapshots:
     dependencies:
       '@jridgewell/gen-mapping': 0.3.8
       '@jridgewell/trace-mapping': 0.3.25
+    optional: true
 
   '@jridgewell/sourcemap-codec@1.5.0': {}
 
@@ -3633,6 +3639,9 @@ snapshots:
 
   acorn@8.14.1: {}
 
+  acorn@8.15.0:
+    optional: true
+
   agent-base@6.0.2:
     dependencies:
       debug: 4.4.1
@@ -3971,7 +3980,8 @@ snapshots:
     dependencies:
       delayed-stream: 1.0.0
 
-  commander@2.20.3: {}
+  commander@2.20.3:
+    optional: true
 
   commander@5.1.0: {}
 
@@ -5152,10 +5162,9 @@ snapshots:
 
   picomatch@4.0.2: {}
 
-  pixi-live2d-display-advanced@0.1.1(pixi.js@7.4.3):
+  pixi-live2d-display-advanced@0.2.0(pixi.js@7.4.3):
     dependencies:
       pixi.js: 7.4.3
-      terser: 5.39.2
 
   pixi.js@7.4.3:
     dependencies:
@@ -5563,9 +5572,10 @@ snapshots:
   terser@5.39.2:
     dependencies:
       '@jridgewell/source-map': 0.3.6
-      acorn: 8.14.1
+      acorn: 8.15.0
       commander: 2.20.3
       source-map-support: 0.5.21
+    optional: true
 
   tiny-typed-emitter@2.1.0: {}
 

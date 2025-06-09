@@ -1,16 +1,10 @@
-import {
-  Live2DModel,
-  MotionPriority,
-  Cubism4ParallelMotionManager
-} from 'pixi-live2d-display-advanced'
+import { Live2DModel, MotionPriority } from 'pixi-live2d-display-advanced'
 import { AlphaFilter } from 'pixi.js'
 import AnimationManager from '../managers/animation_manager'
 import PositionRel from '../types/position_rel'
-import getSubLogger from '../utils/logger'
 
 export default class AdvancedModel extends Live2DModel {
   private _is_showed = false
-  private logger = getSubLogger('AdvancedModel')
 
   get is_showed(): boolean {
     return this._is_showed
@@ -40,7 +34,6 @@ export default class AdvancedModel extends Live2DModel {
     const motion_manager = this.internalModel.parallelMotionManager[0]
     const facial_manager = this.internalModel.parallelMotionManager[1]
 
-    this.logger.debug('Applying motions')
     if (motion) {
       waits.push(this.applyMotion(motion))
     }
@@ -50,13 +43,10 @@ export default class AdvancedModel extends Live2DModel {
 
     await Promise.all(waits)
 
-    this.logger.debug('Waiting for motions finish')
-
     await AnimationManager.in_ticker(
       () => {},
       () => motion_manager.isFinished() && facial_manager.isFinished()
     )
-    this.logger.debug('Motions finished')
   }
 
   public setPositionRel(stage_size: [number, number], position: PositionRel): void {
@@ -78,26 +68,23 @@ export default class AdvancedModel extends Live2DModel {
 
     const waits: Promise<unknown>[] = []
 
-    if (
-      motion_manager instanceof Cubism4ParallelMotionManager &&
-      facial_manager instanceof Cubism4ParallelMotionManager
-    ) {
-      if (motion) {
-        waits.push(motion_manager.playMotionLastFrame(this, motion, 0))
-      }
+    if (motion) {
+      waits.push(motion_manager.playMotionLastFrame(this, motion, 0))
+    }
 
-      if (facial) {
-        waits.push(facial_manager.playMotionLastFrame(this, facial, 0))
-      }
+    if (facial) {
+      waits.push(facial_manager.playMotionLastFrame(this, facial, 0))
+    }
 
-      await Promise.all(waits)
+    const results = (await Promise.all(waits)) as boolean[]
 
-      await AnimationManager.in_ticker(
-        () => {},
-        () => motion_manager.isFinished() && facial_manager.isFinished()
-      )
-    } else {
+    if (results.includes(false)) {
       await this.applyAndWait(motion, facial)
     }
+
+    await AnimationManager.in_ticker(
+      () => {},
+      () => motion_manager.isFinished() && facial_manager.isFinished()
+    )
   }
 }
