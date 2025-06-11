@@ -1,5 +1,5 @@
 import { SelectStoryResponse } from '../../../common/types/IpcResponse'
-import { Snippet, Story } from '../../../common/types/Story'
+import { SnippetData, StoryData } from '../../../common/types/Story'
 import * as PIXI from 'pixi.js'
 import { TextureMap, Live2DModelMap } from '../types/AssetMap'
 import AdvancedModel from '../model/AdvancedModel'
@@ -8,7 +8,7 @@ import { AlphaFilter } from 'pixi.js'
 export default class StoryManager {
   public readonly storyJsonPath: string
   public readonly storyFolder: string
-  public readonly storyData: Story
+  public readonly storyData: StoryData
 
   constructor(story: SelectStoryResponse) {
     this.storyJsonPath = story.path!
@@ -62,7 +62,7 @@ export default class StoryManager {
     return result
   }
 
-  get snippets(): Snippet[] {
+  get snippets(): SnippetData[] {
     return this.storyData.snippets
   }
 }

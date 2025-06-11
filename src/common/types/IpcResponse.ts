@@ -1,9 +1,9 @@
-import { Story } from './Story'
+import { StoryData } from './Story'
 
 export interface SelectStoryResponse {
   success: boolean
   path?: string
-  data?: Story
+  data?: StoryData
   zodIssueMessage?: string
   error?: unknown
 }

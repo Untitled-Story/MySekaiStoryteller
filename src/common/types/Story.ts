@@ -65,5 +65,5 @@ export const StorySchema = z.object({
   snippets: z.array(SnippetSchema)
 })
 
-export type Snippet = z.infer<typeof SnippetSchema>
-export type Story = z.infer<typeof StorySchema>
+export type SnippetData = z.infer<typeof SnippetSchema>
+export type StoryData = z.infer<typeof StorySchema>

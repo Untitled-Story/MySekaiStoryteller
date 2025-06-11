@@ -3,7 +3,7 @@ import { ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import * as fs from 'node:fs'
 import { SelectStoryResponse } from '../../common/types/IpcResponse'
-import { Story, StorySchema } from '../../common/types/Story'
+import { StoryData, StorySchema } from '../../common/types/Story'
 import { z } from 'zod'
 
 async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
@@ -37,7 +37,7 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
 
         const rawData = await fs.promises.readFile(normalizedPath, 'utf8')
 
-        const parsedData: Story = StorySchema.parse(JSON.parse(rawData))
+        const parsedData: StoryData = StorySchema.parse(JSON.parse(rawData))
 
         return { success: true, path: normalizedPath, data: parsedData }
       } catch (error) {
