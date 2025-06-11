@@ -80,11 +80,11 @@ export default class AdvancedModel extends Live2DModel {
 
     if (results.includes(false)) {
       await this.applyAndWait(motion, facial)
+    } else {
+      await AnimationManager.in_ticker(
+        () => {},
+        () => motion_manager.isFinished() && facial_manager.isFinished()
+      )
     }
-
-    await AnimationManager.in_ticker(
-      () => {},
-      () => motion_manager.isFinished() && facial_manager.isFinished()
-    )
   }
 }
