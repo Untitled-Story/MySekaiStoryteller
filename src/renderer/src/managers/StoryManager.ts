@@ -1,8 +1,8 @@
-import { SelectStoryResponse } from '../../../common/types/ipc_response'
-import { Snippet, Story } from '../../../common/types/story'
+import { SelectStoryResponse } from '../../../common/types/IpcResponse'
+import { Snippet, Story } from '../../../common/types/Story'
 import * as PIXI from 'pixi.js'
-import { TextureMap, Live2DModelMap } from '../types/asset_map'
-import AdvancedModel from '../model/advanced_model'
+import { TextureMap, Live2DModelMap } from '../types/AssetMap'
+import AdvancedModel from '../model/AdvancedModel'
 import { AlphaFilter } from 'pixi.js'
 
 export default class StoryManager {

@@ -1,7 +1,7 @@
 import { Live2DModel, MotionPriority } from 'pixi-live2d-display-advanced'
 import { AlphaFilter } from 'pixi.js'
-import AnimationManager from '../managers/animation_manager'
-import PositionRel from '../types/position_rel'
+import AnimationManager from '../managers/AnimationManager'
+import PositionRel from '../types/PositionRel'
 
 export default class AdvancedModel extends Live2DModel {
   private _is_showed = false

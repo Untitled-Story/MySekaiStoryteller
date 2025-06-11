@@ -2,8 +2,8 @@ import { ILogObj, Logger } from 'tslog'
 import { ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import * as fs from 'node:fs'
-import { SelectStoryResponse } from '../../common/types/ipc_response'
-import { Story, StorySchema } from '../../common/types/story'
+import { SelectStoryResponse } from '../../common/types/IpcResponse'
+import { Story, StorySchema } from '../../common/types/Story'
 import { z } from 'zod'
 
 async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {

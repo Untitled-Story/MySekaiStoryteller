@@ -1,4 +1,4 @@
-import { Story } from './story'
+import { Story } from './Story'
 
 export interface SelectStoryResponse {
   success: boolean

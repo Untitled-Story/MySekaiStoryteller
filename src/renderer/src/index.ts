@@ -1,4 +1,4 @@
-import main from './app/app'
+import main from './app/App'
 
 function initialize(): void {
   window.addEventListener('DOMContentLoaded', async (): Promise<void> => {

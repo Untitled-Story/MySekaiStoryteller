@@ -3,8 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { ILogObj, Logger } from 'tslog'
-import setupIpcHandlers from './handlers/ipc_handler'
-import setupProtocolHandlers from './handlers/protocol_handler'
+import setupIpcHandlers from './handlers/IpcHandler'
+import setupProtocolHandlers from './handlers/ProtocolHandler'
 
 const logger: Logger<ILogObj> = new Logger({
   name: 'electron',

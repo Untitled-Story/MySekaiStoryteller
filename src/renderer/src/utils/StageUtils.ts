@@ -1,8 +1,12 @@
-import { LayoutModes, MoveSpeed, Sides } from '../../../common/types/story'
-import Position_rel from '../types/position_rel'
+import { LayoutModes, MoveSpeed, Sides } from '../../../common/types/Story'
+import Position_rel from '../types/PositionRel'
 
 export default class StageUtils {
-  public static side_to_position(side: Sides, layout_mode: LayoutModes, offset: number): Position_rel {
+  public static side_to_position(
+    side: Sides,
+    layout_mode: LayoutModes,
+    offset: number
+  ): Position_rel {
     const position_map = {
       [LayoutModes.Normal]: {
         [Sides.Center]: [0.5, 0.5]

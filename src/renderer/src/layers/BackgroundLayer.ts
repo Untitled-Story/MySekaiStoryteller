@@ -1,5 +1,5 @@
 import { Application, Sprite, Texture } from 'pixi.js'
-import BaseLayer from './base_layer'
+import BaseLayer from './BaseLayer'
 
 export default class BackgroundLayer extends BaseLayer {
   private readonly sprite!: Sprite

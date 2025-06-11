@@ -1,5 +1,5 @@
 import { Texture } from 'pixi.js'
-import AdvancedModel from '../model/advanced_model'
+import AdvancedModel from '../model/AdvancedModel'
 
 export interface Live2DModelMap {
   id: number

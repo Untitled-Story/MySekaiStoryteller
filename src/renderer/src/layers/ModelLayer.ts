@@ -1,7 +1,7 @@
-import BaseLayer from './base_layer'
+import BaseLayer from './BaseLayer'
 import { Application, Container } from 'pixi.js'
-import { LayoutModes } from '../../../common/types/story'
-import AdvancedModel from '../model/advanced_model'
+import { LayoutModes } from '../../../common/types/Story'
+import AdvancedModel from '../model/AdvancedModel'
 
 export default class ModelLayer extends BaseLayer {
   public readonly container: Container
