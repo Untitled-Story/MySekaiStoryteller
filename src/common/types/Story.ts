@@ -48,7 +48,8 @@ const SnippetSchema = z.discriminatedUnion('type', [
       }),
       motion: z.string(),
       facial: z.string(),
-      moveSpeed: MoveSpeedEnum
+      moveSpeed: MoveSpeedEnum,
+      delay: z.number()
     })
   }),
   z.object({

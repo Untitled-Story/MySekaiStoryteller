@@ -1,8 +1,8 @@
-import BaseSnippet from '../BaseSnippet'
-import { SnippetData } from '../../../../common/types/Story'
-import PositionRel from '../../types/PositionRel'
-import StageUtils from '../../utils/StageUtils'
-import AnimationManager from '../../managers/AnimationManager'
+import BaseSnippet from './BaseSnippet'
+import { SnippetData } from '../../../common/types/Story'
+import PositionRel from '../types/PositionRel'
+import StageUtils from '../utils/StageUtils'
+import AnimationManager from '../managers/AnimationManager'
 
 export default class LayoutAppearSnippet extends BaseSnippet {
   async handleSnippet(snippet: SnippetData): Promise<void> {

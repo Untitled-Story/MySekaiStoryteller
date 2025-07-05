@@ -1,5 +1,5 @@
-import BaseSnippet from '../BaseSnippet'
-import { LayoutModes, SnippetData } from '../../../../common/types/Story'
+import BaseSnippet from './BaseSnippet'
+import { LayoutModes, SnippetData } from '../../../common/types/Story'
 
 export default class ChangeLayoutModeSnippet extends BaseSnippet {
   async handleSnippet(snippet: SnippetData): Promise<void> {

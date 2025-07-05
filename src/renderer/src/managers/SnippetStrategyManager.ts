@@ -1,9 +1,9 @@
 import { Snippet } from '../snippets/Snippet'
 import { App } from '../app/App'
-import ChangeBackgroundImageSnippet from '../snippets/system/ChangeBackgroundImageSnippet'
+import ChangeBackgroundImageSnippet from '../snippets/ChangeBackgroundImageSnippet'
 import { SnippetData } from '../../../common/types/Story'
-import ChangeLayoutModeSnippet from '../snippets/system/ChangeLayoutModeSnippet'
-import LayoutAppearSnippet from '../snippets/animated/LayoutAppearSnippet'
+import ChangeLayoutModeSnippet from '../snippets/ChangeLayoutModeSnippet'
+import LayoutAppearSnippet from '../snippets/LayoutAppearSnippet'
 
 export default class SnippetStrategyManager {
   private readonly app: App
