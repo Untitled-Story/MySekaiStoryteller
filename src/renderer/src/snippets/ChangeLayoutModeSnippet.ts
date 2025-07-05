@@ -1,12 +1,10 @@
 import BaseSnippet from './BaseSnippet'
-import { LayoutModes, SnippetData } from '../../../common/types/Story'
+import { LayoutModes } from '../../../common/types/Story'
 
 export default class ChangeLayoutModeSnippet extends BaseSnippet {
-  async handleSnippet(snippet: SnippetData): Promise<void> {
-    if (snippet.type !== 'ChangeLayoutMode') {
-      return
-    }
+  async handleSnippet(): Promise<void> {
+    if (this.data.type !== 'ChangeLayoutMode') return
 
-    this.app.layerModel.layoutMode = LayoutModes[snippet.data]
+    this.app.layerModel.layoutMode = LayoutModes[this.data.data]
   }
 }

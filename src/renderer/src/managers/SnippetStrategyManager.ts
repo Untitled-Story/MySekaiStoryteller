@@ -21,7 +21,7 @@ export default class SnippetStrategyManager {
   async handleSnippet(data: SnippetData): Promise<void> {
     const snippet = this.snippets[data.type]
     if (snippet) {
-      await snippet.handleSnippet(data)
+      await snippet.runSnippet(data)
     } else {
       throw new TypeError(`Not implemented ${data.type}`)
     }
