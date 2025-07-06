@@ -69,11 +69,11 @@ export default class AdvancedModel extends Live2DModel {
     const waits: Promise<unknown>[] = []
 
     if (motion) {
-      waits.push(motion_manager.playMotionLastFrame(this, motion, 0))
+      waits.push(motion_manager.playMotionLastFrame(motion, 0))
     }
 
     if (facial) {
-      waits.push(facial_manager.playMotionLastFrame(this, facial, 0))
+      waits.push(facial_manager.playMotionLastFrame(facial, 0))
     }
 
     const results = (await Promise.all(waits)) as boolean[]
