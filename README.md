@@ -10,12 +10,34 @@
  </div>
 </div>
 
+> [!IMPORTANT]
+> The project is under continuous development. For the currently supported Snippets, 
+> please refer to [Developing Snippet Types](#developing-snippet-types).
+> 
+> In the future, the document will be rewritten.
+
 ## License
 
 The project is under [GNU GPLv3](LICENSE)
 
 The components defined in [RedistributableFiles.txt](src/renderer/RedistributableFiles.txt) is redistributed
 under [Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)
+
+## Developing Snippet Types
+- [x] ChangeLayoutMode
+- [x] ChangeBackgroundImage
+- [x] LayoutAppear
+- [x] LayoutClear
+- [ ] Talk
+- [ ] CharacterMotion
+- [ ] Motion
+
+Other snippets (such as SpecialEffects) will be developed at a later stage.
+
+## Stacks
+- [Electron](https://www.electronjs.org/)
+- [PixiJS](https://pixijs.com/)
+- [pixi-live2d-display-advanced](https://github.com/GuangChen2333/pixi-live2d-display-advanced)
 
 ## Thanks
 
