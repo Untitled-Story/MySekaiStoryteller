@@ -38,6 +38,11 @@ const SnippetSchema = z.discriminatedUnion('type', [
     data: LayoutModeEnum
   }),
   z.object({
+    type: z.literal('ChangeBackgroundImage'),
+    wait: z.boolean(),
+    data: z.number()
+  }),
+  z.object({
     type: z.literal('LayoutAppear'),
     wait: z.boolean(),
     data: z.object({
@@ -55,11 +60,6 @@ const SnippetSchema = z.discriminatedUnion('type', [
       moveSpeed: MoveSpeedEnum,
       delay: z.number()
     })
-  }),
-  z.object({
-    type: z.literal('ChangeBackgroundImage'),
-    wait: z.boolean(),
-    data: z.number()
   }),
   z.object({
     type: z.literal('LayoutClear'),
