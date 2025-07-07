@@ -23,4 +23,8 @@ export default class ModelLayer extends BaseLayer {
 
     this.container.addChild(model)
   }
+
+  public removeModel(model: AdvancedModel): void {
+    this.container.removeChild(model)
+  }
 }

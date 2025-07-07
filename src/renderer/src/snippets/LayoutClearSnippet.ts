@@ -29,6 +29,8 @@ export default class LayoutClearSnippet extends AnimatedSnippet {
       move_task = model.move(from, to, StageUtils.move_speed_to_num(this.data.data.moveSpeed))
     }
 
+    this.app.layerModel.removeModel(model)
+
     await hide_task
     if (move_task) await move_task
   }

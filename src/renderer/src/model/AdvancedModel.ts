@@ -4,12 +4,6 @@ import AnimationManager from '../managers/AnimationManager'
 import PositionRel from '../types/PositionRel'
 
 export default class AdvancedModel extends Live2DModel {
-  private _is_showed = false
-
-  get is_showed(): boolean {
-    return this._is_showed
-  }
-
   public async applyMotion(motion: string): Promise<void> {
     const manager = this.internalModel.parallelMotionManager[0]
     await manager.startMotion(motion, 0, MotionPriority.FORCE)
@@ -25,8 +19,6 @@ export default class AdvancedModel extends Live2DModel {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
-
-    this._is_showed = true
   }
 
   public async clear(time: number): Promise<void> {
@@ -35,8 +27,6 @@ export default class AdvancedModel extends Live2DModel {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = alpha
     }, time)
-
-    this._is_showed = false
   }
 
   public async applyAndWait(motion?: string, facial?: string): Promise<void> {
