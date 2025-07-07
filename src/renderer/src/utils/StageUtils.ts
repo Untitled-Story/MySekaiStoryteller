@@ -9,10 +9,14 @@ export default class StageUtils {
   ): Position_rel {
     const position_map = {
       [LayoutModes.Normal]: {
-        [Sides.Center]: [0.5, 0.5]
+        [Sides.Center]: [0.5, 0.5],
+        [Sides.Left]: [0.3, 0.5],
+        [Sides.Right]: [0.7, 0.5]
       },
       [LayoutModes.Three]: {
-        [Sides.Center]: [0.5, 0.5]
+        [Sides.Center]: [0.5, 0.5],
+        [Sides.Left]: [0.25, 0.5],
+        [Sides.Right]: [0.75, 0.5]
       }
     }
 

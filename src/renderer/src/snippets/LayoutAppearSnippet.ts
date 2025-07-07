@@ -2,7 +2,9 @@ import PositionRel from '../types/PositionRel'
 import StageUtils from '../utils/StageUtils'
 import AnimationManager from '../managers/AnimationManager'
 import AnimatedSnippet from './AnimatedSnippet'
+import { Cubism2InternalModel, Cubism4InternalModel } from 'pixi-live2d-display-advanced'
 
+// noinspection DuplicatedCode
 export default class LayoutAppearSnippet extends AnimatedSnippet {
   async handleSnippet(): Promise<void> {
     if (this.data.type !== 'LayoutAppear') return
@@ -34,8 +36,18 @@ export default class LayoutAppearSnippet extends AnimatedSnippet {
 
     AnimationManager.delay(10).then(() => {
       if (this.data.type !== 'LayoutAppear') return
+
       model.applyAndWait(this.data.data.motion, this.data.data.facial)
     })
+
+    if (model.internalModel instanceof Cubism2InternalModel) {
+      model.internalModel.eyeBlink!.setEyeParams(0)
+    } else if (model.internalModel instanceof Cubism4InternalModel) {
+      model.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 0)
+      model.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 0)
+    } else {
+      throw new Error('Not implement.')
+    }
 
     await show_task
     if (move_task) await move_task

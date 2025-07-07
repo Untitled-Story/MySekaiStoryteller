@@ -6,7 +6,9 @@ export enum LayoutModes {
 }
 
 export enum Sides {
-  Center = 'Center'
+  Center = 'Center',
+  Left = 'Left',
+  Right = 'Right'
 }
 
 export enum MoveSpeed {
@@ -32,10 +34,12 @@ const MoveSpeedEnum = z.nativeEnum(MoveSpeed)
 const SnippetSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('ChangeLayoutMode'),
+    wait: z.boolean(),
     data: LayoutModeEnum
   }),
   z.object({
     type: z.literal('LayoutAppear'),
+    wait: z.boolean(),
     data: z.object({
       modelId: z.number(),
       from: z.object({
@@ -54,7 +58,25 @@ const SnippetSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('ChangeBackgroundImage'),
+    wait: z.boolean(),
     data: z.number()
+  }),
+  z.object({
+    type: z.literal('LayoutClear'),
+    wait: z.boolean(),
+    data: z.object({
+      modelId: z.number(),
+      from: z.object({
+        side: SideEnum,
+        offset: z.number()
+      }),
+      to: z.object({
+        side: SideEnum,
+        offset: z.number()
+      }),
+      moveSpeed: MoveSpeedEnum,
+      delay: z.number()
+    })
   })
 ])
 

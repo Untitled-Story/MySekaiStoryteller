@@ -38,6 +38,8 @@ export default class StoryManager {
 
       model.filters = [alpha_filter]
 
+      model.anchor.set(0.5)
+
       result.push({
         id: model_data.id,
         model: model

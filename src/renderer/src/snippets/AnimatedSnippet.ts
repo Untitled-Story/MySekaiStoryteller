@@ -1,13 +1,10 @@
 import BaseSnippet from './BaseSnippet'
-import { SnippetData } from '../../../common/types/Story'
 import AnimationManager from '../managers/AnimationManager'
 
 export default abstract class AnimatedSnippet extends BaseSnippet {
-  async runSnippet(data: SnippetData): Promise<void> {
-    this.initializeData(data)
-
-    await this.handleSnippet()
+  async runSnippet(): Promise<void> {
     await this.runDelay()
+    await this.handleSnippet()
   }
 
   async runDelay(): Promise<void> {

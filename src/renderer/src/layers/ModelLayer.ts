@@ -18,8 +18,6 @@ export default class ModelLayer extends BaseLayer {
   }
 
   public addModelAndInitialize(model: AdvancedModel): void {
-    model.anchor.set(0.5)
-
     const scale = this.app.screen.height / model.internalModel.originalHeight
     model.scale.set(scale * (this.layoutMode === LayoutModes.Normal ? 2.1 : 1.8))
 

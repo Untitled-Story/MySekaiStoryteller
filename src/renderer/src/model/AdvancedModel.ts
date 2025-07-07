@@ -29,6 +29,16 @@ export default class AdvancedModel extends Live2DModel {
     this._is_showed = true
   }
 
+  public async clear(time: number): Promise<void> {
+    await AnimationManager.run((progress) => {
+      const alpha = 1 - progress
+      const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
+      alpha_filter.alpha = alpha
+    }, time)
+
+    this._is_showed = false
+  }
+
   public async applyAndWait(motion?: string, facial?: string): Promise<void> {
     const waits: Promise<unknown>[] = []
     const motion_manager = this.internalModel.parallelMotionManager[0]
