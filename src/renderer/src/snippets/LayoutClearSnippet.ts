@@ -4,7 +4,7 @@ import StageUtils from '../utils/StageUtils'
 
 // noinspection DuplicatedCode
 export default class LayoutClearSnippet extends AnimatedSnippet {
-  async handleSnippet(): Promise<void> {
+  protected async handleSnippet(): Promise<void> {
     if (this.data.type !== 'LayoutClear') return
 
     const model = this.app.getModelById(this.data.data.modelId)

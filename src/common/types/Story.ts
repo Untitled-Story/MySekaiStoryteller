@@ -77,6 +77,14 @@ const SnippetSchema = z.discriminatedUnion('type', [
       moveSpeed: MoveSpeedEnum,
       delay: z.number()
     })
+  }),
+  z.object({
+    type: z.literal('Talk'),
+    wait: z.boolean(),
+    data: z.object({
+      modelId: z.number(),
+      delay: z.number()
+    })
   })
 ])
 

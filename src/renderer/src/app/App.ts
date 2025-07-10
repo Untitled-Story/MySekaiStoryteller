@@ -9,6 +9,7 @@ import BackgroundLayer from '../layers/BackgroundLayer'
 import ModelLayer from '../layers/ModelLayer'
 import AdvancedModel from '../model/AdvancedModel'
 import SnippetStrategyManager from '../managers/SnippetStrategyManager'
+import UILayer from '../layers/UILayer'
 
 export class App {
   public readonly logger: Logger<ILogObj> = getSubLogger('App')
@@ -19,6 +20,7 @@ export class App {
 
   public layerBackground!: BackgroundLayer
   public layerModel!: ModelLayer
+  public layerUI!: UILayer
 
   public stage_size!: [number, number]
 
@@ -98,9 +100,10 @@ export class App {
     this.logger.info('Preloaded story assets')
   }
 
-  private prepareStory(): void {
+  private initializeLayers(): void {
     this.layerBackground = new BackgroundLayer(this.pixiApplication)
     this.layerModel = new ModelLayer(this.pixiApplication)
+    this.layerUI = new UILayer(this.pixiApplication)
   }
 
   private async readUntilFinish(): Promise<void> {
@@ -129,7 +132,7 @@ export class App {
     await this.initializeManagers()
     this.initializeRenderer()
     await this.preloadStoryAssets()
-    this.prepareStory()
+    this.initializeLayers()
     await this.readUntilFinish()
   }
 }

@@ -6,7 +6,7 @@ import { Cubism2InternalModel, Cubism4InternalModel } from 'pixi-live2d-display-
 
 // noinspection DuplicatedCode
 export default class LayoutAppearSnippet extends AnimatedSnippet {
-  async handleSnippet(): Promise<void> {
+  protected async handleSnippet(): Promise<void> {
     if (this.data.type !== 'LayoutAppear') return
 
     const model = this.app.getModelById(this.data.data.modelId)

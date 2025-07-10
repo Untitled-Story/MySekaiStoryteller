@@ -7,6 +7,7 @@ import LayoutAppearSnippet from '../snippets/LayoutAppearSnippet'
 import { ILogObj, Logger } from 'tslog'
 import getSubLogger from '../utils/Logger'
 import LayoutClearSnippet from '../snippets/LayoutClearSnippet'
+import TalkSnippet from '../snippets/TalkSnippet'
 
 export default class SnippetStrategyManager {
   private readonly app: App
@@ -19,7 +20,8 @@ export default class SnippetStrategyManager {
       ChangeBackgroundImage: ChangeBackgroundImageSnippet,
       ChangeLayoutMode: ChangeLayoutModeSnippet,
       LayoutAppear: LayoutAppearSnippet,
-      LayoutClear: LayoutClearSnippet
+      LayoutClear: LayoutClearSnippet,
+      Talk: TalkSnippet
     }
   }
 
