@@ -5,16 +5,15 @@ export default class BackgroundLayer extends BaseLayer {
   private readonly sprite!: Sprite
 
   constructor(app: Application) {
-    super(app)
+    super(app, -1)
 
     this.sprite = new Sprite()
 
-    this.sprite.zIndex = -1
     this.sprite.x = this.app.screen.width / 2
     this.sprite.y = this.app.screen.height / 2
     this.sprite.anchor.set(0.5)
 
-    this.stage.addChild(this.sprite)
+    this.layerContainer.addChild(this.sprite)
   }
 
   private calcScale(texture: Texture): number {

@@ -8,8 +8,7 @@ export default class UITextBackground extends Sprite {
     this.width = screen_width
     this.height = screen_height
     this.x = screen_width / 2
-    this.y = screen_height
-    this.zIndex = 2
+    this.y = screen_height / 2
     const alpha_filter = new AlphaFilter(0)
     alpha_filter.resolution = 2
     this.filters = [alpha_filter]

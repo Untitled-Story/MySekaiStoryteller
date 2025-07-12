@@ -7,7 +7,7 @@ export default class UILayer extends BaseLayer {
   private readonly textBackgroundSprite!: UITextBackground
 
   constructor(app: Application) {
-    super(app)
+    super(app, 2)
     const textBackgroundTexture = Texture.from(ui_text_background)
 
     this.textBackgroundSprite = new UITextBackground(
@@ -15,10 +15,11 @@ export default class UILayer extends BaseLayer {
       this.app.screen.width,
       this.app.screen.height
     )
+
+    this.layerContainer.addChild(this.textBackgroundSprite)
   }
 
   public async showTextBackground(): Promise<void> {
-    this.stage.addChild(this.textBackgroundSprite)
     await this.textBackgroundSprite.show(100)
   }
 }
