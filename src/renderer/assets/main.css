@@ -1,5 +1,10 @@
 @import 'base.css';
 
+@font-face {
+  font-family: 'Source Han Sans SC';
+  src: url('fonts/SourceHanSansSC.otf') format('opentype');
+}
+
 div#app {
   width: 100vw;
   height: 100vh;

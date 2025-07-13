@@ -1,9 +1,8 @@
 import { SelectStoryResponse } from '../../../common/types/IpcResponse'
 import { SnippetData, StoryData } from '../../../common/types/Story'
-import * as PIXI from 'pixi.js'
 import { TextureMap, Live2DModelMap } from '../types/AssetMap'
 import AdvancedModel from '../model/AdvancedModel'
-import { AlphaFilter } from 'pixi.js'
+import { AlphaFilter, Texture, Ticker } from 'pixi.js'
 
 export default class StoryManager {
   public readonly storyJsonPath: string
@@ -21,7 +20,7 @@ export default class StoryManager {
     for (const model_data of this.storyData.models) {
       const fullPath = `mss://load-file/${this.storyFolder}/models/${model_data.model}`
       const model = await AdvancedModel.from(fullPath, {
-        ticker: PIXI.Ticker.shared,
+        ticker: Ticker.shared,
         autoFocus: false,
         autoHitTest: false,
         breathDepth: 0.2
@@ -53,7 +52,7 @@ export default class StoryManager {
 
     for (const image of this.storyData.images) {
       const imageUrl = `mss://load-file/${this.storyFolder}/images/${image.image}`
-      const texture = await PIXI.Texture.fromURL(imageUrl)
+      const texture = await Texture.fromURL(imageUrl)
 
       result.push({
         id: image.id,

@@ -1,5 +1,4 @@
 ﻿import '@pixi/unsafe-eval'
-import * as PIXI from 'pixi.js'
 import getSubLogger from '../utils/Logger'
 import { ILogObj, Logger } from 'tslog'
 import { SelectStoryResponse } from '../../../common/types/IpcResponse'
@@ -10,10 +9,12 @@ import ModelLayer from '../layers/ModelLayer'
 import AdvancedModel from '../model/AdvancedModel'
 import SnippetStrategyManager from '../managers/SnippetStrategyManager'
 import UILayer from '../layers/UILayer'
+import FontFaceObserver from 'fontfaceobserver'
+import { Application, Texture } from 'pixi.js'
 
 export class App {
   public readonly logger: Logger<ILogObj> = getSubLogger('App')
-  public pixiApplication!: PIXI.Application
+  public pixiApplication!: Application
   public storyManager!: StoryManager
   public snippetStrategyManager!: SnippetStrategyManager
   private applicationWrapper!: HTMLDivElement
@@ -72,7 +73,7 @@ export class App {
     const selectFileTipsElement = document.getElementById('select-file-tips')! as HTMLHeadingElement
     this.applicationWrapper = document.getElementById('app')! as HTMLDivElement
 
-    this.pixiApplication = new PIXI.Application({
+    this.pixiApplication = new Application({
       background: 0xffffff,
       resizeTo: this.applicationWrapper,
       autoDensity: true,
@@ -97,6 +98,9 @@ export class App {
     this.textures = await this.storyManager.preloadImages()
     this.logger.info(`Loaded ${this.textures.length} textures`)
 
+    await new FontFaceObserver('Source Han Sans SC', {}).load()
+    this.logger.info(`Loaded fonts.`)
+
     this.logger.info('Preloaded story assets')
   }
 
@@ -116,7 +120,7 @@ export class App {
     }
   }
 
-  public getTextureById(id: number): PIXI.Texture {
+  public getTextureById(id: number): Texture {
     const data = this.textures
 
     return data.find((image) => image.id === id)!.image

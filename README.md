@@ -11,9 +11,9 @@
 </div>
 
 > [!IMPORTANT]
-> The project is under continuous development. For the currently supported Snippets, 
+> The project is under continuous development. For the currently supported Snippets,
 > please refer to [Developing Snippet Types](#developing-snippet-types).
-> 
+>
 > In the future, the document will be rewritten.
 
 ## License
@@ -24,6 +24,7 @@ The components defined in [RedistributableFiles.txt](src/renderer/Redistributabl
 under [Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)
 
 ## Developing Snippet Types
+
 - [x] ChangeLayoutMode
 - [x] ChangeBackgroundImage
 - [x] LayoutAppear
@@ -35,6 +36,7 @@ under [Live2D Proprietary Software License Agreement](https://www.live2d.com/eul
 Other snippets (such as SpecialEffects) will be developed at a later stage.
 
 ## Stacks
+
 - [Electron](https://www.electronjs.org/)
 - [PixiJS](https://pixijs.com/)
 - [pixi-live2d-display-advanced](https://github.com/GuangChen2333/pixi-live2d-display-advanced)

@@ -10,7 +10,7 @@ export default class LayoutClearSnippet extends AnimatedSnippet {
     const model = this.app.getModelById(this.data.data.modelId)
 
     let move_task: Promise<void> | null = null
-    const hide_task = model.clear(50)
+    const hide_task = model.hide(50)
 
     const from: PositionRel = StageUtils.side_to_position(
       this.data.data.from.side,
