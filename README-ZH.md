@@ -2,7 +2,7 @@
 <div align="center" style="text-align: center; margin-top: 10px;">
  <img src="documents/assets/logo.png" style="align-self: center; width: 150px; margin-bottom: 0;" alt="Logo" />
  <h3 style="margin-top: 0; text-align: center;">My Sekai Storyteller</h3>
- <p style="text-align: center;">A Live2D reading tool in Project SEKAI style</p>
+ <p style="text-align: center;">一个采用 Project SEKAI 风格的 Live2d 阅读工具</p>
  <div style="display: flex; justify-content: center;">
   <img src="documents/assets/live2d-badge.svg" alt="Live2D Badge" style="margin-top: 0; margin-right: 5px;"/>
   <img src="https://img.shields.io/badge/typescript-20B2AA?logoColor=ffffff&style=for-the-badge&logo=typescript" alt="TypeScript" style="margin-top: 0; margin-right: 5px;" />
@@ -11,24 +11,22 @@
 </div>
 
 > [!IMPORTANT]
-> This project is under active development. For currently supported snippets,
-> see [Developing Snippet Types](#supported-snippets).
+> 项目正在持续开发中，目前支持的 Snippet 请见 [Developing Snippet Types](#支持的-snippet)。
 >
-> This documentation will be rewritten in future updates.
+> 在未来的更新中，本文档将被重写。
 
-**English (Current)** | [**简体中文**](README-ZH.md)
+[**English**](README.md) | **简体中文 (当前)**
 
-## Licenses
+## 协议
 
-Video content produced and recorded by this project is subject to
-the [MySekaiStoryteller Video Usage and Distribution](VIDEO-LICENSE.md) License.
+由本项目产出、录制的视频内容遵循 [MySekaiStoryteller 视频使用、分发许可](VIDEO-LICENSE-CN.md) 协议。
 
-The source code of this project is licensed under the [GNU GPLv3](LICENSE) license.
+本项目源代码遵循 [GNU GPLv3](LICENSE) 协议。
 
-Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFiles.txt) are subject to the
-[Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html).
+在 [RedistributableFiles.txt](src/renderer/RedistributableFiles.txt) 定义中的组件遵循
+[Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html) 协议。
 
-## Supported Snippets
+## 支持的 Snippet
 
 - [x] ChangeLayoutMode
 - [x] ChangeBackgroundImage
@@ -38,14 +36,14 @@ Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFil
 - [x] HideTalk
 - [x] Motion
 
-Other snippets will be added in the future.
+其他 Snippet 将在未来被添加。
 
-## Tech Stack
+## 技术栈
 
 - [Electron](https://www.electronjs.org/)
 - [PixiJS](https://pixijs.com/)
 - [pixi-live2d-display-advanced](https://github.com/GuangChen2333/pixi-live2d-display-advanced)
 
-## Acknowledgements
+## 鸣谢
 
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
