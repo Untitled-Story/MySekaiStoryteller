@@ -1,6 +1,6 @@
-import AnimatedSnippet from './AnimatedSnippet'
+import BaseSnippet from './BaseSnippet'
 
-export default class TalkSnippet extends AnimatedSnippet {
+export default class TalkSnippet extends BaseSnippet {
   protected async handleSnippet(): Promise<void> {
     if (this.data.type !== 'Talk') return
 

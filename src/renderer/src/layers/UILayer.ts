@@ -56,11 +56,12 @@ export default class UILayer extends BaseLayer {
 
   public async showTextBackground(): Promise<void> {
     this._UITalkShowed = true
+    const showDuration = 70
     await Promise.all([
-      this.textBackgroundSprite.show(70),
-      this.textUnderlineSprite.show(70),
-      this.textSprite.show(70),
-      this.textSpeakerSprite.show(70)
+      this.textBackgroundSprite.show(showDuration),
+      this.textUnderlineSprite.show(showDuration),
+      this.textSprite.show(showDuration),
+      this.textSpeakerSprite.show(showDuration)
     ])
   }
 
@@ -70,11 +71,12 @@ export default class UILayer extends BaseLayer {
 
   public async hideTextBackground(): Promise<void> {
     this._UITalkShowed = true
+    const hideDuration = 100
     await Promise.all([
-      this.textBackgroundSprite.hide(70),
-      this.textUnderlineSprite.hide(70),
-      this.textSprite.hide(70),
-      this.textSpeakerSprite.hide(70)
+      this.textBackgroundSprite.hide(hideDuration),
+      this.textUnderlineSprite.hide(hideDuration),
+      this.textSprite.hide(hideDuration),
+      this.textSpeakerSprite.hide(hideDuration)
     ])
   }
 

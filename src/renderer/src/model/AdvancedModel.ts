@@ -19,7 +19,6 @@ export default class AdvancedModel extends Live2DModel {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
-    this.visible = true
   }
 
   public async hide(time: number): Promise<void> {
@@ -27,7 +26,6 @@ export default class AdvancedModel extends Live2DModel {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
     }, time)
-    this.visible = false
   }
 
   public async applyAndWait(motion?: string, facial?: string): Promise<void> {
@@ -54,12 +52,20 @@ export default class AdvancedModel extends Live2DModel {
     this.position.set(stage_size[0] * position.x, stage_size[1] * (position.y + 0.3))
   }
 
-  public async move(from: PositionRel, to: PositionRel, time_ms: number): Promise<void> {
+  public async move(
+    stage_size: [number, number],
+    from: PositionRel,
+    to: PositionRel,
+    time_ms: number
+  ): Promise<void> {
     if (from === to) return
 
+    const abs_from: [number, number] = [stage_size[0] * from.x, stage_size[1] * (from.y + 0.3)]
+    const abs_to: [number, number] = [stage_size[0] * to.x, stage_size[1] * (to.y + 0.3)]
+
     await AnimationManager.run((progress) => {
-      this.position.x = (to.x - from.x) * progress + from.x
-      this.position.y = (to.y - from.y) * progress + to.y
+      this.position.x = (abs_to[0] - abs_from[0]) * progress + abs_from[0]
+      this.position.y = (abs_to[1] - abs_from[1]) * progress + abs_from[1]
     }, time_ms)
   }
 

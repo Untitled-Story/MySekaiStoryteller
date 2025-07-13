@@ -14,7 +14,8 @@ export enum Sides {
 export enum MoveSpeed {
   Slow = 'Slow',
   Normal = 'Normal',
-  Fast = 'Fast'
+  Fast = 'Fast',
+  Immediate = 'Immediate'
 }
 
 const ModelSchema = z.object({
@@ -35,12 +36,18 @@ const SnippetSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('ChangeLayoutMode'),
     wait: z.boolean(),
-    data: LayoutModeEnum
+    data: z.object({
+      mode: LayoutModeEnum,
+      delay: z.number()
+    })
   }),
   z.object({
     type: z.literal('ChangeBackgroundImage'),
     wait: z.boolean(),
-    data: z.number()
+    data: z.object({
+      imageId: z.number(),
+      delay: z.number()
+    })
   }),
   z.object({
     type: z.literal('LayoutAppear'),
@@ -82,9 +89,32 @@ const SnippetSchema = z.discriminatedUnion('type', [
     type: z.literal('Talk'),
     wait: z.boolean(),
     data: z.object({
-      modelId: z.number(),
       speaker: z.string(),
       content: z.string(),
+      delay: z.number()
+    })
+  }),
+  z.object({
+    type: z.literal('HideTalk'),
+    wait: z.boolean(),
+    data: z.object({
+      delay: z.number()
+    })
+  }),
+  z.object({
+    type: z.literal('Move'),
+    wait: z.boolean(),
+    data: z.object({
+      modelId: z.number(),
+      from: z.object({
+        side: SideEnum,
+        offset: z.number()
+      }),
+      to: z.object({
+        side: SideEnum,
+        offset: z.number()
+      }),
+      moveSpeed: MoveSpeedEnum,
       delay: z.number()
     })
   })

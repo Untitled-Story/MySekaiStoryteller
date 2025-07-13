@@ -1,17 +1,13 @@
+import BaseSnippet from './BaseSnippet'
 import PositionRel from '../types/PositionRel'
 import StageUtils from '../utils/StageUtils'
-import BaseSnippet from './BaseSnippet'
+import { MoveSpeed } from '../../../common/types/Story'
 
-// noinspection DuplicatedCode
-export default class LayoutClearSnippet extends BaseSnippet {
+export default class MoveSnippet extends BaseSnippet {
   protected async handleSnippet(): Promise<void> {
-    if (this.data.type !== 'LayoutClear') return
+    if (this.data.type !== 'Move') return
 
     const model = this.app.getModelById(this.data.data.modelId)
-
-    let move_task: Promise<void> | null = null
-    const hide_task = model.hide(50)
-
     const from: PositionRel = StageUtils.side_to_position(
       this.data.data.from.side,
       this.app.layerModel.layoutMode,
@@ -23,7 +19,9 @@ export default class LayoutClearSnippet extends BaseSnippet {
       this.data.data.to.offset
     )
 
-    if (from.x === to.x && to.y === to.y) {
+    let move_task: Promise<void> | null = null
+
+    if ((from.x === to.x && to.y === to.y) || this.data.data.moveSpeed === MoveSpeed.Immediate) {
       model.setPositionRel(this.app.stage_size, to)
     } else {
       move_task = model.move(
@@ -34,9 +32,6 @@ export default class LayoutClearSnippet extends BaseSnippet {
       )
     }
 
-    this.app.layerModel.removeModel(model)
-
-    await hide_task
-    if (move_task) await move_task
+    await move_task
   }
 }

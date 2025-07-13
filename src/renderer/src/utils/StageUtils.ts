@@ -32,7 +32,8 @@ export default class StageUtils {
     return {
       [MoveSpeed.Slow]: 700,
       [MoveSpeed.Normal]: 500,
-      [MoveSpeed.Fast]: 300
+      [MoveSpeed.Fast]: 300,
+      [MoveSpeed.Immediate]: 0
     }[move_speed]
   }
 }

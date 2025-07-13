@@ -8,6 +8,8 @@ import { ILogObj, Logger } from 'tslog'
 import getSubLogger from '../utils/Logger'
 import LayoutClearSnippet from '../snippets/LayoutClearSnippet'
 import TalkSnippet from '../snippets/TalkSnippet'
+import HideTalkSnippet from '../snippets/HideTalkSnippet'
+import MoveSnippet from '../snippets/MoveSnippet'
 
 export default class SnippetStrategyManager {
   private readonly app: App
@@ -21,7 +23,9 @@ export default class SnippetStrategyManager {
       ChangeLayoutMode: ChangeLayoutModeSnippet,
       LayoutAppear: LayoutAppearSnippet,
       LayoutClear: LayoutClearSnippet,
-      Talk: TalkSnippet
+      Talk: TalkSnippet,
+      HideTalk: HideTalkSnippet,
+      Move: MoveSnippet
     }
   }
 
