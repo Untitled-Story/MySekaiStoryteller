@@ -20,11 +20,11 @@
 
 ## Usage
 
-This project reads story information through *.sekai-story.json and reads the defined files from the directory where *
-.sekai-story.json is located.
+This project reads story information through `*.sekai-story.json` and reads the defined files from the directory where `*
+.sekai-story.json` is located.
 
 You can use the JSON Schema at
-https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json
+`https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json`
 to assist you in writing a compliant sekai-story.json file.
 
 The recommended file directory structure is:
