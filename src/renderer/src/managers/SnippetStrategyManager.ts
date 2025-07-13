@@ -10,6 +10,7 @@ import LayoutClearSnippet from '../snippets/LayoutClearSnippet'
 import TalkSnippet from '../snippets/TalkSnippet'
 import HideTalkSnippet from '../snippets/HideTalkSnippet'
 import MoveSnippet from '../snippets/MoveSnippet'
+import MotionSnippet from '../snippets/MotionSnippet'
 
 export default class SnippetStrategyManager {
   private readonly app: App
@@ -25,7 +26,8 @@ export default class SnippetStrategyManager {
       LayoutClear: LayoutClearSnippet,
       Talk: TalkSnippet,
       HideTalk: HideTalkSnippet,
-      Move: MoveSnippet
+      Move: MoveSnippet,
+      Motion: MotionSnippet
     }
   }
 

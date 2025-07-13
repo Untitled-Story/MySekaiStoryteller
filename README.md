@@ -29,9 +29,8 @@ under [Live2D Proprietary Software License Agreement](https://www.live2d.com/eul
 - [x] ChangeBackgroundImage
 - [x] LayoutAppear
 - [x] LayoutClear
-- [ ] Talk
-- [ ] CharacterMotion
-- [ ] Motion
+- [x] Talk
+- [x] Motion
 
 Other snippets (such as SpecialEffects) will be developed at a later stage.
 
