@@ -23,7 +23,7 @@
 
 你可以通过 JSON Schema
 `https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json`
-来辅助你编写合规的 `sekai-story.json` 文件。
+来辅助你编写合规的 sekai-story.json 文件。
 
 推荐的文件目录结构为:
 
