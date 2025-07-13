@@ -21,7 +21,10 @@
             "type": "string"
           }
         },
-        "required": ["id", "model"],
+        "required": [
+          "id",
+          "model"
+        ],
         "additionalProperties": false
       }
     },
@@ -37,7 +40,10 @@
             "type": "string"
           }
         },
-        "required": ["id", "image"],
+        "required": [
+          "id",
+          "image"
+        ],
         "additionalProperties": false
       }
     },
@@ -58,21 +64,31 @@
               "wait": {
                 "type": "boolean"
               },
+              "delay": {
+                "type": "number"
+              },
               "data": {
                 "type": "object",
                 "properties": {
                   "mode": {
-                    "enum": ["Normal", "Three"]
-                  },
-                  "delay": {
-                    "type": "number"
+                    "enum": [
+                      "Normal",
+                      "Three"
+                    ]
                   }
                 },
-                "required": ["mode", "delay"],
+                "required": [
+                  "mode"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
             "additionalProperties": false
           },
           {
@@ -84,21 +100,28 @@
               "wait": {
                 "type": "boolean"
               },
+              "delay": {
+                "type": "number"
+              },
               "data": {
                 "type": "object",
                 "properties": {
                   "imageId": {
                     "type": "number"
-                  },
-                  "delay": {
-                    "type": "number"
                   }
                 },
-                "required": ["imageId", "delay"],
+                "required": [
+                  "imageId"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
             "additionalProperties": false
           },
           {
@@ -110,6 +133,9 @@
               "wait": {
                 "type": "boolean"
               },
+              "delay": {
+                "type": "number"
+              },
               "data": {
                 "type": "object",
                 "properties": {
@@ -120,26 +146,40 @@
                     "type": "object",
                     "properties": {
                       "side": {
-                        "enum": ["Center", "Left", "Right"]
+                        "enum": [
+                          "Center",
+                          "Left",
+                          "Right"
+                        ]
                       },
                       "offset": {
                         "type": "number"
                       }
                     },
-                    "required": ["side", "offset"],
+                    "required": [
+                      "side",
+                      "offset"
+                    ],
                     "additionalProperties": false
                   },
                   "to": {
                     "type": "object",
                     "properties": {
                       "side": {
-                        "enum": ["Center", "Left", "Right"]
+                        "enum": [
+                          "Center",
+                          "Left",
+                          "Right"
+                        ]
                       },
                       "offset": {
                         "type": "number"
                       }
                     },
-                    "required": ["side", "offset"],
+                    "required": [
+                      "side",
+                      "offset"
+                    ],
                     "additionalProperties": false
                   },
                   "motion": {
@@ -149,17 +189,31 @@
                     "type": "string"
                   },
                   "moveSpeed": {
-                    "enum": ["Slow", "Normal", "Fast", "Immediate"]
-                  },
-                  "delay": {
-                    "type": "number"
+                    "enum": [
+                      "Slow",
+                      "Normal",
+                      "Fast",
+                      "Immediate"
+                    ]
                   }
                 },
-                "required": ["modelId", "from", "to", "motion", "facial", "moveSpeed", "delay"],
+                "required": [
+                  "modelId",
+                  "from",
+                  "to",
+                  "motion",
+                  "facial",
+                  "moveSpeed"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
             "additionalProperties": false
           },
           {
@@ -171,6 +225,9 @@
               "wait": {
                 "type": "boolean"
               },
+              "delay": {
+                "type": "number"
+              },
               "data": {
                 "type": "object",
                 "properties": {
@@ -181,40 +238,66 @@
                     "type": "object",
                     "properties": {
                       "side": {
-                        "enum": ["Center", "Left", "Right"]
+                        "enum": [
+                          "Center",
+                          "Left",
+                          "Right"
+                        ]
                       },
                       "offset": {
                         "type": "number"
                       }
                     },
-                    "required": ["side", "offset"],
+                    "required": [
+                      "side",
+                      "offset"
+                    ],
                     "additionalProperties": false
                   },
                   "to": {
                     "type": "object",
                     "properties": {
                       "side": {
-                        "enum": ["Center", "Left", "Right"]
+                        "enum": [
+                          "Center",
+                          "Left",
+                          "Right"
+                        ]
                       },
                       "offset": {
                         "type": "number"
                       }
                     },
-                    "required": ["side", "offset"],
+                    "required": [
+                      "side",
+                      "offset"
+                    ],
                     "additionalProperties": false
                   },
                   "moveSpeed": {
-                    "enum": ["Slow", "Normal", "Fast", "Immediate"]
-                  },
-                  "delay": {
-                    "type": "number"
+                    "enum": [
+                      "Slow",
+                      "Normal",
+                      "Fast",
+                      "Immediate"
+                    ]
                   }
                 },
-                "required": ["modelId", "from", "to", "moveSpeed", "delay"],
+                "required": [
+                  "modelId",
+                  "from",
+                  "to",
+                  "moveSpeed"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
             "additionalProperties": false
           },
           {
@@ -226,6 +309,9 @@
               "wait": {
                 "type": "boolean"
               },
+              "delay": {
+                "type": "number"
+              },
               "data": {
                 "type": "object",
                 "properties": {
@@ -234,16 +320,21 @@
                   },
                   "content": {
                     "type": "string"
-                  },
-                  "delay": {
-                    "type": "number"
                   }
                 },
-                "required": ["speaker", "content", "delay"],
+                "required": [
+                  "speaker",
+                  "content"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
             "additionalProperties": false
           },
           {
@@ -255,18 +346,15 @@
               "wait": {
                 "type": "boolean"
               },
-              "data": {
-                "type": "object",
-                "properties": {
-                  "delay": {
-                    "type": "number"
-                  }
-                },
-                "required": ["delay"],
-                "additionalProperties": false
+              "delay": {
+                "type": "number"
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay"
+            ],
             "additionalProperties": false
           },
           {
@@ -278,6 +366,9 @@
               "wait": {
                 "type": "boolean"
               },
+              "delay": {
+                "type": "number"
+              },
               "data": {
                 "type": "object",
                 "properties": {
@@ -288,40 +379,66 @@
                     "type": "object",
                     "properties": {
                       "side": {
-                        "enum": ["Center", "Left", "Right"]
+                        "enum": [
+                          "Center",
+                          "Left",
+                          "Right"
+                        ]
                       },
                       "offset": {
                         "type": "number"
                       }
                     },
-                    "required": ["side", "offset"],
+                    "required": [
+                      "side",
+                      "offset"
+                    ],
                     "additionalProperties": false
                   },
                   "to": {
                     "type": "object",
                     "properties": {
                       "side": {
-                        "enum": ["Center", "Left", "Right"]
+                        "enum": [
+                          "Center",
+                          "Left",
+                          "Right"
+                        ]
                       },
                       "offset": {
                         "type": "number"
                       }
                     },
-                    "required": ["side", "offset"],
+                    "required": [
+                      "side",
+                      "offset"
+                    ],
                     "additionalProperties": false
                   },
                   "moveSpeed": {
-                    "enum": ["Slow", "Normal", "Fast", "Immediate"]
-                  },
-                  "delay": {
-                    "type": "number"
+                    "enum": [
+                      "Slow",
+                      "Normal",
+                      "Fast",
+                      "Immediate"
+                    ]
                   }
                 },
-                "required": ["modelId", "from", "to", "moveSpeed", "delay"],
+                "required": [
+                  "modelId",
+                  "from",
+                  "to",
+                  "moveSpeed"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
             "additionalProperties": false
           },
           {
@@ -332,6 +449,9 @@
               },
               "wait": {
                 "type": "boolean"
+              },
+              "delay": {
+                "type": "number"
               },
               "data": {
                 "type": "object",
@@ -344,22 +464,34 @@
                   },
                   "facial": {
                     "type": "string"
-                  },
-                  "delay": {
-                    "type": "number"
                   }
                 },
-                "required": ["modelId", "motion", "facial", "delay"],
+                "required": [
+                  "modelId",
+                  "motion",
+                  "facial"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "wait", "data"],
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
             "additionalProperties": false
           }
         ]
       }
     }
   },
-  "required": ["title", "version", "models", "images", "snippets"],
+  "required": [
+    "title",
+    "version",
+    "models",
+    "images",
+    "snippets"
+  ],
   "additionalProperties": false
 }

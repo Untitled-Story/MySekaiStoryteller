@@ -18,11 +18,7 @@ export default abstract class BaseSnippet implements Snippet {
   }
 
   async runDelay(): Promise<void> {
-    if (typeof this.data.data === 'object' && 'delay' in this.data.data) {
-      await AnimationManager.delay(this.data.data.delay as number)
-    } else {
-      throw Error('No delay provided.')
-    }
+    await AnimationManager.delay(this.data.delay)
   }
 
   protected abstract handleSnippet(): Promise<void>

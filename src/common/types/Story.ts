@@ -36,22 +36,23 @@ const SnippetSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('ChangeLayoutMode'),
     wait: z.boolean(),
+    delay: z.number(),
     data: z.object({
-      mode: LayoutModeEnum,
-      delay: z.number()
+      mode: LayoutModeEnum
     })
   }),
   z.object({
     type: z.literal('ChangeBackgroundImage'),
     wait: z.boolean(),
+    delay: z.number(),
     data: z.object({
-      imageId: z.number(),
-      delay: z.number()
+      imageId: z.number()
     })
   }),
   z.object({
     type: z.literal('LayoutAppear'),
     wait: z.boolean(),
+    delay: z.number(),
     data: z.object({
       modelId: z.number(),
       from: z.object({
@@ -64,13 +65,13 @@ const SnippetSchema = z.discriminatedUnion('type', [
       }),
       motion: z.string(),
       facial: z.string(),
-      moveSpeed: MoveSpeedEnum,
-      delay: z.number()
+      moveSpeed: MoveSpeedEnum
     })
   }),
   z.object({
     type: z.literal('LayoutClear'),
     wait: z.boolean(),
+    delay: z.number(),
     data: z.object({
       modelId: z.number(),
       from: z.object({
@@ -81,29 +82,27 @@ const SnippetSchema = z.discriminatedUnion('type', [
         side: SideEnum,
         offset: z.number()
       }),
-      moveSpeed: MoveSpeedEnum,
-      delay: z.number()
+      moveSpeed: MoveSpeedEnum
     })
   }),
   z.object({
     type: z.literal('Talk'),
     wait: z.boolean(),
+    delay: z.number(),
     data: z.object({
       speaker: z.string(),
-      content: z.string(),
-      delay: z.number()
+      content: z.string()
     })
   }),
   z.object({
     type: z.literal('HideTalk'),
     wait: z.boolean(),
-    data: z.object({
-      delay: z.number()
-    })
+    delay: z.number()
   }),
   z.object({
     type: z.literal('Move'),
     wait: z.boolean(),
+    delay: z.number(),
     data: z.object({
       modelId: z.number(),
       from: z.object({
@@ -114,18 +113,17 @@ const SnippetSchema = z.discriminatedUnion('type', [
         side: SideEnum,
         offset: z.number()
       }),
-      moveSpeed: MoveSpeedEnum,
-      delay: z.number()
+      moveSpeed: MoveSpeedEnum
     })
   }),
   z.object({
     type: z.literal('Motion'),
     wait: z.boolean(),
+    delay: z.number(),
     data: z.object({
       modelId: z.number(),
       motion: z.string(),
-      facial: z.string(),
-      delay: z.number()
+      facial: z.string()
     })
   })
 ])
