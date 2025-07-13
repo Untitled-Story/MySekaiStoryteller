@@ -1,0 +1,365 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "model"],
+        "additionalProperties": false
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "image": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "image"],
+        "additionalProperties": false
+      }
+    },
+    "snippets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "discriminator": {
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "ChangeLayoutMode"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "enum": ["Normal", "Three"]
+                  },
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["mode", "delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "ChangeBackgroundImage"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "imageId": {
+                    "type": "number"
+                  },
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["imageId", "delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "LayoutAppear"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "modelId": {
+                    "type": "number"
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "side": {
+                        "enum": ["Center", "Left", "Right"]
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["side", "offset"],
+                    "additionalProperties": false
+                  },
+                  "to": {
+                    "type": "object",
+                    "properties": {
+                      "side": {
+                        "enum": ["Center", "Left", "Right"]
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["side", "offset"],
+                    "additionalProperties": false
+                  },
+                  "motion": {
+                    "type": "string"
+                  },
+                  "facial": {
+                    "type": "string"
+                  },
+                  "moveSpeed": {
+                    "enum": ["Slow", "Normal", "Fast", "Immediate"]
+                  },
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["modelId", "from", "to", "motion", "facial", "moveSpeed", "delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "LayoutClear"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "modelId": {
+                    "type": "number"
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "side": {
+                        "enum": ["Center", "Left", "Right"]
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["side", "offset"],
+                    "additionalProperties": false
+                  },
+                  "to": {
+                    "type": "object",
+                    "properties": {
+                      "side": {
+                        "enum": ["Center", "Left", "Right"]
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["side", "offset"],
+                    "additionalProperties": false
+                  },
+                  "moveSpeed": {
+                    "enum": ["Slow", "Normal", "Fast", "Immediate"]
+                  },
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["modelId", "from", "to", "moveSpeed", "delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "Talk"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "speaker": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["speaker", "content", "delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "HideTalk"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "Move"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "modelId": {
+                    "type": "number"
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "side": {
+                        "enum": ["Center", "Left", "Right"]
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["side", "offset"],
+                    "additionalProperties": false
+                  },
+                  "to": {
+                    "type": "object",
+                    "properties": {
+                      "side": {
+                        "enum": ["Center", "Left", "Right"]
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["side", "offset"],
+                    "additionalProperties": false
+                  },
+                  "moveSpeed": {
+                    "enum": ["Slow", "Normal", "Fast", "Immediate"]
+                  },
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["modelId", "from", "to", "moveSpeed", "delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "Motion"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "modelId": {
+                    "type": "number"
+                  },
+                  "motion": {
+                    "type": "string"
+                  },
+                  "facial": {
+                    "type": "string"
+                  },
+                  "delay": {
+                    "type": "number"
+                  }
+                },
+                "required": ["modelId", "motion", "facial", "delay"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "data"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": ["title", "version", "models", "images", "snippets"],
+  "additionalProperties": false
+}

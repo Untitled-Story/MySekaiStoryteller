@@ -18,6 +18,35 @@
 
 **English (Current)** | [**简体中文**](README-ZH.md)
 
+## Usage
+
+This project reads story information through *.sekai-story.json and reads the defined files from the directory where *
+.sekai-story.json is located.
+
+You can use the JSON Schema at
+https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json
+to assist you in writing a compliant sekai-story.json file.
+
+The recommended file directory structure is:
+
+```
+*
+├── *.sekai-story.json
+├── images/
+│   └── [image files]
+└── models/
+    ├── model-dir-1/
+    │   ├── model3.json
+    │   └── [other files]
+    ├── model-dir-2/
+    │   ├── model.json
+    │   └── [other files]
+    ├── ...
+    └── model-dir-n/
+        ├── model3.json or model.json
+        └── [other files]
+```
+
 ## Licenses
 
 Video content produced and recorded by this project is subject to
@@ -37,6 +66,7 @@ Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFil
 - [x] Talk
 - [x] HideTalk
 - [x] Motion
+- [x] Move
 
 Other snippets will be added in the future.
 

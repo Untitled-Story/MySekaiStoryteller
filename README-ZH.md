@@ -17,6 +17,34 @@
 
 [**English**](README.md) | **简体中文 (当前)**
 
+## 使用
+
+本项目通过 `*.sekai-story.json` 读取故事信息。并从 `*.sekai-story.json` 的所在目录下读取定义的文件。
+
+你可以通过 JSON Schema
+`https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json`
+来辅助你编写合规的 `sekai-story.json` 文件。
+
+推荐的文件目录结构为:
+
+```
+*
+├── *.sekai-story.json
+├── images/
+│   └── [图片文件]
+└── models/
+    ├── model-dir-1/
+    │   ├── model3.json
+    │   └── [其他文件]
+    ├── model-dir-2/
+    │   ├── model.json
+    │   └── [其他文件]
+    ├── ...
+    └── model-dir-n/
+        ├── model3.json或model.json
+        └── [其他文件]
+```
+
 ## 协议
 
 由本项目产出、录制的视频内容遵循 [MySekaiStoryteller 视频使用、分发许可](VIDEO-LICENSE-CN.md) 协议。
@@ -24,7 +52,8 @@
 本项目源代码遵循 [GNU GPLv3](LICENSE) 协议。
 
 在 [RedistributableFiles.txt](src/renderer/RedistributableFiles.txt) 定义中的组件遵循
-[Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html) 协议。
+[Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)
+协议。
 
 ## 支持的 Snippet
 
@@ -35,6 +64,7 @@
 - [x] Talk
 - [x] HideTalk
 - [x] Motion
+- [x] Move
 
 其他 Snippet 将在未来被添加。
 

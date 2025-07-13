@@ -261,3 +261,4 @@ tests/
 
 # Electron build files
 build/
+/.idea/jsonSchemas.xml
