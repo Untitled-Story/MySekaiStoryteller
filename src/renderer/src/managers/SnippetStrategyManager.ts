@@ -11,6 +11,7 @@ import TalkSnippet from '../snippets/TalkSnippet'
 import HideTalkSnippet from '../snippets/HideTalkSnippet'
 import MoveSnippet from '../snippets/MoveSnippet'
 import MotionSnippet from '../snippets/MotionSnippet'
+import TelopSnippet from '../snippets/TelopSnippet'
 
 export default class SnippetStrategyManager {
   private readonly app: App
@@ -27,7 +28,8 @@ export default class SnippetStrategyManager {
       Talk: TalkSnippet,
       HideTalk: HideTalkSnippet,
       Move: MoveSnippet,
-      Motion: MotionSnippet
+      Motion: MotionSnippet,
+      Telop: TelopSnippet
     }
   }
 

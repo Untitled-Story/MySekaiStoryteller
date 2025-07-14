@@ -28,11 +28,11 @@ export default class UIText extends Text {
   }
 
   public async show(time: number): Promise<void> {
+    this.visible = true
     await AnimationManager.run((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
-    this.visible = true
   }
 
   public async hide(time: number): Promise<void> {

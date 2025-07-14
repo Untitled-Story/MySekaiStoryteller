@@ -1,0 +1,11 @@
+<svg width="960" height="135" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="centerFade" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="transparent" />
+            <stop offset="25%" stop-color="#4A4968" stop-opacity="0.75" />
+            <stop offset="75%" stop-color="#4A4968" stop-opacity="0.75" />
+            <stop offset="100%" stop-color="transparent" />
+        </linearGradient>
+    </defs>
+    <rect width="960" height="108" fill="url(#centerFade)" />
+</svg>

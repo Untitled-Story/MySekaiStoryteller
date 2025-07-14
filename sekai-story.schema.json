@@ -481,6 +481,39 @@
               "data"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "Telop"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "delay": {
+                "type": "number"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "content"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
+            "additionalProperties": false
           }
         ]
       }

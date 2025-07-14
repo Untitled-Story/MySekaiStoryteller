@@ -2,16 +2,20 @@ import BaseLayer from './BaseLayer'
 import { Application, Texture } from 'pixi.js'
 import ui_text_background from '../../assets/ui/ui_text_background.svg'
 import ui_text_underline from '../../assets/ui/ui_text_underline.svg'
+import ui_telop from '../../assets/ui/ui_telop.svg'
 import UITextBackground from '../components/UITextBackground'
 import UITextUnderline from '../components/UITextUnderline'
 import UIText from '../components/UIText'
 import UISpeakerText from '../components/UISpeakerText'
+import UITelop from '../components/UITelop'
+import AnimationManager from '../managers/AnimationManager'
 
 export default class UILayer extends BaseLayer {
   private readonly textBackgroundSprite!: UITextBackground
   private readonly textUnderlineSprite!: UITextUnderline
   private readonly textSprite!: UIText
   private readonly textSpeakerSprite!: UISpeakerText
+  private readonly telopContainer!: UITelop
 
   private _UITalkShowed: boolean = false
 
@@ -19,6 +23,7 @@ export default class UILayer extends BaseLayer {
     super(app, 2)
     const textBackgroundTexture = Texture.from(ui_text_background)
     const textUnderlineTexture = Texture.from(ui_text_underline)
+    const telopTexture = Texture.from(ui_telop)
 
     this.textBackgroundSprite = new UITextBackground(
       textBackgroundTexture,
@@ -36,11 +41,20 @@ export default class UILayer extends BaseLayer {
       this.app.screen.height,
       this.textUnderlineSprite.y - this.app.screen.width / 34.5
     )
+    this.telopContainer = new UITelop(telopTexture, this.app.screen.width, this.app.screen.height)
 
     this.layerContainer.addChild(this.textBackgroundSprite)
     this.layerContainer.addChild(this.textUnderlineSprite)
     this.layerContainer.addChild(this.textSprite)
     this.layerContainer.addChild(this.textSpeakerSprite)
+    this.layerContainer.addChild(this.telopContainer)
+  }
+
+  public async telop(text: string): Promise<void> {
+    this.telopContainer.text = text
+    await this.telopContainer.show(200)
+    await AnimationManager.delay(2000)
+    await this.telopContainer.hide(200)
   }
 
   public resetTalkData(): void {

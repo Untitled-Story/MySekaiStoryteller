@@ -125,6 +125,14 @@ const SnippetSchema = z.discriminatedUnion('type', [
       motion: z.string(),
       facial: z.string()
     })
+  }),
+  z.object({
+    type: z.literal('Telop'),
+    wait: z.boolean(),
+    delay: z.number(),
+    data: z.object({
+      content: z.string()
+    })
   })
 ])
 
