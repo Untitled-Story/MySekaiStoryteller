@@ -65,6 +65,7 @@
 - [x] HideTalk
 - [x] Motion
 - [x] Move
+- [x] Telop
 
 其他 Snippet 将在未来被添加。
 

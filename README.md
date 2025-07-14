@@ -67,6 +67,7 @@ Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFil
 - [x] HideTalk
 - [x] Motion
 - [x] Move
+- [x] Telop
 
 Other snippets will be added in the future.
 
