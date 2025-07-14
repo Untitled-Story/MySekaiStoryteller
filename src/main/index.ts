@@ -72,7 +72,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  setupProtocolHandlers(logger).catch(logger.error)
+  setupProtocolHandlers().catch(logger.error)
   setupIpcHandlers(logger).catch(logger.error)
 
   createWindow()
