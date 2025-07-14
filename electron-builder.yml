@@ -1,4 +1,4 @@
-appId: com.electron.app
+appId: cn.guangchen233.mss
 productName: MySekaiStoryteller
 directories:
   buildResources: build
@@ -6,9 +6,17 @@ files:
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,*.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!tests/*'
+  - '!documents/*'
+  - '!sekai-story.schema.json'
+  - from: 'out/renderer/'
+    to: '.'
+    filter:
+      - "live2d.min.js"
+      - "live2dcubismcore.min.js"
 asarUnpack:
   - resources/**
 win:
@@ -16,7 +24,6 @@ win:
   artifactName: ${name}-${version}-win.${ext}
   target:
     - zip
-    - msi
 msi:
   oneClick: false
 mac:
@@ -39,6 +46,6 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
+#publish:
+#  provider: generic
+#  url: https://example.com/auto-updates
