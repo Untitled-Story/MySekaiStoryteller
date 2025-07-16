@@ -11,9 +11,7 @@
 </div>
 
 > [!IMPORTANT]
-> 项目正在持续开发中，目前支持的 Snippet 请见 [Developing Snippet Types](#支持的-snippet)。
->
-> 在未来的更新中，本文档将被重写。
+> 项目正在持续开发中。因此，暂不提供二进制文件。
 
 [**English**](README.md) | **简体中文 (当前)**
 
@@ -21,33 +19,11 @@
 
 本项目通过 `*.sekai-story.json` 读取故事信息。并从 `*.sekai-story.json` 的所在目录下读取定义的文件。
 
-你可以通过 JSON Schema
-`https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json`
-来辅助你编写合规的 sekai-story.json 文件。
-
-推荐的文件目录结构为:
-
-```
-*
-├── *.sekai-story.json
-├── images/
-│   └── [图片文件]
-└── models/
-    ├── model-dir-1/
-    │   ├── model3.json
-    │   └── [其他文件]
-    ├── model-dir-2/
-    │   ├── model.json
-    │   └── [其他文件]
-    ├── ...
-    └── model-dir-n/
-        ├── model3.json或model.json
-        └── [其他文件]
-```
+请参阅 [Wiki](https://github.com/GuangChen2333/MySekaiStoryteller/wiki/%E4%B8%BB%E9%A1%B5) 获取更多信息与教程。
 
 ## 协议
 
-由本项目产出、录制的视频内容遵循 [MySekaiStoryteller 视频使用、分发许可](VIDEO-LICENSE-CN.md) 协议。
+由本项目产出、录制的视频内容遵循 [MySekaiStoryteller 视频使用、分发许可协议](VIDEO-LICENSE-CN.md)。
 
 本项目源代码遵循 [GNU GPLv3](LICENSE) 协议。
 
