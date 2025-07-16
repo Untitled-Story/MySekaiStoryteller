@@ -21,15 +21,15 @@ export default class UITelop extends Container {
 
     const style = new TextStyle({
       align: 'center',
-      fill: '#FFFFFFF5',
+      fill: '#FFFFFF',
       fontFamily: 'Source Han Sans SC',
-      fontSize: screen_height / 26.88,
+      fontSize: screen_height / 23,
       textBaseline: 'bottom'
     })
     this.telopText = new Text('', style)
     this.telopText.anchor.set(0.5)
     this.telopText.x = screen_width / 2 - 11
-    this.telopText.y = screen_height / 2 - 3
+    this.telopText.y = screen_height / 2 + screen_height / 141
 
     this.addChild(this.telopSprite)
     this.addChild(this.telopText)
