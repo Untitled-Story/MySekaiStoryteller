@@ -11,10 +11,7 @@
 </div>
 
 > [!IMPORTANT]
-> This project is under active development. For currently supported snippets,
-> see [Developing Snippet Types](#supported-snippets).
->
-> This documentation will be rewritten in future updates.
+> This project is under active development. Therefore, binary files are not provided.
 
 **English (Current)** | [**简体中文**](README-ZH.md)
 
@@ -23,36 +20,14 @@
 This project reads story information through `*.sekai-story.json` and reads the defined files from the directory where `*
 .sekai-story.json` is located.
 
-You can use the JSON Schema at
-`https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json`
-to assist you in writing a compliant sekai-story.json file.
-
-The recommended file directory structure is:
-
-```
-*
-├── *.sekai-story.json
-├── images/
-│   └── [image files]
-└── models/
-    ├── model-dir-1/
-    │   ├── model3.json
-    │   └── [other files]
-    ├── model-dir-2/
-    │   ├── model.json
-    │   └── [other files]
-    ├── ...
-    └── model-dir-n/
-        ├── model3.json or model.json
-        └── [other files]
-```
+Please refer to the [Wiki](https://github.com/GuangChen2333/MySekaiStoryteller/wiki) for more information and tutorials.
 
 ## Licenses
 
 Video content produced and recorded by this project is subject to
-the [MySekaiStoryteller Video Usage and Distribution](VIDEO-LICENSE.md) License.
+the [MySekaiStoryteller Video Usage and Distribution License](VIDEO-LICENSE.md).
 
-The source code of this project is licensed under the [GNU GPLv3](LICENSE) license.
+The source code of this project is licensed under the [GNU GPLv3 License](LICENSE).
 
 Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFiles.txt) are subject to the
 [Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html).
