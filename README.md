@@ -11,10 +11,7 @@
 </div>
 
 > [!IMPORTANT]
-> This project is under active development. For currently supported snippets,
-> see [Developing Snippet Types](#supported-snippets).
->
-> This documentation will be rewritten in future updates.
+> This project is under active development. Therefore, binary files are not provided.
 
 **English (Current)** | [**简体中文**](README-ZH.md)
 
