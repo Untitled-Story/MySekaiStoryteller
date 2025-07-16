@@ -25,9 +25,9 @@ Please refer to the [Wiki](https://github.com/GuangChen2333/MySekaiStoryteller/w
 ## Licenses
 
 Video content produced and recorded by this project is subject to
-the [MySekaiStoryteller Video Usage and Distribution](VIDEO-LICENSE.md) License.
+the [MySekaiStoryteller Video Usage and Distribution License](VIDEO-LICENSE.md).
 
-The source code of this project is licensed under the [GNU GPLv3](LICENSE) license.
+The source code of this project is licensed under the [GNU GPLv3 License](LICENSE).
 
 Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFiles.txt) are subject to the
 [Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html).
