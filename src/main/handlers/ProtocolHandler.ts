@@ -6,7 +6,8 @@ export default async function setupProtocolHandlers(): Promise<void> {
     const requestUrl = new URL(request.url)
 
     if (requestUrl.host === 'load-file') {
-      const fileUrl = url.pathToFileURL(requestUrl.pathname.replace(/^\//, '')).toString()
+      const decodedPath = decodeURIComponent(requestUrl.pathname)
+      const fileUrl = url.pathToFileURL(decodedPath.replace(/^\//, '')).toString()
       return net.fetch(fileUrl)
     } else {
       return new Response('Bad request', {
