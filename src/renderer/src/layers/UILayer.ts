@@ -84,7 +84,7 @@ export default class UILayer extends BaseLayer {
   }
 
   public async hideTextBackground(): Promise<void> {
-    this._UITalkShowed = true
+    this._UITalkShowed = false
     const hideDuration = 100
     await Promise.all([
       this.textBackgroundSprite.hide(hideDuration),
