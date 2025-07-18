@@ -9,10 +9,6 @@
     "title": {
       "type": "string"
     },
-    "version": {
-      "type": "string",
-      "pattern": "^v\\d+\\.\\d+\\.\\d+$"
-    },
     "models": {
       "type": "array",
       "items": {
@@ -525,7 +521,6 @@
   },
   "required": [
     "title",
-    "version",
     "models",
     "images",
     "snippets"

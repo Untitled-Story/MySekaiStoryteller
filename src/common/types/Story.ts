@@ -138,7 +138,6 @@ const SnippetSchema = z.discriminatedUnion('type', [
 
 export const StorySchema = z.object({
   title: z.string(),
-  version: z.string().regex(/^v\d+\.\d+\.\d+$/),
   models: z.array(ModelSchema),
   images: z.array(ImageSchema),
   snippets: z.array(SnippetSchema)
