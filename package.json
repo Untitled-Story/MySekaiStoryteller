@@ -1,6 +1,6 @@
 {
   "name": "my-sekai-storyteller",
-  "version": "0.0.1-20250718-build1",
+  "version": "0.0.1",
   "description": "A Live2D reading tool in Project SEKAI style",
   "main": "./out/main/index.js",
   "author": "GuangChen2333",

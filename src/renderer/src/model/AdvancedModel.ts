@@ -1,9 +1,17 @@
-import { Live2DModel, MotionPriority } from 'pixi-live2d-display-advanced'
+import {
+  Cubism2InternalModel,
+  Cubism4InternalModel,
+  Live2DModel,
+  MotionPriority
+} from 'pixi-live2d-display-advanced'
 import { AlphaFilter } from 'pixi.js'
 import AnimationManager from '../managers/AnimationManager'
 import PositionRel from '../types/PositionRel'
+import { getRandomNumber } from '../utils/HelperUtils'
 
 export default class AdvancedModel extends Live2DModel {
+  public autoBlink: boolean = true
+
   public async applyMotion(motion: string): Promise<void> {
     const manager = this.internalModel.parallelMotionManager[0]
     await manager.startMotion(motion, 0, MotionPriority.FORCE)
@@ -15,10 +23,14 @@ export default class AdvancedModel extends Live2DModel {
   }
 
   public async show(time: number): Promise<void> {
+    this.autoBlink = true
+
     await AnimationManager.run((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
+
+    setTimeout(() => this.updateAutoBlink(), getRandomNumber(4000, 6500))
   }
 
   public async hide(time: number): Promise<void> {
@@ -26,6 +38,8 @@ export default class AdvancedModel extends Live2DModel {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
     }, time)
+
+    this.autoBlink = false
   }
 
   public async applyAndWait(motion?: string, facial?: string): Promise<void> {
@@ -92,6 +106,34 @@ export default class AdvancedModel extends Live2DModel {
         () => {},
         () => motion_manager.isFinished() && facial_manager.isFinished()
       )
+    }
+  }
+
+  private async updateAutoBlink(): Promise<void> {
+    while (this.autoBlink) {
+      await AnimationManager.run((progress) => {
+        if (this.internalModel instanceof Cubism2InternalModel) {
+          this.internalModel.eyeBlink!.setEyeParams(1 - progress)
+        } else if (this.internalModel instanceof Cubism4InternalModel) {
+          this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 1 - progress)
+          this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 1 - progress)
+        } else {
+          throw new Error('Not implement.')
+        }
+      }, 150)
+
+      await AnimationManager.run((progress) => {
+        if (this.internalModel instanceof Cubism2InternalModel) {
+          this.internalModel.eyeBlink!.setEyeParams(progress)
+        } else if (this.internalModel instanceof Cubism4InternalModel) {
+          this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', progress)
+          this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', progress)
+        } else {
+          throw new Error('Not implement.')
+        }
+      }, 150)
+
+      await AnimationManager.delay(getRandomNumber(4000, 6500))
     }
   }
 }

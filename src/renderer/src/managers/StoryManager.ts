@@ -23,7 +23,7 @@ export default class StoryManager {
         ticker: Ticker.shared,
         autoFocus: false,
         autoHitTest: false,
-        breathDepth: 0.2
+        breathDepth: 0
       })
 
       // Always true
