@@ -43,6 +43,8 @@ Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFil
 - [x] Motion
 - [x] Move
 - [x] Telop
+- [x] BlackOut
+- [X] BlackIn
 
 Other snippets will be added in the future.
 
