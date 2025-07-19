@@ -111,6 +111,25 @@ export default class AdvancedModel extends Live2DModel {
 
   private async updateAutoBlink(): Promise<void> {
     while (this.autoBlink) {
+      if (this.internalModel instanceof Cubism2InternalModel) {
+        if (this.internalModel.eyeBlink!.eyeParamValue < 1) {
+          await AnimationManager.delay(getRandomNumber(4000, 6500))
+
+          break
+        }
+      } else if (this.internalModel instanceof Cubism4InternalModel) {
+        if (
+          this.internalModel.coreModel.getParameterValueById('ParamEyeLOpen') < 1 ||
+          this.internalModel.coreModel.getParameterValueById('ParamEyeROpen') < 1
+        ) {
+          await AnimationManager.delay(getRandomNumber(4000, 6500))
+
+          break
+        }
+      } else {
+        throw new Error('Not implement.')
+      }
+
       await AnimationManager.run((progress) => {
         if (this.internalModel instanceof Cubism2InternalModel) {
           this.internalModel.eyeBlink!.setEyeParams(1 - progress)
