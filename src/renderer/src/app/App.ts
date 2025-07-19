@@ -54,6 +54,7 @@ export class App {
         selectFileValid = true
       } catch (error) {
         this.logger.error(error)
+        throw error
       }
     }
 

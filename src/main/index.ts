@@ -6,6 +6,8 @@ import { ILogObj, Logger } from 'tslog'
 import setupIpcHandlers from './handlers/IpcHandler'
 import setupProtocolHandlers from './handlers/ProtocolHandler'
 
+export let mainWindow!: BrowserWindow
+
 const logger: Logger<ILogObj> = new Logger({
   name: 'electron',
   type: 'pretty',
@@ -27,7 +29,7 @@ protocol.registerSchemesAsPrivileged([
 
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 720,
     show: false,
@@ -63,7 +65,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('cn.guangchen233')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.

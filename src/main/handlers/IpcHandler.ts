@@ -1,10 +1,11 @@
 import { ILogObj, Logger } from 'tslog'
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, app } from 'electron'
 import path from 'node:path'
 import * as fs from 'node:fs'
 import { SelectStoryResponse } from '../../common/types/IpcResponse'
 import { StoryData, StorySchema } from '../../common/types/Story'
 import { z } from 'zod'
+import { mainWindow } from '../index'
 
 async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
   ipcMain.handle(
@@ -52,6 +53,25 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
       }
     }
   )
+
+  ipcMain.on('electron:on-error', (_event, err: Error) => {
+    logger.info('Handle IPC event: electron:on-error')
+    dialog
+      .showMessageBox({
+        type: 'error',
+        title: 'Render Error',
+        message: 'An error occurred in the rendering process.',
+        detail: `${err.message}\n\n${err.stack}`,
+        buttons: ['Reload', 'Exit']
+      })
+      .then((resp) => {
+        if (resp.response === 0) {
+          mainWindow.reload()
+        } else {
+          app.quit()
+        }
+      })
+  })
 }
 
 export default setupIpcHandlers
