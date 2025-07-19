@@ -15,11 +15,11 @@ export default class SpecialEffectLayer extends BaseLayer {
     this.layerContainer.addChild(this.seBlackSprite)
   }
 
-  public async blackOut(time: number): Promise<void> {
-    await this.seBlackSprite.show(time)
+  public async blackOut(duration: number): Promise<void> {
+    await this.seBlackSprite.show(duration)
   }
 
-  public async blackIn(time: number): Promise<void> {
-    await this.seBlackSprite.hide(time)
+  public async blackIn(duration: number): Promise<void> {
+    await this.seBlackSprite.hide(duration)
   }
 }

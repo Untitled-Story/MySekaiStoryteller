@@ -530,12 +530,12 @@
               "data": {
                 "type": "object",
                 "properties": {
-                  "time": {
+                  "duration": {
                     "type": "number"
                   }
                 },
                 "required": [
-                  "time"
+                  "duration"
                 ],
                 "additionalProperties": false
               }
@@ -556,12 +556,12 @@
               "data": {
                 "type": "object",
                 "properties": {
-                  "time": {
+                  "duration": {
                     "type": "number"
                   }
                 },
                 "required": [
-                  "time"
+                  "duration"
                 ],
                 "additionalProperties": false
               }

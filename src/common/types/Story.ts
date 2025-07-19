@@ -139,7 +139,7 @@ const SnippetSchema = z.discriminatedUnion('type', [
     wait: z.boolean(),
     delay: z.number(),
     data: z.object({
-      time: z.number()
+      duration: z.number()
     })
   }),
   z.object({
@@ -147,7 +147,7 @@ const SnippetSchema = z.discriminatedUnion('type', [
     wait: z.boolean(),
     delay: z.number(),
     data: z.object({
-      time: z.number()
+      duration: z.number()
     })
   })
 ])
