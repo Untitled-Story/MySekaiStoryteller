@@ -514,6 +514,65 @@
               "data"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "BlackOut"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "delay": {
+                "type": "number"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "time": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "time"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "BlackIn"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "delay": {
+                "type": "number"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "time": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "time"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "wait",
+              "delay",
+              "data"
+            ],
+            "additionalProperties": false
           }
         ]
       }

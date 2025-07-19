@@ -11,6 +11,7 @@ import SnippetStrategyManager from '../managers/SnippetStrategyManager'
 import UILayer from '../layers/UILayer'
 import FontFaceObserver from 'fontfaceobserver'
 import { Application, Texture } from 'pixi.js'
+import SpecialEffectLayer from '../layers/SpecialEffectLayer'
 
 export class App {
   public readonly logger: Logger<ILogObj> = getSubLogger('App')
@@ -22,6 +23,7 @@ export class App {
   public layerBackground!: BackgroundLayer
   public layerModel!: ModelLayer
   public layerUI!: UILayer
+  public layerSpecialEffect!: SpecialEffectLayer
 
   public stage_size!: [number, number]
 
@@ -109,6 +111,7 @@ export class App {
     this.layerBackground = new BackgroundLayer(this.pixiApplication)
     this.layerModel = new ModelLayer(this.pixiApplication)
     this.layerUI = new UILayer(this.pixiApplication)
+    this.layerSpecialEffect = new SpecialEffectLayer(this.pixiApplication)
   }
 
   private async readUntilFinish(): Promise<void> {

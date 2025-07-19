@@ -133,6 +133,22 @@ const SnippetSchema = z.discriminatedUnion('type', [
     data: z.object({
       content: z.string()
     })
+  }),
+  z.object({
+    type: z.literal('BlackOut'),
+    wait: z.boolean(),
+    delay: z.number(),
+    data: z.object({
+      time: z.number()
+    })
+  }),
+  z.object({
+    type: z.literal('BlackIn'),
+    wait: z.boolean(),
+    delay: z.number(),
+    data: z.object({
+      time: z.number()
+    })
   })
 ])
 
