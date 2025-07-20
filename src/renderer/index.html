@@ -13,8 +13,21 @@
   </head>
 
   <body>
-    <h1 id="select-file-tips">Please select a story file</h1>
+    <div class="welcome-container">
+      <h1 id="select-file-tips">Click to Select Story File</h1>
+    </div>
     <div id="app"></div>
+
+    <style>
+      .welcome-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        text-align: center;
+      }
+    </style>
     <script type="module" src="src/index.ts"></script>
     <!-- Live2D libraries imported at electron.vite.config.ts -->
   </body>

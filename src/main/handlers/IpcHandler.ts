@@ -12,26 +12,23 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
     'electron:select-story-file-until-selected',
     async (): Promise<SelectStoryResponse> => {
       logger.info('Handle IPC event: electron:select-story-file-until-selected')
-      let selected: boolean = false
-      let filePath: string
+      
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        title: 'Select a story file',
+        filters: [
+          {
+            name: 'Sekai Story File',
+            extensions: ['sekai-story.json']
+          }
+        ],
+        properties: ['openFile']
+      })
 
-      while (!selected) {
-        const { canceled, filePaths } = await dialog.showOpenDialog({
-          title: 'Select a story file',
-          filters: [
-            {
-              name: 'Sekai Story File',
-              extensions: ['sekai-story.json']
-            }
-          ],
-          properties: ['openFile']
-        })
-
-        if (!canceled) {
-          selected = true
-          filePath = filePaths[0]
-        }
+      if (canceled || !filePaths.length) {
+        return { success: false }
       }
+      
+      const filePath = filePaths[0]
 
       try {
         const normalizedPath: string = path.resolve(filePath!)

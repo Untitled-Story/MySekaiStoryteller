@@ -1,4 +1,4 @@
-﻿import '@pixi/unsafe-eval'
+import '@pixi/unsafe-eval'
 import getSubLogger from '../utils/Logger'
 import { ILogObj, Logger } from 'tslog'
 import { SelectStoryResponse } from '../../../common/types/IpcResponse'
@@ -46,35 +46,51 @@ export class App {
     return selectResult
   }
 
-  private async selectStoryFileUntilSuccess(): Promise<SelectStoryResponse> {
-    let selectResult: SelectStoryResponse
-
-    let selectFileValid = false
-    while (!selectFileValid) {
-      try {
-        selectResult = await this.selectStoryFile()
-        selectFileValid = true
-      } catch (error) {
-        this.logger.error(error)
-        throw error
-      }
+  private async selectStoryFileUntilSuccess(): Promise<SelectStoryResponse | null> {
+    try {
+      return await this.selectStoryFile()
+    } catch (error) {
+      this.logger.error('File selection error:', error)
+      return null
     }
-
-    return selectResult!
   }
 
-  private async initializeManagers(): Promise<void> {
-    const story: SelectStoryResponse = await this.selectStoryFileUntilSuccess()
+  private async initializeManagers(story: SelectStoryResponse): Promise<void> {
     this.storyManager = new StoryManager(story)
-
     this.logger.info(`StoryManager initialized, root path: ${this.storyManager.storyFolder}`)
-
     this.snippetStrategyManager = new SnippetStrategyManager(this)
   }
 
+  public async startApp(): Promise<void> {
+    const story = await this.selectStoryFileUntilSuccess()
+    if (!story) {
+      return // User canceled selection
+    }
+
+    try {
+      await this.initializeManagers(story)
+      this.initializeRenderer()
+      await this.preloadStoryAssets()
+      this.initializeLayers()
+      await this.readUntilFinish()
+    } catch (error) {
+      this.logger.error('Failed to start app:', error)
+      throw error
+    }
+  }
+
   private initializeRenderer(): void {
-    const selectFileTipsElement = document.getElementById('select-file-tips')! as HTMLHeadingElement
+    const selectFileTipsElement = document.getElementById('select-file-tips')
+    if (!selectFileTipsElement) {
+      throw new Error('Failed to find select-file-tips element')
+    }
+    
     this.applicationWrapper = document.getElementById('app')! as HTMLDivElement
+
+    // Setup welcome screen
+    selectFileTipsElement.textContent = 'Click to select story file'
+    selectFileTipsElement.style.cursor = 'pointer'
+    selectFileTipsElement.addEventListener('click', () => this.startApp())
 
     this.pixiApplication = new Application({
       background: 0xffffff,
@@ -84,11 +100,8 @@ export class App {
       resolution: window.devicePixelRatio || 1
     })
 
-    selectFileTipsElement.remove()
     this.applicationWrapper.appendChild(this.pixiApplication.view as HTMLCanvasElement)
-
     this.pixiApplication.stage.sortableChildren = true
-
     this.stage_size = [this.pixiApplication.screen.width, this.pixiApplication.screen.height]
 
     this.logger.info('Render initialized')
@@ -137,11 +150,8 @@ export class App {
   }
 
   public async run(): Promise<void> {
-    await this.initializeManagers()
+    // Initialize renderer will handle UI setup
     this.initializeRenderer()
-    await this.preloadStoryAssets()
-    this.initializeLayers()
-    await this.readUntilFinish()
   }
 }
 
