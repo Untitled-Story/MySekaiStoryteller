@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { ILogObj, Logger } from 'tslog'
 import setupIpcHandlers from './handlers/IpcHandler'
 import setupProtocolHandlers from './handlers/ProtocolHandler'
+import setupShortcutHandlers from './handlers/ShortcutHandler'
 
 export let mainWindow!: BrowserWindow
 
@@ -76,6 +77,7 @@ app.whenReady().then(() => {
 
   setupProtocolHandlers().catch(logger.error)
   setupIpcHandlers(logger).catch(logger.error)
+  setupShortcutHandlers(logger, process.platform === 'darwin')
 
   createWindow()
 

@@ -19,9 +19,9 @@ files:
       - "live2dcubismcore.min.js"
 asarUnpack:
   - resources/**
+artifactName: ${name}-${version}-${os}-${arch}.${ext}
 win:
   executableName: MySekaiStoryteller
-  artifactName: ${name}-${version}-win.${ext}
   icon: resources/icon_128.ico
   target:
     - zip
