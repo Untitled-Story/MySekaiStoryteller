@@ -42,6 +42,8 @@
 - [x] Motion
 - [x] Move
 - [x] Telop
+- [x] BlackIn
+- [x] BlackOut
 
 其他 Snippet 将在未来被添加。
 
