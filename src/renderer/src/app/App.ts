@@ -46,13 +46,21 @@ export class App {
     return selectResult
   }
 
-  private async selectStoryFileUntilSuccess(): Promise<SelectStoryResponse | null> {
-    try {
-      return await this.selectStoryFile()
-    } catch (error) {
-      this.logger.error('File selection error:', error)
-      return null
+  private async selectStoryFileUntilSuccess(): Promise<SelectStoryResponse> {
+    let selectResult: SelectStoryResponse
+
+    let selectFileValid = false
+    while (!selectFileValid) {
+      try {
+        selectResult = await this.selectStoryFile()
+        selectFileValid = true
+      } catch (error) {
+        this.logger.error(error)
+        throw error
+      }
     }
+
+    return selectResult!
   }
 
   private async initializeManagers(story: SelectStoryResponse): Promise<void> {
@@ -63,20 +71,11 @@ export class App {
 
   public async startApp(): Promise<void> {
     const story = await this.selectStoryFileUntilSuccess()
-    if (!story) {
-      return // User canceled selection
-    }
-
-    try {
-      await this.initializeManagers(story)
-      this.initializeRenderer()
-      await this.preloadStoryAssets()
-      this.initializeLayers()
-      await this.readUntilFinish()
-    } catch (error) {
-      this.logger.error('Failed to start app:', error)
-      throw error
-    }
+    await this.initializeManagers(story)
+    this.initializeRenderer()
+    await this.preloadStoryAssets()
+    this.initializeLayers()
+    await this.readUntilFinish()
   }
 
   private initializeRenderer(): void {
@@ -84,10 +83,9 @@ export class App {
     if (!selectFileTipsElement) {
       throw new Error('Failed to find select-file-tips element')
     }
-    
+
     this.applicationWrapper = document.getElementById('app')! as HTMLDivElement
 
-    // Setup welcome screen
     selectFileTipsElement.textContent = 'Click to select story file'
     selectFileTipsElement.style.cursor = 'pointer'
     selectFileTipsElement.addEventListener('click', () => this.startApp())
@@ -150,7 +148,6 @@ export class App {
   }
 
   public async run(): Promise<void> {
-    // Initialize renderer will handle UI setup
     this.initializeRenderer()
   }
 }
