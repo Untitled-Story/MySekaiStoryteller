@@ -77,7 +77,7 @@ export class App {
     this.applicationWrapper = document.getElementById('app')! as HTMLDivElement
 
     this.pixiApplication = new Application({
-      background: 0xffffff,
+      backgroundColor: 0xffffff,
       resizeTo: this.applicationWrapper,
       autoDensity: true,
       antialias: true,
