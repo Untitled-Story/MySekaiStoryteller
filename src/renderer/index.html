@@ -14,7 +14,18 @@
 
   <body>
     <h1 id="select-file-tips">Please select a story file</h1>
-    <div id="app"></div>
+    <div id="config" hidden="hidden">
+      <div class="controls-container">
+        <h1 id="configuration_label">Configuration</h1>
+        <label for="resolution">Select Resolution: </label>
+        <select id="resolution">
+          <option value="1280x720">1280x720</option>
+          <option value="1920x1080">1920x1080</option>
+        </select>
+      </div>
+      <button class="styled-button" id="apply">Apply</button>
+    </div>
+    <div id="app" hidden="hidden"></div>
     <script type="module" src="src/index.ts"></script>
     <!-- Live2D libraries imported at electron.vite.config.ts -->
   </body>

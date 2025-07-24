@@ -69,6 +69,23 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
         }
       })
   })
+
+  ipcMain.on('electron:resize', (_event, width: number, height: number) => {
+    logger.info('Handle IPC event: electron:resize')
+    logger.info(`Resize size: ${width}x${height}`)
+
+    const [oldX, oldY] = mainWindow.getPosition()
+    const [oldWidth, oldHeight] = mainWindow.getSize()
+
+    const centerX = oldX + oldWidth / 2
+    const centerY = oldY + oldHeight / 2
+
+    const newX = Math.floor(centerX - width / 2)
+    const newY = Math.floor(centerY - height / 2)
+
+    mainWindow.setContentSize(width, height, true)
+    mainWindow.setPosition(newX, newY, true)
+  })
 }
 
 export default setupIpcHandlers

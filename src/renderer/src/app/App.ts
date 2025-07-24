@@ -25,8 +25,6 @@ export class App {
   public layerUI!: UILayer
   public layerSpecialEffect!: SpecialEffectLayer
 
-  public stage_size!: [number, number]
-
   private models: Live2DModelMap[] = []
   private textures: TextureMap[] = []
 
@@ -63,17 +61,15 @@ export class App {
     return selectResult!
   }
 
-  private async initializeManagers(): Promise<void> {
-    const story: SelectStoryResponse = await this.selectStoryFileUntilSuccess()
+  private async initializeManagers(story: SelectStoryResponse): Promise<void> {
     this.storyManager = new StoryManager(story)
-
     this.logger.info(`StoryManager initialized, root path: ${this.storyManager.storyFolder}`)
 
     this.snippetStrategyManager = new SnippetStrategyManager(this)
+    this.logger.info('SnippetStrategyManager initialized')
   }
 
   private initializeRenderer(): void {
-    const selectFileTipsElement = document.getElementById('select-file-tips')! as HTMLHeadingElement
     this.applicationWrapper = document.getElementById('app')! as HTMLDivElement
 
     this.pixiApplication = new Application({
@@ -84,14 +80,15 @@ export class App {
       resolution: window.devicePixelRatio || 1
     })
 
-    selectFileTipsElement.remove()
     this.applicationWrapper.appendChild(this.pixiApplication.view as HTMLCanvasElement)
 
     this.pixiApplication.stage.sortableChildren = true
 
-    this.stage_size = [this.pixiApplication.screen.width, this.pixiApplication.screen.height]
-
     this.logger.info('Render initialized')
+  }
+
+  get stage_size(): [number, number] {
+    return [this.pixiApplication.screen.width, this.pixiApplication.screen.height]
   }
 
   private async preloadStoryAssets(): Promise<void> {
@@ -136,12 +133,37 @@ export class App {
     return data.find((model) => model.id === id)!.model
   }
 
-  public async run(): Promise<void> {
-    await this.initializeManagers()
+  private async runSnippets(story: SelectStoryResponse): Promise<void> {
+    await this.initializeManagers(story)
     this.initializeRenderer()
     await this.preloadStoryAssets()
     this.initializeLayers()
     await this.readUntilFinish()
+  }
+
+  public async run(): Promise<void> {
+    const selectFileTipsElement = document.getElementById('select-file-tips')! as HTMLHeadingElement
+    const story: SelectStoryResponse = await this.selectStoryFileUntilSuccess()
+    selectFileTipsElement.remove()
+
+    const app_element = document.getElementById('app')! as HTMLDivElement
+    const config_element = document.getElementById('config')! as HTMLDivElement
+    const apply_btn = document.getElementById('apply')! as HTMLButtonElement
+    const resolutionSelect = document.getElementById('resolution')! as HTMLSelectElement
+
+    apply_btn.addEventListener('click', async () => {
+      const value = resolutionSelect.value
+      if (value) {
+        const width = value.split('x')[0]
+        const height = value.split('x')[1]
+        window.electron.ipcRenderer.send('electron:resize', parseInt(width), parseInt(height))
+        app_element.hidden = false
+
+        config_element.remove()
+        await this.runSnippets(story)
+      }
+    })
+    config_element.hidden = false
   }
 }
 

@@ -29,7 +29,7 @@ export default class UITelop extends Container {
     this.telopText = new Text('', style)
     this.telopText.anchor.set(0.5)
     this.telopText.x = screen_width / 2 - 11
-    this.telopText.y = screen_height / 2 + screen_height / 141
+    this.telopText.y = screen_height / 2 + screen_height / 120
 
     this.addChild(this.telopSprite)
     this.addChild(this.telopText)

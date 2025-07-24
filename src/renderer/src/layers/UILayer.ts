@@ -39,7 +39,7 @@ export default class UILayer extends BaseLayer {
     this.textSpeakerSprite = new UISpeakerText(
       this.app.screen.width,
       this.app.screen.height,
-      this.textUnderlineSprite.y - this.app.screen.width / 34.5
+      this.textUnderlineSprite.y - this.app.screen.width / 31
     )
     this.telopContainer = new UITelop(telopTexture, this.app.screen.width, this.app.screen.height)
 
