@@ -1,0 +1,82 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+    paths:
+      - "src/**/*"
+      - "resources/**/*"
+      - "package.json"
+
+jobs:
+  build:
+    name: Build Executable
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-13, ubuntu-latest, windows-latest ]
+    defaults:
+      run:
+        shell: bash
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build for Windows
+        if: matrix.os == 'windows-latest'
+        run: pnpm run build:win
+
+      - name: Build for macOS
+        if: matrix.os == 'macos-13'
+        run: pnpm run build:mac
+
+      - name: Build for Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm run build:linux
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-build
+          path: dist/*.{zip,AppImage,snap,deb,dmg}
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build-artifacts
+          merge-multiple: true
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: MySekaiStoryteller ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: build-artifacts/*
