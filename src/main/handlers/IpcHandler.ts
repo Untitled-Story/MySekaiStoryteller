@@ -1,5 +1,5 @@
 import { ILogObj, Logger } from 'tslog'
-import { ipcMain, dialog, app } from 'electron'
+import { app, dialog, ipcMain } from 'electron'
 import path from 'node:path'
 import * as fs from 'node:fs'
 import { SelectStoryResponse } from '../../common/types/IpcResponse'

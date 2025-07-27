@@ -1,6 +1,6 @@
 import { SelectStoryResponse } from '../../../common/types/IpcResponse'
 import { SnippetData, StoryData } from '../../../common/types/Story'
-import { TextureMap, Live2DModelMap } from '../types/AssetMap'
+import { Live2DModelMap, TextureMap } from '../types/AssetMap'
 import AdvancedModel from '../model/AdvancedModel'
 import { AlphaFilter, Texture, Ticker } from 'pixi.js'
 

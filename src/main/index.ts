@@ -1,6 +1,6 @@
-import { app, shell, BrowserWindow, protocol } from 'electron'
+import { app, BrowserWindow, protocol, shell } from 'electron'
 import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { ILogObj, Logger } from 'tslog'
 import setupIpcHandlers from './handlers/IpcHandler'
