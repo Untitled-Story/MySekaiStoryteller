@@ -57,7 +57,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-build
-          path: ./dist/*.{zip,AppImage,snap,deb,dmg}
+          path: |
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.snap
+            dist/*.deb
+            dist/*.dmg
           if-no-files-found: error
 
   release:
