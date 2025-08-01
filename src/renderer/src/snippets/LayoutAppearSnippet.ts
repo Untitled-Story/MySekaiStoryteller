@@ -2,6 +2,7 @@ import PositionRel from '../types/PositionRel'
 import StageUtils from '../utils/StageUtils'
 import AnimationManager from '../managers/AnimationManager'
 import BaseSnippet from './BaseSnippet'
+import { Cubism2InternalModel, Cubism4InternalModel } from 'pixi-live2d-display-advanced'
 
 // noinspection DuplicatedCode
 export default class LayoutAppearSnippet extends BaseSnippet {
@@ -14,6 +15,15 @@ export default class LayoutAppearSnippet extends BaseSnippet {
     await model.playMotionLastFrame(this.data.data.motion, this.data.data.facial)
 
     const show_task = model.show(200)
+
+    if (model.internalModel instanceof Cubism2InternalModel) {
+      model.internalModel.eyeBlink!.setEyeParams(0)
+    } else if (model.internalModel instanceof Cubism4InternalModel) {
+      model.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 0)
+      model.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 0)
+    } else {
+      throw new Error('Not implement.')
+    }
 
     let move_task: Promise<void> | null = null
 

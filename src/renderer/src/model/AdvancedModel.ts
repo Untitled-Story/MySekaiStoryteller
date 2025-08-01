@@ -12,9 +12,17 @@ import { getRandomNumber } from '../utils/HelperUtils'
 export default class AdvancedModel extends Live2DModel {
   public autoBlink: boolean = true
 
-  public async applyMotion(motion: string): Promise<void> {
+  public async applyMotion(motion: string, ignoreFacial: boolean = false): Promise<void> {
     const manager = this.internalModel.parallelMotionManager[0]
-    await manager.startMotion(motion, 0, MotionPriority.FORCE)
+    if (ignoreFacial) {
+      await manager.startMotion(motion, 0, MotionPriority.FORCE, [
+        'ParamEyeROpen',
+        'ParamEyeLOpen',
+        'ParamEyeballX'
+      ])
+    } else {
+      await manager.startMotion(motion, 0, MotionPriority.FORCE)
+    }
   }
 
   public async applyFacial(facial: string): Promise<void> {
@@ -43,12 +51,16 @@ export default class AdvancedModel extends Live2DModel {
   }
 
   public async applyAndWait(motion?: string, facial?: string): Promise<void> {
-    const waits: Promise<unknown>[] = []
+    const waits: Promise<void>[] = []
     const motion_manager = this.internalModel.parallelMotionManager[0]
     const facial_manager = this.internalModel.parallelMotionManager[1]
 
     if (motion) {
-      waits.push(this.applyMotion(motion))
+      if (facial) {
+        waits.push(this.applyMotion(motion, true))
+      } else {
+        waits.push(this.applyMotion(motion))
+      }
     }
     if (facial) {
       waits.push(this.applyFacial(facial))
@@ -109,6 +121,32 @@ export default class AdvancedModel extends Live2DModel {
     }
   }
 
+  public async closeEyes(time_ms: number): Promise<void> {
+    await AnimationManager.run((progress) => {
+      if (this.internalModel instanceof Cubism2InternalModel) {
+        this.internalModel.eyeBlink!.setEyeParams(1 - progress)
+      } else if (this.internalModel instanceof Cubism4InternalModel) {
+        this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 1 - progress)
+        this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 1 - progress)
+      } else {
+        throw new Error('Not implement.')
+      }
+    }, time_ms)
+  }
+
+  public async openEyes(time_ms: number, max_value: number = 1): Promise<void> {
+    await AnimationManager.run((progress) => {
+      if (this.internalModel instanceof Cubism2InternalModel) {
+        this.internalModel.eyeBlink!.setEyeParams(progress * max_value)
+      } else if (this.internalModel instanceof Cubism4InternalModel) {
+        this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', progress * max_value)
+        this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', progress * max_value)
+      } else {
+        throw new Error('Not implement.')
+      }
+    }, time_ms)
+  }
+
   private async updateAutoBlink(): Promise<void> {
     while (this.autoBlink) {
       if (this.internalModel instanceof Cubism2InternalModel) {
@@ -130,27 +168,8 @@ export default class AdvancedModel extends Live2DModel {
         throw new Error('Not implement.')
       }
 
-      await AnimationManager.run((progress) => {
-        if (this.internalModel instanceof Cubism2InternalModel) {
-          this.internalModel.eyeBlink!.setEyeParams(1 - progress)
-        } else if (this.internalModel instanceof Cubism4InternalModel) {
-          this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 1 - progress)
-          this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 1 - progress)
-        } else {
-          throw new Error('Not implement.')
-        }
-      }, 150)
-
-      await AnimationManager.run((progress) => {
-        if (this.internalModel instanceof Cubism2InternalModel) {
-          this.internalModel.eyeBlink!.setEyeParams(progress)
-        } else if (this.internalModel instanceof Cubism4InternalModel) {
-          this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', progress)
-          this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', progress)
-        } else {
-          throw new Error('Not implement.')
-        }
-      }, 150)
+      await this.closeEyes(150)
+      await this.openEyes(150)
 
       await AnimationManager.delay(getRandomNumber(4000, 6500))
     }

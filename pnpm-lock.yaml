@@ -55,8 +55,8 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
       pixi-live2d-display-advanced:
-        specifier: ^0.3.1
-        version: 0.3.1(pixi.js@7.4.3)
+        specifier: ^0.4.0
+        version: 0.4.0(pixi.js@7.4.3)
       pixi.js:
         specifier: ^7.4.3
         version: 7.4.3
@@ -2274,8 +2274,8 @@ packages:
     resolution: {integrity: sha512-M7BAV6Rlcy5u+m6oPhAPFgJTzAioX/6B0DxyvDlo9l8+T3nLKbrczg2WLUyzd45L8RqfUMyGPzekbMvX2Ldkwg==}
     engines: {node: '>=12'}
 
-  pixi-live2d-display-advanced@0.3.1:
-    resolution: {integrity: sha512-x9VcGyjcEE8zApgdtvzN+rKCQrdbyKUPcdwSQKba/8qj0fRPA7N9b8CnV6XRbqO38ne8TqPiPOASYthzTulw/w==}
+  pixi-live2d-display-advanced@0.4.0:
+    resolution: {integrity: sha512-z9hqjdgS1IO+lqsLn6qKRG7X0uYyyBGY5ek0hzkOt0V6WQIVY/jSn6PgAr7ogAtRIaY1bbIDEOVQP1uIMXlpsQ==}
     peerDependencies:
       pixi.js: ^7.0.0
 
@@ -5217,7 +5217,7 @@ snapshots:
 
   picomatch@4.0.2: {}
 
-  pixi-live2d-display-advanced@0.3.1(pixi.js@7.4.3):
+  pixi-live2d-display-advanced@0.4.0(pixi.js@7.4.3):
     dependencies:
       pixi.js: 7.4.3
 

@@ -1,6 +1,6 @@
 {
   "name": "my-sekai-storyteller",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Live2D reading tool in Project SEKAI style",
   "main": "./out/main/index.js",
   "author": "GuangChen2333",
@@ -38,7 +38,7 @@
     "electron-vite": "^3.1.0",
     "eslint": "^9.24.0",
     "fontfaceobserver": "^2.3.0",
-    "pixi-live2d-display-advanced": "^0.3.1",
+    "pixi-live2d-display-advanced": "^0.4.0",
     "pixi.js": "^7.4.3",
     "prettier": "^3.5.3",
     "tslog": "^4.9.3",
