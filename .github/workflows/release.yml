@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-13, ubuntu-latest, windows-latest ]
+        os: [ macos-13, macos-13-xlarge, ubuntu-latest, windows-latest ]
     defaults:
       run:
         shell: bash
@@ -46,7 +46,7 @@ jobs:
         run: pnpm run build:win
 
       - name: Build for macOS
-        if: matrix.os == 'macos-13'
+        if: matrix.os == 'macos-13' || matrix.os == 'macos-13-xlarge'
         run: pnpm run build:mac
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
