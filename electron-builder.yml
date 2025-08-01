@@ -38,3 +38,4 @@ linux:
   maintainer: GuangChen233
   category: Utility
 npmRebuild: false
+publish: null
