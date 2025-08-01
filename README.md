@@ -10,9 +10,6 @@
  </div>
 </div>
 
-> [!IMPORTANT]
-> This project is under active development. Therefore, binary files are not provided.
-
 **English (Current)** | [**简体中文**](README-ZH.md)
 
 ## Usage
