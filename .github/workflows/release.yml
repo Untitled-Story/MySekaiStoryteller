@@ -48,10 +48,14 @@ jobs:
       - name: Build for macOS
         if: matrix.os == 'macos-13'
         run: pnpm run build:mac
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build for Linux
         if: matrix.os == 'ubuntu-latest'
-        run: pnpm run build:linux
+        run: |
+          sudo snap install snapcraft --classic
+          pnpm run build:linux
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
