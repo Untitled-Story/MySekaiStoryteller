@@ -16,7 +16,7 @@
 
 本项目通过 `*.sekai-story.json` 读取故事信息。并从 `*.sekai-story.json` 的所在目录下读取定义的文件。
 
-请参阅 [Wiki](https://github.com/GuangChen2333/MySekaiStoryteller/wiki/%E4%B8%BB%E9%A1%B5) 获取更多信息与教程。
+请参阅 [Wiki](https://github.com/Untitled-Story/MySekaiStoryteller/wiki/%E4%B8%BB%E9%A1%B5) 获取更多信息与教程。
 
 ## 协议
 
@@ -48,7 +48,7 @@
 
 - [Electron](https://www.electronjs.org/)
 - [PixiJS](https://pixijs.com/)
-- [pixi-live2d-display-advanced](https://github.com/GuangChen2333/pixi-live2d-display-advanced)
+- [pixi-live2d-display-advanced](https://github.com/Untitled-Story/pixi-live2d-display-advanced)
 
 ## 鸣谢
 

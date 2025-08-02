@@ -17,7 +17,7 @@
 This project reads story information through `*.sekai-story.json` and reads the defined files from the directory where `*
 .sekai-story.json` is located.
 
-Please refer to the [Wiki](https://github.com/GuangChen2333/MySekaiStoryteller/wiki) for more information and tutorials.
+Please refer to the [Wiki](https://github.com/Untitled-Story/MySekaiStoryteller/wiki) for more information and tutorials.
 
 ## Licenses
 
@@ -49,7 +49,7 @@ Other snippets will be added in the future.
 
 - [Electron](https://www.electronjs.org/)
 - [PixiJS](https://pixijs.com/)
-- [pixi-live2d-display-advanced](https://github.com/GuangChen2333/pixi-live2d-display-advanced)
+- [pixi-live2d-display-advanced](https://github.com/Untitled-Story/pixi-live2d-display-advanced)
 
 ## Acknowledgements
 

@@ -4,7 +4,7 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "const": "https://raw.githubusercontent.com/GuangChen2333/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json"
+      "const": "https://raw.githubusercontent.com/Untitled-Story/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json"
     },
     "title": {
       "type": "string"

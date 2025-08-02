@@ -4,7 +4,7 @@
   "description": "A Live2D reading tool in Project SEKAI style",
   "main": "./out/main/index.js",
   "author": "GuangChen2333",
-  "homepage": "https://github.com/GuangChen2333/MySekaiStoryteller/",
+  "homepage": "https://github.com/Untitled-Story/MySekaiStoryteller/",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
