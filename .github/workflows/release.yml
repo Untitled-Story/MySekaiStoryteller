@@ -16,6 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-13, macos-13-xlarge, ubuntu-latest, windows-latest ]
+      max-parallel: 2
     defaults:
       run:
         shell: bash
