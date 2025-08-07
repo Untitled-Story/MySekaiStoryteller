@@ -11,9 +11,10 @@ export default class UIText extends Text {
       align: 'left',
       fill: '#FFFFFFF5',
       fontFamily: 'Source Han Sans SC',
-      fontSize: screen_height / 24,
-      stroke: '#4A49688C',
-      strokeThickness: screen_height / 105,
+      fontSize: screen_height / 26,
+      lineHeight: screen_height / 19,
+      stroke: '#4A4968D9',
+      strokeThickness: screen_height / 120,
       wordWrap: true,
       wordWrapWidth: screen_width - x * 2
     })

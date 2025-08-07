@@ -9,10 +9,10 @@ export default class UISpeakerText extends Text {
       align: 'left',
       fill: '#FFFFFFF5',
       fontFamily: 'Source Han Sans SC',
-      fontSize: screen_height / 20.5,
+      fontSize: screen_height / 25,
       fontWeight: '600',
-      stroke: '#4A49688C',
-      strokeThickness: screen_height / 105
+      stroke: '#4A4968D9',
+      strokeThickness: screen_height / 120
     })
     super('', style)
 
