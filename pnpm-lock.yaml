@@ -27,6 +27,9 @@ importers:
       '@electron-toolkit/tsconfig':
         specifier: ^1.0.1
         version: 1.0.1(@types/node@22.15.18)
+      '@pixi/sound':
+        specifier: ^5.2.3
+        version: 5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3)
       '@pixi/unsafe-eval':
         specifier: ^7.4.3
         version: 7.4.3(@pixi/core@7.4.3)
@@ -55,8 +58,8 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
       pixi-live2d-display-advanced:
-        specifier: ^0.4.0
-        version: 0.4.0(pixi.js@7.4.3)
+        specifier: ^0.5.4
+        version: 0.5.4(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3)
       pixi.js:
         specifier: ^7.4.3
         version: 7.4.3
@@ -642,6 +645,12 @@ packages:
 
   '@pixi/settings@7.4.3':
     resolution: {integrity: sha512-SmGK8smc0PxRB9nr0UJioEtE9hl4gvj9OedCvZx3bxBwA3omA5BmP3CyhQfN8XJ29+o2OUL01r3zAPVol4l4lA==}
+
+  '@pixi/sound@5.2.3':
+    resolution: {integrity: sha512-PMWZv3su6ykBUA6roN5OYMOCdl03eunK4iCB4rBbhxCM2qt6h0MFQNymr/DLBOa6AjV3ilOseHLu/9s/YKxYZw==}
+    peerDependencies:
+      '@pixi/assets': ^7.0.0
+      '@pixi/core': ^7.0.0
 
   '@pixi/sprite-animated@7.4.3':
     resolution: {integrity: sha512-mw5YIec8KfO1Jv9qrDNvGoD7Dlmcgww5YlMtd+ARi7Zzo+6ziNw899LXtoaKX1+3BXdZbYNyJAx3C5r30NtwXA==}
@@ -2274,9 +2283,10 @@ packages:
     resolution: {integrity: sha512-M7BAV6Rlcy5u+m6oPhAPFgJTzAioX/6B0DxyvDlo9l8+T3nLKbrczg2WLUyzd45L8RqfUMyGPzekbMvX2Ldkwg==}
     engines: {node: '>=12'}
 
-  pixi-live2d-display-advanced@0.4.0:
-    resolution: {integrity: sha512-z9hqjdgS1IO+lqsLn6qKRG7X0uYyyBGY5ek0hzkOt0V6WQIVY/jSn6PgAr7ogAtRIaY1bbIDEOVQP1uIMXlpsQ==}
+  pixi-live2d-display-advanced@0.5.4:
+    resolution: {integrity: sha512-S5q4hYPGFUAZMH/dvq56uk0iH+/FuzhTu/nvAVeSWE6pqau10JkLqg5OnqOU6OxozW9Y/2ttK77nHSKPRKGBLw==}
     peerDependencies:
+      '@pixi/sound': ^5.2.3
       pixi.js: ^7.0.0
 
   pixi.js@7.4.3:
@@ -3404,6 +3414,11 @@ snapshots:
       '@pixi/constants': 7.4.3
       '@types/css-font-loading-module': 0.0.12
       ismobilejs: 1.1.1
+
+  '@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3)':
+    dependencies:
+      '@pixi/assets': 7.4.3(@pixi/core@7.4.3)
+      '@pixi/core': 7.4.3
 
   '@pixi/sprite-animated@7.4.3(@pixi/core@7.4.3)(@pixi/sprite@7.4.3(@pixi/core@7.4.3)(@pixi/display@7.4.3(@pixi/core@7.4.3)))':
     dependencies:
@@ -5217,8 +5232,9 @@ snapshots:
 
   picomatch@4.0.2: {}
 
-  pixi-live2d-display-advanced@0.4.0(pixi.js@7.4.3):
+  pixi-live2d-display-advanced@0.5.4(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3):
     dependencies:
+      '@pixi/sound': 5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3)
       pixi.js: 7.4.3
 
   pixi.js@7.4.3:

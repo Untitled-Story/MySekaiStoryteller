@@ -91,7 +91,9 @@ const SnippetSchema = z.discriminatedUnion('type', [
     delay: z.number(),
     data: z.object({
       speaker: z.string(),
-      content: z.string()
+      content: z.string(),
+      modelId: z.number(),
+      voice: z.string()
     })
   }),
   z.object({

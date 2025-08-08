@@ -17,9 +17,11 @@ const logger: Logger<ILogObj> = new Logger({
   prettyLogTimeZone: 'local'
 })
 
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: 'app',
+    scheme: 'mss',
     privileges: {
       standard: true,
       secure: true,
@@ -39,6 +41,7 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      webSecurity: false,
       sandbox: false
     }
   })

@@ -133,6 +133,10 @@ export class App {
     return data.find((model) => model.id === id)!.model
   }
 
+  public getVoiceByName(name: string): string {
+    return this.storyManager.geVoiceUrlByName(name)
+  }
+
   private async runSnippets(story: SelectStoryResponse): Promise<void> {
     await this.initializeManagers(story)
     this.initializeRenderer()

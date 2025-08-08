@@ -63,6 +63,10 @@ export default class StoryManager {
     return result
   }
 
+  public geVoiceUrlByName(name: string): string {
+    return `mss://load-file/${this.storyFolder}/voices/${name}`
+  }
+
   get snippets(): SnippetData[] {
     return this.storyData.snippets
   }

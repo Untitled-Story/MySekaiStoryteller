@@ -320,11 +320,19 @@
                   },
                   "content": {
                     "type": "string"
+                  },
+                  "modelId": {
+                    "type": "number"
+                  },
+                  "voice": {
+                    "type": "string"
                   }
                 },
                 "required": [
                   "speaker",
-                  "content"
+                  "content",
+                  "modelId",
+                  "voice"
                 ],
                 "additionalProperties": false
               }
