@@ -18,7 +18,7 @@ export default abstract class BaseSnippet implements Snippet {
   }
 
   async runDelay(): Promise<void> {
-    await AnimationManager.delay(this.data.delay / 1000)
+    await AnimationManager.delay(this.data.delay * 1000)
   }
 
   protected abstract handleSnippet(): Promise<void>
