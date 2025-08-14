@@ -22,7 +22,7 @@ Please refer to the [Wiki](https://github.com/Untitled-Story/MySekaiStoryteller/
 ## Licenses
 
 Video content produced and recorded by this project is subject to
-the [MySekaiStoryteller Video Usage and Distribution License](VIDEO-LICENSE.md).
+the [MySekaiStoryteller Video Production and Distribution License Agreement](VIDEO-LICENSE.md).
 
 The source code of this project is licensed under the [GNU GPLv3 License](LICENSE).
 

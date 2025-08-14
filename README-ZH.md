@@ -20,7 +20,7 @@
 
 ## 协议
 
-由本项目产出、录制的视频内容遵循 [MySekaiStoryteller 视频使用、分发许可协议](VIDEO-LICENSE-CN.md)。
+由本项目产出、录制的视频内容遵循 [MySekaiStoryteller 视频制作、分发许可协议](VIDEO-LICENSE-CN.md)。
 
 本项目源代码遵循 [GNU GPLv3](LICENSE) 协议。
 
