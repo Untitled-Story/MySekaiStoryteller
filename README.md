@@ -19,6 +19,8 @@ This project reads story information through `*.sekai-story.json` and reads the 
 
 Please refer to the [Wiki](https://github.com/Untitled-Story/MySekaiStoryteller/wiki) for more information and tutorials.
 
+Discord: [Here](https://discord.gg/cGWNG6fFdP)
+
 ## Licenses
 
 Video content produced and recorded by this project is subject to
