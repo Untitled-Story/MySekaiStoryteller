@@ -1,4 +1,6 @@
+import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
@@ -8,31 +10,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    plugins: [
-      {
-        name: 'build-html',
-        transformIndexHtml: (html) => {
-          return {
-            html,
-            tags: [
-              {
-                tag: 'script',
-                attrs: {
-                  src: 'live2d.min.js'
-                },
-                injectTo: 'body'
-              },
-              {
-                tag: 'script',
-                attrs: {
-                  src: 'live2dcubismcore.min.js'
-                },
-                injectTo: 'body'
-              }
-            ]
-          }
-        }
+    resolve: {
+      alias: {
+        '@renderer': resolve('src/renderer/src')
       }
-    ]
+    },
+    plugins: [react()]
   }
 })

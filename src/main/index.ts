@@ -1,47 +1,18 @@
-import { app, BrowserWindow, protocol, shell } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { ILogObj, Logger } from 'tslog'
-import setupIpcHandlers from './handlers/IpcHandler'
-import setupProtocolHandlers from './handlers/ProtocolHandler'
-import setupShortcutHandlers from './handlers/ShortcutHandler'
-
-export let mainWindow!: BrowserWindow
-
-const logger: Logger<ILogObj> = new Logger({
-  name: 'electron',
-  type: 'pretty',
-  prettyLogTemplate:
-    '[{{yyyy}}-{{mm}}-{{dd}} {{hh}}:{{MM}}:{{ss}}:{{ms}}][{{logLevelName}}][{{name}}]: ',
-  prettyLogTimeZone: 'local'
-})
-
-app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'mss',
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true
-    }
-  }
-])
 
 function createWindow(): void {
   // Create the browser window.
-  mainWindow = new BrowserWindow({
-    width: 600,
-    height: 400,
+  const mainWindow = new BrowserWindow({
+    width: 900,
+    height: 670,
     show: false,
     autoHideMenuBar: true,
-    resizable: false,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      webSecurity: false,
       sandbox: false
     }
   })
@@ -51,16 +22,16 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url).catch(logger.error)
+    shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']).catch(logger.error)
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html')).catch(logger.error)
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -69,7 +40,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('cn.guangchen233')
+  electronApp.setAppUserModelId('com.electron')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -78,14 +49,13 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  setupProtocolHandlers().catch(logger.error)
-  setupIpcHandlers(logger).catch(logger.error)
-  setupShortcutHandlers(logger, process.platform === 'darwin')
+  // IPC test
+  ipcMain.on('ping', () => console.log('pong'))
 
   createWindow()
 
   app.on('activate', function () {
-    // On macOS, it's common to re-create a window in the app when the
+    // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

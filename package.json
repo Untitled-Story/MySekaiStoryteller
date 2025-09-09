@@ -1,10 +1,11 @@
 {
   "name": "my-sekai-storyteller",
-  "version": "0.2.1",
+  "version": "1.0.0",
   "description": "A Live2D reading tool in Project SEKAI style",
   "main": "./out/main/index.js",
   "author": "GuangChen2333",
   "homepage": "https://github.com/Untitled-Story/MySekaiStoryteller/",
+  "packageManager": "pnpm@10.15.1",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -16,36 +17,34 @@
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win --publish=never",
-    "build:mac": "npm run build && electron-builder --mac --publish=never",
-    "build:linux": "npm run build && electron-builder --linux --publish=never"
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "electron-vite build && electron-builder --mac",
+    "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.1",
-    "@electron-toolkit/utils": "^4.0.0",
-    "electron-updater": "^6.3.9"
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
-    "@pixi/sound": "^5.2.3",
-    "@pixi/unsafe-eval": "^7.4.3",
-    "@types/css-font-loading-module": "^0.0.14",
-    "@types/fontfaceobserver": "^2.1.3",
-    "@types/node": "^22.14.1",
-    "electron": "^35.1.5",
+    "@types/node": "^22.16.5",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^37.2.3",
     "electron-builder": "^25.1.8",
-    "electron-vite": "^3.1.0",
-    "eslint": "^9.24.0",
-    "fontfaceobserver": "^2.3.0",
-    "pixi-live2d-display-advanced": "^0.5.4",
-    "pixi.js": "^7.4.3",
-    "prettier": "^3.5.3",
-    "tslog": "^4.9.3",
+    "electron-vite": "^4.0.0",
+    "eslint": "^9.31.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "prettier": "^3.6.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
-    "vite": "^6.2.6",
-    "zod": "^3.24.4"
+    "vite": "^7.0.5"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

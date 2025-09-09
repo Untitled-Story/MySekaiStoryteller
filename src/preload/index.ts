@@ -1,14 +1,8 @@
 import { contextBridge } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import path from 'node:path'
-import API from '../common/types/PreloadAPI'
 
 // Custom APIs for renderer
-const api: API = {
-  getFolder(filePath: string) {
-    return path.dirname(filePath)
-  }
-}
+const api = {}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
