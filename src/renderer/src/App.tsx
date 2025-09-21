@@ -6,7 +6,7 @@ function App(): React.JSX.Element {
   return (
     <>
       <LeftSidebar />
-      <main className="ml-65 p-6 w-full">
+      <main className="fixed left-65 p-6 w-full">
         <Routes>
           <Route path="/" element={<text>Home</text>} />
           <Route path="/projects" element={<text>Projects</text>} />
