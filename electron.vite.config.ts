@@ -10,11 +10,19 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
+    build: {
+      rollupOptions: {
+        input: {
+          welcome: resolve(__dirname, 'src/renderer/index.html'),
+        }
+      }
+    },
     resolve: {
       alias: {
         '@': resolve('src/main'),
         '@preload': resolve('src/preload'),
-        '@renderer': resolve('src/renderer/src')
+        '@renderer': resolve('src/renderer/src'),
+        '@windows': resolve('src/renderer/src/windows'),
       }
     },
     plugins: [react()]

@@ -1,5 +1,5 @@
 import React from 'react'
-import LeftSidebar from '@renderer/components/LeftSidebar'
+import LeftSidebar from '@windows/welcome/components/LeftSidebar'
 import { Route, Routes } from 'react-router'
 
 function App(): React.JSX.Element {
