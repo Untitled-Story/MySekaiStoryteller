@@ -11,6 +11,7 @@ import { getRandomNumber } from '../utils/HelperUtils'
 
 export default class AdvancedModel extends Live2DModel {
   public autoBlink: boolean = true
+  public lastChangeBlinkTime: number | null = null
 
   public async applyMotion(motion: string, ignoreFacial: boolean = false): Promise<void> {
     const manager = this.internalModel.parallelMotionManager[0]
@@ -66,6 +67,7 @@ export default class AdvancedModel extends Live2DModel {
       waits.push(this.applyFacial(facial))
     }
 
+    this.lastChangeBlinkTime = Date.now()
     await Promise.all(waits)
 
     await AnimationManager.in_ticker(
@@ -149,10 +151,15 @@ export default class AdvancedModel extends Live2DModel {
 
   private async updateAutoBlink(): Promise<void> {
     while (this.autoBlink) {
+      const now = Date.now()
+      if (this.lastChangeBlinkTime && now - this.lastChangeBlinkTime < 2000) {
+        await AnimationManager.delay(200)
+        continue
+      }
+
       if (this.internalModel instanceof Cubism2InternalModel) {
         if (this.internalModel.eyeBlink!.eyeParamValue < 1) {
           await AnimationManager.delay(getRandomNumber(4000, 6500))
-
           break
         }
       } else if (this.internalModel instanceof Cubism4InternalModel) {
@@ -161,15 +168,16 @@ export default class AdvancedModel extends Live2DModel {
           this.internalModel.coreModel.getParameterValueById('ParamEyeROpen') < 1
         ) {
           await AnimationManager.delay(getRandomNumber(4000, 6500))
-
           break
         }
       } else {
         throw new Error('Not implement.')
       }
 
-      await this.closeEyes(150)
-      await this.openEyes(150)
+      await this.closeEyes(300)
+      await this.openEyes(300)
+
+      this.lastChangeBlinkTime = Date.now()
 
       await AnimationManager.delay(getRandomNumber(4000, 6500))
     }
