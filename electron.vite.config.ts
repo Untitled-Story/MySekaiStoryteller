@@ -27,7 +27,8 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          welcome: resolve(__dirname, 'src/renderer/index.html')
+          welcome: resolve(__dirname, 'src/renderer/welcome.html'),
+          editor: resolve(__dirname, 'src/renderer/editor.html')
         }
       }
     },

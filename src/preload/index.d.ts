@@ -1,5 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import {ProjectMetadata} from "../common/types/ProjectMetadata";
+import { ProjectMetadata } from '../common/types/ProjectMetadata'
 
 declare global {
   interface Window {
