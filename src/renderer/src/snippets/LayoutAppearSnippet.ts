@@ -30,12 +30,14 @@ export default class LayoutAppearSnippet extends BaseSnippet {
     const from: PositionRel = StageUtils.side_to_position(
       this.data.data.from.side,
       this.app.layerModel.layoutMode,
-      this.data.data.from.offset
+      this.data.data.from.offset,
+      this.app.stage_size[0]
     )
     const to: PositionRel = StageUtils.side_to_position(
       this.data.data.to.side,
       this.app.layerModel.layoutMode,
-      this.data.data.to.offset
+      this.data.data.to.offset,
+      this.app.stage_size[0]
     )
 
     if (from.x === to.x && to.y === to.y) {

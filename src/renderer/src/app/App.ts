@@ -10,8 +10,9 @@ import AdvancedModel from '../model/AdvancedModel'
 import SnippetStrategyManager from '../managers/SnippetStrategyManager'
 import UILayer from '../layers/UILayer'
 import FontFaceObserver from 'fontfaceobserver'
-import { Application, Texture } from 'pixi.js'
+import { Application, Texture, Ticker } from 'pixi.js'
 import SpecialEffectLayer from '../layers/SpecialEffectLayer'
+import { FIXED_FPS } from '../constants'
 
 export class App {
   public readonly logger: Logger<ILogObj> = getSubLogger('App')
@@ -79,6 +80,10 @@ export class App {
       antialias: true,
       resolution: window.devicePixelRatio || 1
     })
+
+    // May it should be removed
+    Ticker.shared.minFPS = FIXED_FPS
+    Ticker.shared.maxFPS = FIXED_FPS
 
     this.applicationWrapper.appendChild(this.pixiApplication.view as HTMLCanvasElement)
 
