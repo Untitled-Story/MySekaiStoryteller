@@ -15,8 +15,8 @@ files:
   - from: 'out/renderer/'
     to: '.'
     filter:
-      - "live2d.min.js"
-      - "live2dcubismcore.min.js"
+      - 'live2d.min.js'
+      - 'live2dcubismcore.min.js'
 asarUnpack:
   - resources/**
 artifactName: ${name}-v${version}-${os}-${arch}.${ext}
