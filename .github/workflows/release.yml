@@ -3,11 +3,11 @@ name: Build and Release
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
     paths:
-      - "src/**/*"
-      - "resources/**/*"
-      - "package.json"
+      - 'src/**/*'
+      - 'resources/**/*'
+      - 'package.json'
 
 jobs:
   build:
@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-13, ubuntu-latest, windows-latest ]
+        os: [macos-13, ubuntu-latest, windows-latest]
     defaults:
       run:
         shell: bash
