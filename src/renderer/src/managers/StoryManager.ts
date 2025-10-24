@@ -25,6 +25,7 @@ export default class StoryManager {
         autoHitTest: false,
         breathDepth: 0
       })
+      model.setupModelMetadata(model_data)
 
       // Always true
       model.visible = true
@@ -37,7 +38,8 @@ export default class StoryManager {
 
       model.filters = [alpha_filter]
 
-      model.anchor.set(model_data.anchor)
+      model.anchor.x = 0.5
+      model.anchor.y = model_data.anchor
 
       result.push({
         id: model_data.id,

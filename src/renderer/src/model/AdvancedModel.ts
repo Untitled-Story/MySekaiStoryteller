@@ -8,10 +8,24 @@ import { AlphaFilter } from 'pixi.js'
 import AnimationManager from '../managers/AnimationManager'
 import PositionRel from '../types/PositionRel'
 import { getRandomNumber } from '../utils/HelperUtils'
+import { ModelData } from '../../../common/types/Story'
 
 export default class AdvancedModel extends Live2DModel {
   public autoBlink: boolean = true
   public lastChangeBlinkTime: number | null = null
+  private _metadata: ModelData | null = null
+
+  get metadata(): ModelData {
+    return this._metadata!
+  }
+
+  public setupModelMetadata(metadata: ModelData): void {
+    if (!this._metadata) {
+      this._metadata = metadata
+    } else {
+      throw new Error('Initialize model metadata more than once.')
+    }
+  }
 
   public async applyMotion(motion: string, ignoreFacial: boolean = false): Promise<void> {
     const manager = this.internalModel.parallelMotionManager[0]
