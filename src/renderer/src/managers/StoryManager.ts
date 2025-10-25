@@ -3,6 +3,7 @@ import { SnippetData, StoryData } from '../../../common/types/Story'
 import { Live2DModelMap, TextureMap } from '../types/AssetMap'
 import AdvancedModel from '../model/AdvancedModel'
 import { AlphaFilter, Texture, Ticker } from 'pixi.js'
+import { Cubism2InternalModel } from 'pixi-live2d-display-advanced'
 
 export default class StoryManager {
   public readonly storyJsonPath: string
@@ -25,6 +26,11 @@ export default class StoryManager {
         autoHitTest: false,
         breathDepth: 0
       })
+
+      if (model.internalModel instanceof Cubism2InternalModel) {
+        model.internalModel.setAutoBlinkEnable(false)
+      }
+
       model.setupModelMetadata(model_data)
 
       // Always true
