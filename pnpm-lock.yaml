@@ -58,8 +58,8 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
       pixi-live2d-display-advanced:
-        specifier: ^0.5.6
-        version: 0.5.6(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3)
+        specifier: ^1.0.1
+        version: 1.0.1(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3)
       pixi.js:
         specifier: ^7.4.3
         version: 7.4.3
@@ -2283,8 +2283,8 @@ packages:
     resolution: {integrity: sha512-M7BAV6Rlcy5u+m6oPhAPFgJTzAioX/6B0DxyvDlo9l8+T3nLKbrczg2WLUyzd45L8RqfUMyGPzekbMvX2Ldkwg==}
     engines: {node: '>=12'}
 
-  pixi-live2d-display-advanced@0.5.6:
-    resolution: {integrity: sha512-SSrOgY9fawHNCfZnaLAoTYNEf2eklrqhk0qO5CYkpuzYY/JL5EowdqUBISjBOQJ19L3txn94ch+yJAjLtwttkA==}
+  pixi-live2d-display-advanced@1.0.1:
+    resolution: {integrity: sha512-DzisgvCZQZy+ptPoK7ypRL3+RJBFhJBre0g20cTTjpTGZtVeKwUIevVkOVA+QoysxfDLcWVp3BA/tdwJhRh95g==}
     peerDependencies:
       '@pixi/sound': ^5.2.3
       pixi.js: ^7.0.0
@@ -5232,7 +5232,7 @@ snapshots:
 
   picomatch@4.0.2: {}
 
-  pixi-live2d-display-advanced@0.5.6(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3):
+  pixi-live2d-display-advanced@1.0.1(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3):
     dependencies:
       '@pixi/sound': 5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3)
       pixi.js: 7.4.3
