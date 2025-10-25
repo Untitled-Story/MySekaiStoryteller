@@ -19,9 +19,21 @@
           },
           "model": {
             "type": "string"
+          },
+          "normal_scale": {
+            "type": "number",
+            "default": 2.1
+          },
+          "small_scale": {
+            "type": "number",
+            "default": 1.8
+          },
+          "anchor": {
+            "type": "number",
+            "default": 0.5
           }
         },
-        "required": ["id", "model"],
+        "required": ["id", "model", "normal_scale", "small_scale", "anchor"],
         "additionalProperties": false
       }
     },

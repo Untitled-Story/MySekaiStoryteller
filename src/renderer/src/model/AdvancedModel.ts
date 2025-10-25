@@ -8,10 +8,24 @@ import { AlphaFilter } from 'pixi.js'
 import AnimationManager from '../managers/AnimationManager'
 import PositionRel from '../types/PositionRel'
 import { getRandomNumber } from '../utils/HelperUtils'
+import { ModelData } from '../../../common/types/Story'
 
 export default class AdvancedModel extends Live2DModel {
   public autoBlink: boolean = true
   public lastChangeBlinkTime: number | null = null
+  private _metadata: ModelData | null = null
+
+  get metadata(): ModelData {
+    return this._metadata!
+  }
+
+  public setupModelMetadata(metadata: ModelData): void {
+    if (!this._metadata) {
+      this._metadata = metadata
+    } else {
+      throw new Error('Initialize model metadata more than once.')
+    }
+  }
 
   public async applyMotion(motion: string, ignoreFacial: boolean = false): Promise<void> {
     const manager = this.internalModel.parallelMotionManager[0]
@@ -127,6 +141,7 @@ export default class AdvancedModel extends Live2DModel {
     await AnimationManager.run((progress) => {
       if (this.internalModel instanceof Cubism2InternalModel) {
         this.internalModel.eyeBlink!.setEyeParams(1 - progress)
+        console.info(progress)
       } else if (this.internalModel instanceof Cubism4InternalModel) {
         this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 1 - progress)
         this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 1 - progress)
@@ -140,6 +155,7 @@ export default class AdvancedModel extends Live2DModel {
     await AnimationManager.run((progress) => {
       if (this.internalModel instanceof Cubism2InternalModel) {
         this.internalModel.eyeBlink!.setEyeParams(progress * max_value)
+        console.info(progress)
       } else if (this.internalModel instanceof Cubism4InternalModel) {
         this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', progress * max_value)
         this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', progress * max_value)
@@ -158,9 +174,12 @@ export default class AdvancedModel extends Live2DModel {
       }
 
       if (this.internalModel instanceof Cubism2InternalModel) {
-        if (this.internalModel.eyeBlink!.eyeParamValue < 1) {
+        if (
+          this.internalModel.coreModel.getParamFloat('PARAM_EYE_L_OPEN') < 1 ||
+          this.internalModel.coreModel.getParamFloat('PARAM_EYE_R_OPEN') < 1
+        ) {
           await AnimationManager.delay(getRandomNumber(4000, 6500))
-          break
+          continue
         }
       } else if (this.internalModel instanceof Cubism4InternalModel) {
         if (
@@ -168,7 +187,7 @@ export default class AdvancedModel extends Live2DModel {
           this.internalModel.coreModel.getParameterValueById('ParamEyeROpen') < 1
         ) {
           await AnimationManager.delay(getRandomNumber(4000, 6500))
-          break
+          continue
         }
       } else {
         throw new Error('Not implement.')

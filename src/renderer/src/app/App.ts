@@ -13,6 +13,7 @@ import FontFaceObserver from 'fontfaceobserver'
 import { Application, Texture, Ticker } from 'pixi.js'
 import SpecialEffectLayer from '../layers/SpecialEffectLayer'
 import { FIXED_FPS } from '../constants'
+import { configureCubism4 } from 'pixi-live2d-display-advanced'
 
 export class App {
   public readonly logger: Logger<ILogObj> = getSubLogger('App')
@@ -88,6 +89,10 @@ export class App {
     this.applicationWrapper.appendChild(this.pixiApplication.view as HTMLCanvasElement)
 
     this.pixiApplication.stage.sortableChildren = true
+
+    configureCubism4({
+      memorySizeMB: 128
+    })
 
     this.logger.info('Render initialized')
   }

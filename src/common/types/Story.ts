@@ -20,7 +20,10 @@ export enum MoveSpeed {
 
 const ModelSchema = z.object({
   id: z.number(),
-  model: z.string()
+  model: z.string(),
+  normal_scale: z.number().default(2.1),
+  small_scale: z.number().default(1.8),
+  anchor: z.number().default(0.5)
 })
 
 const ImageSchema = z.object({
@@ -161,5 +164,6 @@ export const StorySchema = z.object({
   snippets: z.array(SnippetSchema)
 })
 
+export type ModelData = z.infer<typeof ModelSchema>
 export type SnippetData = z.infer<typeof SnippetSchema>
 export type StoryData = z.infer<typeof StorySchema>
