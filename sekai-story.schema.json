@@ -165,9 +165,13 @@
                   },
                   "moveSpeed": {
                     "enum": ["Slow", "Normal", "Fast", "Immediate"]
+                  },
+                  "hologram": {
+                    "type": "boolean",
+                    "default": false
                   }
                 },
-                "required": ["modelId", "from", "to", "motion", "facial", "moveSpeed"],
+                "required": ["modelId", "from", "to", "motion", "facial", "moveSpeed", "hologram"],
                 "additionalProperties": false
               }
             },
