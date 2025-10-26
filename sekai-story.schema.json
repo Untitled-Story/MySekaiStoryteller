@@ -6,9 +6,6 @@
       "type": "string",
       "const": "https://raw.githubusercontent.com/Untitled-Story/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json"
     },
-    "title": {
-      "type": "string"
-    },
     "models": {
       "type": "array",
       "items": {
@@ -457,6 +454,6 @@
       }
     }
   },
-  "required": ["title", "models", "images", "snippets"],
+  "required": ["models", "images", "snippets"],
   "additionalProperties": false
 }
