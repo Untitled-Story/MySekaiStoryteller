@@ -4,5 +4,10 @@ import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
 export default tseslint.config(
   { ignores: ['**/node_modules', '**/dist', '**/out'] },
   tseslint.configs.recommended,
-  eslintConfigPrettier
+  eslintConfigPrettier,
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
+    }
+  }
 )

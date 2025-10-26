@@ -40,7 +40,9 @@ export class VisualEffectManager {
   public applyEffect(effectName: string): void {
     const effect = this.effectSet.effects[effectName]
     if (!effect) return
+
     if (!effect.parent) this.model.addChild(effect)
+    effect.enabled = true
     this.model.filters = this.model.filters
       ? [...this.model.filters, ...effect.parentFilters]
       : [...effect.parentFilters]
@@ -51,6 +53,7 @@ export class VisualEffectManager {
     const effect = this.effectSet.effects[effectName]
     if (!effect) return
 
+    effect.enabled = false
     if (effect.parent) effect.parent.removeChild(effect)
     if (this.model.filters) {
       this.model.filters = this.model.filters.filter((f) => !effect.parentFilters.includes(f))

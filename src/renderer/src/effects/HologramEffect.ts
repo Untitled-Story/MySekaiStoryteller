@@ -55,6 +55,7 @@ export class HologramEffect extends VisualEffect {
   }
 
   update(delta: number): void {
+    if (!this.enabled) return
     this.elapsed += delta
     this.graphic.alpha = 0.9 + 0.1 * Math.sin(this.elapsed * 0.1)
     this.graphic.scale.x = 1 + 0.01 * Math.sin(this.elapsed * 0.1)

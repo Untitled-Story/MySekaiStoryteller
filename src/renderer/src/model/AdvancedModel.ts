@@ -14,9 +14,11 @@ import { AlphaFilter } from 'pixi.js'
 export default class AdvancedModel extends Live2DModel {
   public autoBlink: boolean = true
   public lastChangeBlinkTime: number | null = null
+
   private _metadata: ModelData | null = null
 
   private readonly visualEffectManager: VisualEffectManager = new VisualEffectManager(this)
+  private inHologram: boolean = false
 
   get metadata(): ModelData {
     return this._metadata!
@@ -60,8 +62,14 @@ export default class AdvancedModel extends Live2DModel {
     await manager.startMotion(facial, 0, MotionPriority.FORCE)
   }
 
-  public async show(time: number): Promise<void> {
+  public async show(time: number, hologram: boolean): Promise<void> {
     this.autoBlink = true
+
+    if (hologram) {
+      this.inHologram = true
+      this.visualEffectManager.applyEffect('hologram')
+      this.visualEffectManager.applyEffect('triangles')
+    }
 
     await AnimationManager.run((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
@@ -75,7 +83,13 @@ export default class AdvancedModel extends Live2DModel {
     await AnimationManager.run((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
+      console.info(progress)
     }, time)
+
+    if (this.inHologram) {
+      this.inHologram = false
+      this.visualEffectManager.disableAll()
+    }
 
     this.autoBlink = false
   }

@@ -113,6 +113,7 @@ export default class TriangleParticleEffect extends VisualEffect {
   }
 
   update(delta: number): void {
+    if (!this.enabled) return
     const now = performance.now()
     if (now - this.lastSpawnTime > this.spawnInterval) {
       this.spawnParticle()
