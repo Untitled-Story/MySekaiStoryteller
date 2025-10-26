@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "http://json-schema.org/draft-07/schema",
   "type": "object",
   "properties": {
     "$schema": {
@@ -57,9 +57,6 @@
       "type": "array",
       "items": {
         "type": "object",
-        "discriminator": {
-          "propertyName": "type"
-        },
         "oneOf": [
           {
             "type": "object",
@@ -138,7 +135,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -151,7 +149,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -203,7 +202,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -216,7 +216,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -255,10 +256,12 @@
                     "type": "string"
                   },
                   "modelId": {
-                    "type": "number"
+                    "type": "number",
+                    "default": -1
                   },
                   "voice": {
-                    "type": "string"
+                    "type": "string",
+                    "default": ""
                   }
                 },
                 "required": ["speaker", "content", "modelId", "voice"],
@@ -309,7 +312,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -322,7 +326,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -419,7 +424,8 @@
                 "required": ["duration"],
                 "additionalProperties": false
               }
-            }
+            },
+            "required": ["type", "wait", "delay", "data"]
           },
           {
             "type": "object",
