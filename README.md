@@ -56,3 +56,4 @@ Other snippets will be added in the future.
 ## Acknowledgements
 
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
+- [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)

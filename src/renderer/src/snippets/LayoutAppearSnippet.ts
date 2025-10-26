@@ -14,7 +14,7 @@ export default class LayoutAppearSnippet extends BaseSnippet {
 
     await model.playMotionLastFrame(this.data.data.motion, this.data.data.facial)
 
-    const show_task = model.show(200)
+    const show_task = model.show(200, this.data.data.hologram)
 
     if (model.internalModel instanceof Cubism2InternalModel) {
       model.internalModel.eyeBlink!.setEyeParams(0)

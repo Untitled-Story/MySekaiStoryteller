@@ -60,15 +60,16 @@ const SnippetSchema = z.discriminatedUnion('type', [
       modelId: z.number(),
       from: z.object({
         side: SideEnum,
-        offset: z.number()
+        offset: z.number().default(0)
       }),
       to: z.object({
         side: SideEnum,
-        offset: z.number()
+        offset: z.number().default(0)
       }),
       motion: z.string(),
       facial: z.string(),
-      moveSpeed: MoveSpeedEnum
+      moveSpeed: MoveSpeedEnum,
+      hologram: z.boolean().default(false)
     })
   }),
   z.object({
@@ -79,11 +80,11 @@ const SnippetSchema = z.discriminatedUnion('type', [
       modelId: z.number(),
       from: z.object({
         side: SideEnum,
-        offset: z.number()
+        offset: z.number().default(0)
       }),
       to: z.object({
         side: SideEnum,
-        offset: z.number()
+        offset: z.number().default(0)
       }),
       moveSpeed: MoveSpeedEnum
     })
@@ -95,8 +96,8 @@ const SnippetSchema = z.discriminatedUnion('type', [
     data: z.object({
       speaker: z.string(),
       content: z.string(),
-      modelId: z.number(),
-      voice: z.string()
+      modelId: z.number().default(-1),
+      voice: z.string().default('')
     })
   }),
   z.object({
@@ -112,11 +113,11 @@ const SnippetSchema = z.discriminatedUnion('type', [
       modelId: z.number(),
       from: z.object({
         side: SideEnum,
-        offset: z.number()
+        offset: z.number().default(0)
       }),
       to: z.object({
         side: SideEnum,
-        offset: z.number()
+        offset: z.number().default(0)
       }),
       moveSpeed: MoveSpeedEnum
     })
@@ -158,7 +159,6 @@ const SnippetSchema = z.discriminatedUnion('type', [
 ])
 
 export const StorySchema = z.object({
-  title: z.string(),
   models: z.array(ModelSchema),
   images: z.array(ImageSchema),
   snippets: z.array(SnippetSchema)

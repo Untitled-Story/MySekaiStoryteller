@@ -1,13 +1,10 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "http://json-schema.org/draft-07/schema",
   "type": "object",
   "properties": {
     "$schema": {
       "type": "string",
       "const": "https://raw.githubusercontent.com/Untitled-Story/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json"
-    },
-    "title": {
-      "type": "string"
     },
     "models": {
       "type": "array",
@@ -57,9 +54,6 @@
       "type": "array",
       "items": {
         "type": "object",
-        "discriminator": {
-          "propertyName": "type"
-        },
         "oneOf": [
           {
             "type": "object",
@@ -138,7 +132,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -151,7 +146,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -165,9 +161,13 @@
                   },
                   "moveSpeed": {
                     "enum": ["Slow", "Normal", "Fast", "Immediate"]
+                  },
+                  "hologram": {
+                    "type": "boolean",
+                    "default": false
                   }
                 },
-                "required": ["modelId", "from", "to", "motion", "facial", "moveSpeed"],
+                "required": ["modelId", "from", "to", "motion", "facial", "moveSpeed", "hologram"],
                 "additionalProperties": false
               }
             },
@@ -199,7 +199,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -212,7 +213,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -251,10 +253,12 @@
                     "type": "string"
                   },
                   "modelId": {
-                    "type": "number"
+                    "type": "number",
+                    "default": -1
                   },
                   "voice": {
-                    "type": "string"
+                    "type": "string",
+                    "default": ""
                   }
                 },
                 "required": ["speaker", "content", "modelId", "voice"],
@@ -305,7 +309,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -318,7 +323,8 @@
                         "enum": ["Center", "Left", "Right"]
                       },
                       "offset": {
-                        "type": "number"
+                        "type": "number",
+                        "default": 0
                       }
                     },
                     "required": ["side", "offset"],
@@ -415,7 +421,8 @@
                 "required": ["duration"],
                 "additionalProperties": false
               }
-            }
+            },
+            "required": ["type", "wait", "delay", "data"]
           },
           {
             "type": "object",
@@ -447,6 +454,6 @@
       }
     }
   },
-  "required": ["title", "models", "images", "snippets"],
+  "required": ["models", "images", "snippets"],
   "additionalProperties": false
 }
