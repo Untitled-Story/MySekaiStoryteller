@@ -4,27 +4,42 @@ import {
   Live2DModel,
   MotionPriority
 } from 'pixi-live2d-display-advanced'
-import { AlphaFilter } from 'pixi.js'
 import AnimationManager from '../managers/AnimationManager'
 import PositionRel from '../types/PositionRel'
 import { getRandomNumber } from '../utils/HelperUtils'
 import { ModelData } from '../../../common/types/Story'
+import { VisualEffectManager } from '../managers/VisualEffectManager'
+import { AlphaFilter } from 'pixi.js'
 
 export default class AdvancedModel extends Live2DModel {
   public autoBlink: boolean = true
   public lastChangeBlinkTime: number | null = null
   private _metadata: ModelData | null = null
 
+  private readonly visualEffectManager: VisualEffectManager = new VisualEffectManager(this)
+
   get metadata(): ModelData {
     return this._metadata!
   }
 
-  public setupModelMetadata(metadata: ModelData): void {
+  public initialize(metadata: ModelData): void {
     if (!this._metadata) {
       this._metadata = metadata
     } else {
       throw new Error('Initialize model metadata more than once.')
     }
+    this.visible = true
+    this.internalModel.extendParallelMotionManager(2)
+
+    const alpha_filter = new AlphaFilter(0)
+    alpha_filter.resolution = 2
+
+    this.filters = [alpha_filter]
+
+    this.anchor.x = 0.5
+    this.anchor.y = this.metadata.anchor
+
+    this.visualEffectManager.createAll()
   }
 
   public async applyMotion(motion: string, ignoreFacial: boolean = false): Promise<void> {
@@ -141,7 +156,6 @@ export default class AdvancedModel extends Live2DModel {
     await AnimationManager.run((progress) => {
       if (this.internalModel instanceof Cubism2InternalModel) {
         this.internalModel.eyeBlink!.setEyeParams(1 - progress)
-        console.info(progress)
       } else if (this.internalModel instanceof Cubism4InternalModel) {
         this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 1 - progress)
         this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 1 - progress)

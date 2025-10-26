@@ -1,6 +1,7 @@
-import { BLEND_MODES, Container, Graphics } from 'pixi.js'
+import { BLEND_MODES, Graphics } from 'pixi.js'
+import { VisualEffect } from './VisualEffect'
+import AdvancedModel from '../model/AdvancedModel'
 
-// Inspired by code from lezzthanthree/SEKAI-Stories
 class ParticleTriangle extends Graphics {
   private age = 0
   private readonly lifespan: number
@@ -34,11 +35,8 @@ class ParticleTriangle extends Graphics {
     this.rotation = Math.random() * Math.PI * 2
     this.blendMode = BLEND_MODES.ADD
 
-    if (filled) {
-      this.beginFill(color)
-    } else {
-      this.lineStyle(10, color)
-    }
+    if (filled) this.beginFill(color)
+    else this.lineStyle(10, color)
 
     this.drawPolygon([-size / 2, size / 2, size / 2, size / 2, 0, -size / 2])
     this.endFill()
@@ -62,9 +60,8 @@ class ParticleTriangle extends Graphics {
   }
 }
 
-export default class TriangleParticleEffect {
-  private readonly container: Container
-  private readonly particles: ParticleTriangle[] = []
+export default class TriangleParticleEffect extends VisualEffect {
+  private particles: ParticleTriangle[] = []
   private lastSpawnTime = 0
 
   private readonly maxParticles = 15
@@ -77,8 +74,8 @@ export default class TriangleParticleEffect {
   private readonly fadeTime = 0.5
   private readonly colors = [0xff00ff, 0x00ffff, 0xffff00]
 
-  constructor(container: Container) {
-    this.container = container
+  constructor(model: AdvancedModel) {
+    super(model)
   }
 
   private randomInRange([min, max]: [number, number]): number {
@@ -86,9 +83,9 @@ export default class TriangleParticleEffect {
   }
 
   private spawnParticle(): void {
-    if (this.particles.length >= this.maxParticles) return
+    if (!this.model || this.particles.length >= this.maxParticles) return
 
-    const bounds = this.container.getLocalBounds()
+    const bounds = this.model.getLocalBounds()
     const x = bounds.width * (0.1 + Math.random() * 0.8)
     const y = bounds.height * (0.25 + Math.random() * 0.5)
     const color = this.colors[Math.floor(Math.random() * this.colors.length)]
@@ -111,11 +108,11 @@ export default class TriangleParticleEffect {
       this.fadeTime,
       filled
     )
-    this.container.addChild(particle)
+    this.model.addChild(particle)
     this.particles.push(particle)
   }
 
-  public update(delta: number): void {
+  update(delta: number): void {
     const now = performance.now()
     if (now - this.lastSpawnTime > this.spawnInterval) {
       this.spawnParticle()
@@ -125,14 +122,14 @@ export default class TriangleParticleEffect {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const particle = this.particles[i]
       if (particle.update(delta)) {
-        this.container.removeChild(particle)
+        this.model.removeChild(particle)
         particle.destroy()
         this.particles.splice(i, 1)
       }
     }
   }
 
-  public clear(): void {
+  destroyEffect(): void {
     for (const p of this.particles) {
       p.destroy()
     }

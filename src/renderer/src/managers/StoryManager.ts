@@ -2,7 +2,7 @@ import { SelectStoryResponse } from '../../../common/types/IpcResponse'
 import { SnippetData, StoryData } from '../../../common/types/Story'
 import { Live2DModelMap, TextureMap } from '../types/AssetMap'
 import AdvancedModel from '../model/AdvancedModel'
-import { AlphaFilter, Texture, Ticker } from 'pixi.js'
+import { Texture, Ticker } from 'pixi.js'
 import { Cubism2InternalModel } from 'pixi-live2d-display-advanced'
 
 export default class StoryManager {
@@ -31,21 +31,7 @@ export default class StoryManager {
         model.internalModel.setAutoBlinkEnable(false)
       }
 
-      model.setupModelMetadata(model_data)
-
-      // Always true
-      model.visible = true
-
-      // For facial and motion
-      model.internalModel.extendParallelMotionManager(2)
-
-      const alpha_filter = new AlphaFilter(0)
-      alpha_filter.resolution = 2
-
-      model.filters = [alpha_filter]
-
-      model.anchor.x = 0.5
-      model.anchor.y = model_data.anchor
+      model.initialize(model_data)
 
       result.push({
         id: model_data.id,
