@@ -55,3 +55,4 @@ QQ: [753850881](https://qm.qq.com/q/TIFODIZkKk)
 ## 鸣谢
 
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
+- [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
