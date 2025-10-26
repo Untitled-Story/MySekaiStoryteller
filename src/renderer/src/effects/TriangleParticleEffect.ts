@@ -67,9 +67,9 @@ export default class TriangleParticleEffect extends VisualEffect {
   private readonly maxParticles = 15
   private readonly spawnInterval = 250
   private readonly sizeRange: [number, number] = [100, 200]
-  private readonly velocityRangeX: [number, number] = [-0.5, 0.5]
-  private readonly velocityRangeY: [number, number] = [-0.5, 0.5]
-  private readonly rotationSpeedRange: [number, number] = [0.01, 0.03]
+  private readonly velocityRangeX: [number, number] = [-0.8, 0.8]
+  private readonly velocityRangeY: [number, number] = [-0.8, 0.8]
+  private readonly rotationSpeedRange: [number, number] = [0.01, 0.04]
   private readonly lifespanRange: [number, number] = [5, 10]
   private readonly fadeTime = 0.5
   private readonly colors = [0xff00ff, 0x00ffff, 0xffff00]

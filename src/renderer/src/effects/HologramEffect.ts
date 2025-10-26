@@ -28,7 +28,7 @@ export class HologramEffect extends VisualEffect {
     const init = (): void => this.createPattern(texture, width, height)
     texture.valid ? init() : texture.baseTexture.once('loaded', init)
 
-    this.crtFilter = new CRTFilter({ time: 0, lineWidth: 8, lineContrast: 0.06, vignetting: 0 })
+    this.crtFilter = new CRTFilter({ time: 0, lineWidth: 8, lineContrast: 0.03, vignetting: 0 })
     this.adjustFilter = new AdjustmentFilter({ alpha: 1.0, brightness: 1.25, red: 0.75 })
 
     this._parentFilters = [
