@@ -1,5 +1,5 @@
 import { Graphics, Matrix, Texture } from 'pixi.js'
-import { AdjustmentFilter, CRTFilter } from 'pixi-filters'
+import { AdjustmentFilter, CRTFilter, BloomFilter } from 'pixi-filters'
 import { VisualEffect } from './VisualEffect'
 import AdvancedModel from '../model/AdvancedModel'
 import vfx_hologram from '../../assets/ui/vfx_hologram.svg'
@@ -33,9 +33,9 @@ export class HologramEffect extends VisualEffect {
 
     this._parentFilters = [
       this.crtFilter,
-      new AdjustmentFilter({ alpha: 1.0, brightness: 1.35, red: 0.75 })
+      new AdjustmentFilter({ alpha: 0.85, brightness: 1.25, red: 0.75 })
     ]
-    this.filters = [this.crtFilter, this.adjustFilter]
+    this.filters = [this.crtFilter, this.adjustFilter, new BloomFilter(15)]
 
     const animateCRT = (): void => {
       this.crtFilter.time += 0.03
