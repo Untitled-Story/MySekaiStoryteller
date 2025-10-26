@@ -8,19 +8,30 @@ interface EffectSet {
   effects: Record<string, VisualEffect>
 }
 
+class VFXGlobalTicker {
+  private static instance: Ticker
+
+  static getInstance(): Ticker {
+    if (!VFXGlobalTicker.instance) {
+      VFXGlobalTicker.instance = new Ticker()
+      VFXGlobalTicker.instance.start()
+    }
+    return VFXGlobalTicker.instance
+  }
+}
+
 export class VisualEffectManager {
   private effectSet: EffectSet = { effects: {} }
-  private ticker: Ticker = new Ticker()
+  private ticker: Ticker = VFXGlobalTicker.getInstance()
   private readonly effectFactories: Record<string, () => VisualEffect> = {}
 
   constructor(private model: AdvancedModel) {
     this.effectFactories = {
-      hologram: () => new HologramEffect(this.model, this.model.width, this.model.height),
+      hologram: () => new HologramEffect(this.model, 3000, 4500),
       triangles: () => new TriangleParticleEffect(this.model)
     }
 
     this.ticker.add((delta) => this.updateAll(delta))
-    this.ticker.start()
   }
 
   private updateAll(delta: number): void {
@@ -65,14 +76,6 @@ export class VisualEffectManager {
 
   public getEffect(effectName: string): VisualEffect | undefined {
     return this.effectSet.effects[effectName]
-  }
-
-  public stopTicker(): void {
-    this.ticker.stop()
-  }
-
-  public startTicker(): void {
-    this.ticker.start()
   }
 
   public disableAll(): void {

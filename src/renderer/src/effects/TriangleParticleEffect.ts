@@ -2,6 +2,7 @@ import { BLEND_MODES, Graphics } from 'pixi.js'
 import { VisualEffect } from './VisualEffect'
 import AdvancedModel from '../model/AdvancedModel'
 
+// Thanks lezzthanthree/SEKAI-Stories to provide a solution
 class ParticleTriangle extends Graphics {
   private age = 0
   private readonly lifespan: number

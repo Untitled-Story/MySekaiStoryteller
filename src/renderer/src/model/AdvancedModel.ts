@@ -83,7 +83,6 @@ export default class AdvancedModel extends Live2DModel {
     await AnimationManager.run((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
-      console.info(progress)
     }, time)
 
     if (this.inHologram) {
@@ -183,7 +182,6 @@ export default class AdvancedModel extends Live2DModel {
     await AnimationManager.run((progress) => {
       if (this.internalModel instanceof Cubism2InternalModel) {
         this.internalModel.eyeBlink!.setEyeParams(progress * max_value)
-        console.info(progress)
       } else if (this.internalModel instanceof Cubism4InternalModel) {
         this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', progress * max_value)
         this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', progress * max_value)

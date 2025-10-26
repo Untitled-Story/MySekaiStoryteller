@@ -5,6 +5,7 @@ import AdvancedModel from '../model/AdvancedModel'
 import vfx_hologram from '../../assets/ui/vfx_hologram.svg'
 import AnimationManager from '../managers/AnimationManager'
 
+// Thanks lezzthanthree/SEKAI-Stories to provide a solution
 export class HologramEffect extends VisualEffect {
   private elapsed = 0
   private graphic_l: Graphics
@@ -14,8 +15,7 @@ export class HologramEffect extends VisualEffect {
 
   private readonly scaleLarge = 0.9
   private readonly scaleSmall = 0.8
-  private readonly alphaLarge = 0.8
-  private readonly alphaSmall = 0.8
+  private readonly maxAlpha = 0.5
 
   constructor(model: AdvancedModel, width: number, height: number) {
     super(model)
@@ -29,7 +29,7 @@ export class HologramEffect extends VisualEffect {
     texture.valid ? init() : texture.baseTexture.once('loaded', init)
 
     this.crtFilter = new CRTFilter({ time: 0, lineWidth: 8, lineContrast: 0.03, vignetting: 0 })
-    this.adjustFilter = new AdjustmentFilter({ alpha: 1.0, brightness: 1.25, red: 0.75 })
+    this.adjustFilter = new AdjustmentFilter({ alpha: 0.85, brightness: 1, red: 0.75 })
 
     this._parentFilters = [
       this.crtFilter,
@@ -68,8 +68,8 @@ export class HologramEffect extends VisualEffect {
 
         small.scale.set(startScale + (targetScale - startScale) * eased)
 
-        const fadeIn = eased * this.alphaSmall
-        const fadeOut = (1 - eased) * this.alphaLarge
+        const fadeIn = eased * this.maxAlpha
+        const fadeOut = (1 - eased) * this.maxAlpha
         const totalAlpha = fadeIn + fadeOut
         const normalize = totalAlpha > 1.5 ? 1.5 / totalAlpha : 1
 
@@ -82,7 +82,7 @@ export class HologramEffect extends VisualEffect {
 
         this.graphic_s.scale.set(this.scaleSmall)
         this.graphic_s.alpha = 0
-        this.graphic_l.alpha = this.alphaLarge
+        this.graphic_l.alpha = this.maxAlpha
 
         this['animating'] = false
       })
@@ -90,20 +90,22 @@ export class HologramEffect extends VisualEffect {
   }
 
   private createPattern(texture: Texture, width: number, height: number): void {
+    console.info(width, height)
     const draw = (g: Graphics, scale: number): void => {
       const matrix = new Matrix().scale(width / texture.width, height / texture.height)
       g.clear()
       g.beginTextureFill({ texture, matrix })
       g.drawPolygon([width / 3, height, 0, 0, width, 0, (2 * width) / 3, height])
       g.endFill()
-      g.pivot.set(width / 2, height / 2)
-      g.position.set(width / 2, height / 2)
+      g.pivot.set(width / 2, height / 1.7)
+      const offsetY = (0.5 - this.model.anchor.y) * this.model.height
+      g.position.set(this.model.width / 2, this.model.height / 2 - offsetY)
       g.scale.set(scale)
     }
 
     draw(this.graphic_l, this.scaleLarge)
     draw(this.graphic_s, this.scaleSmall)
-    this.graphic_l.alpha = this.alphaLarge
+    this.graphic_l.alpha = this.maxAlpha
     this.graphic_s.alpha = 0
   }
 
