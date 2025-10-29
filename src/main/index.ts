@@ -42,7 +42,8 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       webSecurity: false,
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false
     }
   })
 
