@@ -57,7 +57,6 @@ export class VisualEffectManager {
     this.model.filters = this.model.filters
       ? [...this.model.filters, ...effect.parentFilters]
       : [...effect.parentFilters]
-    console.info(this.model.filters)
   }
 
   public disable(effectName: string): void {
