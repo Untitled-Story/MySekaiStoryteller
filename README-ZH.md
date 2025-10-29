@@ -30,22 +30,6 @@ QQ: [753850881](https://qm.qq.com/q/TIFODIZkKk)
 [Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)
 协议。
 
-## 支持的 Snippet
-
-- [x] ChangeLayoutMode
-- [x] ChangeBackgroundImage
-- [x] LayoutAppear
-- [x] LayoutClear
-- [x] Talk
-- [x] HideTalk
-- [x] Motion
-- [x] Move
-- [x] Telop
-- [x] BlackIn
-- [x] BlackOut
-
-其他 Snippet 将在未来被添加。
-
 ## 技术栈
 
 - [Electron](https://www.electronjs.org/)
@@ -56,3 +40,10 @@ QQ: [753850881](https://qm.qq.com/q/TIFODIZkKk)
 
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
+
+## 捐赠方式
+
+你可以通过 [爱发电](https://afdian.com/a/devguangchen) 平台向我们捐赠。
+
+无论你是否为该项目捐款，我都十分感谢你的使用。
+这个项目的推进离不开每位社区成员的支持，即便你只是日常使用这个程序，你的参与对项目而言同样宝贵且重要。

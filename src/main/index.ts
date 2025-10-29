@@ -18,6 +18,10 @@ const logger: Logger<ILogObj> = new Logger({
 })
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -42,7 +46,8 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       webSecurity: false,
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false
     }
   })
 

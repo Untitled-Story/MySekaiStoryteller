@@ -14,10 +14,11 @@
 
 ## Usage
 
-This project reads story information through `*.sekai-story.json` and reads the defined files from the directory where `*
-.sekai-story.json` is located.
+This project reads story information through `*.sekai-story.json` and reads the defined files from the directory where 
+`*.sekai-story.json` is located.
 
-Please refer to the [Wiki](https://github.com/Untitled-Story/MySekaiStoryteller/wiki) for more information and tutorials.
+Please refer to the [Wiki](https://github.com/Untitled-Story/MySekaiStoryteller/wiki) for more information and
+tutorials.
 
 Discord: [Here](https://discord.gg/cGWNG6fFdP)
 
@@ -31,22 +32,6 @@ The source code of this project is licensed under the [GNU GPLv3 License](LICENS
 Components defined in [RedistributableFiles.txt](src/renderer/RedistributableFiles.txt) are subject to the
 [Live2D Proprietary Software License Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html).
 
-## Supported Snippets
-
-- [x] ChangeLayoutMode
-- [x] ChangeBackgroundImage
-- [x] LayoutAppear
-- [x] LayoutClear
-- [x] Talk
-- [x] HideTalk
-- [x] Motion
-- [x] Move
-- [x] Telop
-- [x] BlackOut
-- [x] BlackIn
-
-Other snippets will be added in the future.
-
 ## Tech Stack
 
 - [Electron](https://www.electronjs.org/)
@@ -57,3 +42,11 @@ Other snippets will be added in the future.
 
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
+
+## Donation
+
+You can donate to us via [Afdian](https://afdian.com/a/devguangchen).
+
+Thank you to everyone, whether you have donated to this project or not. The progress of this project would not be
+possible without the support of every community member, even if you only use this program regularly, your participation
+is equally valuable and important to the project.

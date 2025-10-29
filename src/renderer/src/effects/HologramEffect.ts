@@ -90,7 +90,6 @@ export class HologramEffect extends VisualEffect {
   }
 
   private createPattern(texture: Texture, width: number, height: number): void {
-    console.info(width, height)
     const draw = (g: Graphics, scale: number): void => {
       const matrix = new Matrix().scale(width / texture.width, height / texture.height)
       g.clear()
