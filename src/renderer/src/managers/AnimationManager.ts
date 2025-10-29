@@ -1,8 +1,11 @@
-import { Ticker } from 'pixi.js'
+import { Ticker, UPDATE_PRIORITY } from 'pixi.js'
 import { FIXED_FPS } from '../constants'
+import getSubLogger from '../utils/Logger'
+import { Logger, ILogObj } from 'tslog'
 
 export default class AnimationManager {
   private static MAX_DELTA_MS: number = Math.floor(1000 / FIXED_FPS)
+  private static Logger: Logger<ILogObj> = getSubLogger('AnimationManager')
 
   public static async in_ticker(
     on_step: (ticker: Ticker) => void,
@@ -20,7 +23,7 @@ export default class AnimationManager {
           resolve()
           ticker.destroy()
         }
-      })
+      }, UPDATE_PRIORITY.INTERACTION)
       ticker.start()
     })
     await task
@@ -34,9 +37,24 @@ export default class AnimationManager {
       await AnimationManager.in_ticker(
         (ticker) => {
           const rawDelta = ticker.elapsedMS
-          const clampedDelta = Math.min(rawDelta, this.MAX_DELTA_MS)
+          const ratio = this.MAX_DELTA_MS / rawDelta
 
-          progress += clampedDelta / time_ms
+          let usedDelta: number
+          if (ratio >= 0.9 && ratio <= 1) {
+            usedDelta = rawDelta
+          } else if (ratio >= 0.8 && ratio < 0.9) {
+            usedDelta = this.MAX_DELTA_MS
+          } else {
+            if (ratio <= 0.1) {
+              this.Logger.warn(
+                `A frame time of up to ${rawDelta}ms has been detected, with a ratio of ${ratio.toFixed(2)}. Is this really okay?`
+              )
+            }
+
+            usedDelta = rawDelta
+          }
+
+          progress += usedDelta / time_ms
           progress = Math.min(progress, 1)
           animation(progress)
         },
