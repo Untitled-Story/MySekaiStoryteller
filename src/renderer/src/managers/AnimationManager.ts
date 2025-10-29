@@ -40,18 +40,16 @@ export default class AnimationManager {
           const ratio = this.MAX_DELTA_MS / rawDelta
 
           let usedDelta: number
-          if (ratio >= 0.9 && ratio <= 1) {
-            usedDelta = rawDelta
-          } else if (ratio >= 0.8 && ratio < 0.9) {
+          if (ratio >= 0.85 && ratio <= 1) {
             usedDelta = this.MAX_DELTA_MS
-          } else {
-            if (ratio <= 0.1) {
-              this.Logger.warn(
-                `A frame time of up to ${rawDelta}ms has been detected, with a ratio of ${ratio.toFixed(2)}. Is this really okay?`
-              )
-            }
-
+          } else if (ratio >= 0.1 && ratio < 0.85) {
             usedDelta = rawDelta
+          } else {
+            this.Logger.warn(
+              `A frame time of up to ${rawDelta.toFixed(2)}ms has been detected, 
+              with a ratio of ${ratio.toFixed(2)}. Is this really okay?`
+            )
+            usedDelta = this.MAX_DELTA_MS
           }
 
           progress += usedDelta / time_ms
