@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Button } from '@renderer/components/ui/Button'
 import { Plus, RefreshCw } from 'lucide-react'
 import { ProjectCard } from '@windows/welcome/components/ProjectCard'
+import { CreateProjectDialog } from '@windows/welcome/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@windows/welcome/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@windows/welcome/hooks/useSpinOnce'
 import { ProjectMetadata } from '@common/types/ProjectMetadata'
@@ -8,6 +10,7 @@ import { ProjectMetadata } from '@common/types/ProjectMetadata'
 export default function HomePage() {
   const { projects, fetchProjects } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   const recentProjects: ProjectMetadata[] = [...projects]
     .sort((a, b) => b.lastModified - a.lastModified)
@@ -27,7 +30,7 @@ export default function HomePage() {
               <Button variant="ghost" size="sm" onClick={() => spin(fetchProjects)}>
                 <RefreshCw className={`w-4 h-4 ${spinning ? 'spin-once' : ''}`} />
               </Button>
-              <Button variant="default" size="sm">
+              <Button variant="default" size="sm" onClick={() => setCreateDialogOpen(true)}>
                 <Plus className="w-4 h-4 mr-1" />
                 新建
               </Button>
@@ -39,10 +42,21 @@ export default function HomePage() {
       <div className="flex-1 px-8 overflow-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-white">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-4 pb-4">
           {recentProjects.map((metadata) => (
-            <ProjectCard metadata={metadata} key={metadata.title} />
+            <ProjectCard
+              metadata={metadata}
+              key={metadata.title}
+              onDelete={() => spin(fetchProjects)}
+              onRename={() => spin(fetchProjects)}
+            />
           ))}
         </div>
       </div>
+
+      <CreateProjectDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onSuccess={() => spin(fetchProjects)}
+      />
     </div>
   )
 }

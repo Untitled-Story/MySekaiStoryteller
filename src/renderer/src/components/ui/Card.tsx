@@ -1,3 +1,5 @@
+// noinspection JSUnusedGlobalSymbols
+
 import * as React from 'react'
 
 import { cn } from '@renderer/utils/StyleUtils'

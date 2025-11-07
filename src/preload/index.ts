@@ -8,7 +8,16 @@ const projectAPI = {
   getProjectMetadata: (projectName: string): Promise<ProjectMetadata | null> =>
     ipcRenderer.invoke('project:get-metadata', projectName),
   setProjectMetadata: (projectName: string, data: ProjectMetadata): Promise<void> =>
-    ipcRenderer.invoke('project:set-metadata', projectName, data)
+    ipcRenderer.invoke('project:set-metadata', projectName, data),
+  createProject: (projectName: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('project:create', projectName),
+  deleteProject: (projectName: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('project:delete', projectName),
+  renameProject: (
+    oldName: string,
+    newName: string
+  ): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('project:rename', oldName, newName)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
