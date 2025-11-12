@@ -2,7 +2,6 @@ import PositionRel from '../types/PositionRel'
 import StageUtils from '../utils/StageUtils'
 import AnimationManager from '../managers/AnimationManager'
 import BaseSnippet from './BaseSnippet'
-import { Cubism2InternalModel, Cubism4InternalModel } from 'pixi-live2d-display-advanced'
 
 // noinspection DuplicatedCode
 export default class LayoutAppearSnippet extends BaseSnippet {
@@ -16,13 +15,8 @@ export default class LayoutAppearSnippet extends BaseSnippet {
 
     const show_task = model.show(200, this.data.data.hologram)
 
-    if (model.internalModel instanceof Cubism2InternalModel) {
-      model.internalModel.eyeBlink!.setEyeParams(0)
-    } else if (model.internalModel instanceof Cubism4InternalModel) {
-      model.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 0)
-      model.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 0)
-    } else {
-      throw new Error('Not implement.')
+    if (this.data.data.motion) {
+      await model.closeEyes(0)
     }
 
     let move_task: Promise<void> | null = null

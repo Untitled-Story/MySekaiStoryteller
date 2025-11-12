@@ -76,6 +76,7 @@ export default class AdvancedModel extends Live2DModel {
       alpha_filter.alpha = progress
     }, time)
 
+    this.lastChangeBlinkTime = Date.now()
     setTimeout(() => this.updateAutoBlink(), getRandomNumber(4000, 6500))
   }
 
@@ -90,6 +91,7 @@ export default class AdvancedModel extends Live2DModel {
       this.visualEffectManager.disableAll()
     }
 
+    this.lastChangeBlinkTime = Date.now()
     this.autoBlink = false
   }
 
