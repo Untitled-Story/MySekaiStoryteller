@@ -5,8 +5,7 @@ export default class StageUtils {
   public static side_to_position(
     side: Sides,
     layout_mode: LayoutModes,
-    offset: number,
-    screen_width: number
+    offset: number
   ): Position_rel {
     const position_map = {
       [LayoutModes.Normal]: {
@@ -22,7 +21,7 @@ export default class StageUtils {
     }
 
     const position = [...(position_map[layout_mode][side] as [number, number])]
-    position[0] += offset / screen_width
+    position[0] += offset / 1920
     return {
       x: position[0],
       y: position[1]
