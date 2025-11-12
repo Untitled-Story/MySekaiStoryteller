@@ -12,7 +12,6 @@ import UILayer from '../layers/UILayer'
 import FontFaceObserver from 'fontfaceobserver'
 import { Application, Texture, Ticker } from 'pixi.js'
 import SpecialEffectLayer from '../layers/SpecialEffectLayer'
-import { FIXED_FPS } from '../constants'
 import { configureCubism4 } from 'pixi-live2d-display-advanced'
 
 export class App {
@@ -81,10 +80,7 @@ export class App {
       antialias: true,
       resolution: window.devicePixelRatio || 1
     })
-
-    // May it should be removed
-    Ticker.shared.minFPS = FIXED_FPS
-    Ticker.shared.maxFPS = FIXED_FPS
+    Ticker.shared.maxFPS = 60
 
     this.applicationWrapper.appendChild(this.pixiApplication.view as HTMLCanvasElement)
 
