@@ -25,8 +25,8 @@ importers:
         specifier: ^3.0.0
         version: 3.1.0(eslint@9.26.0)(typescript@5.8.3)
       '@electron-toolkit/tsconfig':
-        specifier: ^1.0.1
-        version: 1.0.1(@types/node@22.15.18)
+        specifier: ^2.0.0
+        version: 2.0.0(@types/node@22.15.18)
       '@pixi/sound':
         specifier: ^5.2.3
         version: 5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3)
@@ -192,8 +192,8 @@ packages:
     peerDependencies:
       electron: '>=13.0.0'
 
-  '@electron-toolkit/tsconfig@1.0.1':
-    resolution: {integrity: sha512-M0Mol3odspvtCuheyujLNAW7bXq7KFNYVMRtpjFa4ZfES4MuklXBC7Nli/omvc+PRKlrklgAGx3l4VakjNo8jg==}
+  '@electron-toolkit/tsconfig@2.0.0':
+    resolution: {integrity: sha512-AdPsP770WhW7b260h13SHMdmjEEHJL6xFtgi3jwgdsSQbJOkJLeNnnpZW9qxTPCvmRI6vmdzWz5K3gibFS6SNg==}
     peerDependencies:
       '@types/node': '*'
 
@@ -3318,7 +3318,7 @@ snapshots:
     dependencies:
       electron: 39.1.2
 
-  '@electron-toolkit/tsconfig@1.0.1(@types/node@22.15.18)':
+  '@electron-toolkit/tsconfig@2.0.0(@types/node@22.15.18)':
     dependencies:
       '@types/node': 22.15.18
 
