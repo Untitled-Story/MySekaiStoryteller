@@ -1,10 +1,9 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "daily"
+      interval: 'weekly'
     commit-message:
-      prefix: "chore"
+      prefix: 'chore(deps)'
       include: "scope"
-      prefix-development: "deps"
