@@ -1,0 +1,32 @@
+name: Fix pnpm lockfile for Dependabot PRs
+
+on:
+  pull_request:
+    branches:
+      - dependabot/**
+    types: [opened, synchronize]
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Commit updated pnpm-lock.yaml
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          git commit -m "chore(deps): update pnpm-lock.yaml" || echo "No changes to commit"
+          git push
