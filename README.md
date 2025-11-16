@@ -14,7 +14,7 @@
 
 ## Usage
 
-This project reads story information through `*.sekai-story.json` and reads the defined files from the directory where 
+This project reads story information through `*.sekai-story.json` and reads the defined files from the directory where
 `*.sekai-story.json` is located.
 
 Please refer to the [Wiki](https://github.com/Untitled-Story/MySekaiStoryteller/wiki) for more information and
