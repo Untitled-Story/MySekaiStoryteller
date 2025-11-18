@@ -449,11 +449,62 @@
             },
             "required": ["type", "wait", "delay", "data"],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "DoParam"
+              },
+              "wait": {
+                "type": "boolean"
+              },
+              "delay": {
+                "type": "number"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "modelId": {
+                    "type": "number"
+                  },
+                  "params": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "paramId": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "number"
+                        },
+                        "end": {
+                          "type": "number"
+                        },
+                        "curve": {
+                          "enum": ["Linear", "Sine", "Cosine"]
+                        },
+                        "duration": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["paramId", "start", "end", "curve", "duration"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["modelId", "params"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "wait", "delay", "data"],
+            "additionalProperties": false
           }
         ]
       }
     }
   },
   "required": ["models", "images", "snippets"],
-  "additionalProperties": false
+  "additionalProperties": true
 }

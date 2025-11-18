@@ -14,6 +14,7 @@ import MotionSnippet from '../snippets/MotionSnippet'
 import TelopSnippet from '../snippets/TelopSnippet'
 import BlackOutSnippet from '../snippets/BlackOutSnippet'
 import BlackInSnippet from '../snippets/BlackInSnippet'
+import DoParamSnippet from '../snippets/DoParamSnippet'
 
 export default class SnippetStrategyManager {
   private readonly app: App
@@ -33,7 +34,8 @@ export default class SnippetStrategyManager {
       Motion: MotionSnippet,
       Telop: TelopSnippet,
       BlackOut: BlackOutSnippet,
-      BlackIn: BlackInSnippet
+      BlackIn: BlackInSnippet,
+      DoParam: DoParamSnippet
     }
   }
 
