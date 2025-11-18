@@ -44,7 +44,7 @@ export default class UITelop extends Container {
     const originalX = this.x
 
     this.visible = true
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
 
@@ -56,7 +56,7 @@ export default class UITelop extends Container {
     const startX = this.x
     const originalX = this.x + 10
 
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
 

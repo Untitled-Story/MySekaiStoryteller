@@ -71,7 +71,7 @@ export default class AdvancedModel extends Live2DModel {
       this.visualEffectManager.applyEffect('triangles')
     }
 
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
@@ -81,7 +81,7 @@ export default class AdvancedModel extends Live2DModel {
   }
 
   public async hide(time: number): Promise<void> {
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
     }, time)
@@ -135,7 +135,7 @@ export default class AdvancedModel extends Live2DModel {
     const abs_from: [number, number] = [stage_size[0] * from.x, stage_size[1] * (from.y + 0.3)]
     const abs_to: [number, number] = [stage_size[0] * to.x, stage_size[1] * (to.y + 0.3)]
 
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       this.position.x = (abs_to[0] - abs_from[0]) * progress + abs_from[0]
       this.position.y = (abs_to[1] - abs_from[1]) * progress + abs_from[1]
     }, time_ms)
@@ -168,7 +168,7 @@ export default class AdvancedModel extends Live2DModel {
   }
 
   public async closeEyes(time_ms: number): Promise<void> {
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       if (this.internalModel instanceof Cubism2InternalModel) {
         this.internalModel.eyeBlink!.setEyeParams(1 - progress)
       } else if (this.internalModel instanceof Cubism4InternalModel) {
@@ -181,7 +181,7 @@ export default class AdvancedModel extends Live2DModel {
   }
 
   public async openEyes(time_ms: number, max_value: number = 1): Promise<void> {
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       if (this.internalModel instanceof Cubism2InternalModel) {
         this.internalModel.eyeBlink!.setEyeParams(progress * max_value)
       } else if (this.internalModel instanceof Cubism4InternalModel) {

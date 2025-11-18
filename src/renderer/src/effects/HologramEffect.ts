@@ -63,7 +63,7 @@ export class HologramEffect extends VisualEffect {
       const startScale = small.scale.x
       const targetScale = this.scaleLarge
 
-      AnimationManager.run((progress) => {
+      AnimationManager.linear((progress) => {
         const eased = 0.5 - 0.5 * Math.cos(Math.PI * progress)
 
         small.scale.set(startScale + (targetScale - startScale) * eased)

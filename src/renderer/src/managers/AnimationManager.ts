@@ -27,7 +27,10 @@ export default class AnimationManager {
     await task
   }
 
-  public static async run(animation: (progress: number) => void, time_ms: number): Promise<void> {
+  public static async linear(
+    animation: (progress: number) => void,
+    time_ms: number
+  ): Promise<void> {
     let progress = 0
     animation(0)
 
@@ -51,6 +54,23 @@ export default class AnimationManager {
       )
     }
     animation(1)
+  }
+
+  public static async cosine(
+    animation: (progress: number) => void,
+    time_ms: number
+  ): Promise<void> {
+    await AnimationManager.linear((p) => {
+      const eased = (1 - Math.cos(p * Math.PI)) / 2
+      animation(eased)
+    }, time_ms)
+  }
+
+  public static async sine(animation: (progress: number) => void, time_ms: number): Promise<void> {
+    await AnimationManager.linear((p) => {
+      const eased = Math.sin((p * Math.PI) / 2)
+      animation(eased)
+    }, time_ms)
   }
 
   public static async delay(time_ms: number): Promise<void> {

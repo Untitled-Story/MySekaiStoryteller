@@ -52,14 +52,14 @@ export default class UIText extends HTMLText {
 
   public async show(time: number): Promise<void> {
     this.visible = true
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
   }
 
   public async hide(time: number): Promise<void> {
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
     }, time)
@@ -143,7 +143,7 @@ export default class UIText extends HTMLText {
     const validLength = this.getValidLength(text, tagRanges)
     let lastCount = -1
 
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const validCount = progress >= 1 ? validLength : Math.floor(progress * validLength)
       const count = this.getCurrentCount(validCount, text, tagRanges)
 
