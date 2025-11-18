@@ -9,14 +9,13 @@ export default class UIText extends HTMLText {
   }
 
   public set data(value: string) {
-    this._data = this.replaceColorTags(value)
+    this._data = this.formatRichText(value)
   }
 
-  private replaceColorTags(text: string): string {
-    return text.replace(
-      /<color:#([0-9A-Fa-f]{3,6})>(.*?)<\/color>/g,
-      '<span style="color: #$1">$2</span>'
-    )
+  private formatRichText(text: string): string {
+    return text
+      .replace(/<color:#([0-9A-Fa-f]{3,6})>(.*?)<\/color>/g, '<span style="color: #$1">$2</span>')
+      .replace(/\r?\n/g, '<br>')
   }
 
   constructor(screen_width: number, screen_height: number) {
