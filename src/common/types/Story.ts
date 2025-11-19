@@ -37,10 +37,10 @@ const ImageSchema = z.object({
   image: z.string()
 })
 
-const LayoutModeEnum = z.nativeEnum(LayoutModes)
-const SideEnum = z.nativeEnum(Sides)
-const MoveSpeedEnum = z.nativeEnum(MoveSpeed)
-const CurvesEnum = z.nativeEnum(Curves)
+const LayoutModeEnum = z.enum(LayoutModes)
+const SideEnum = z.enum(Sides)
+const MoveSpeedEnum = z.enum(MoveSpeed)
+const CurvesEnum = z.enum(Curves)
 
 const SnippetSchema = z.discriminatedUnion('type', [
   z.object({
