@@ -51,14 +51,14 @@ export default class UIText extends HTMLText {
 
   public async show(time: number): Promise<void> {
     this.visible = true
-    await AnimationManager.linear((progress) => {
+    await AnimationManager.linear((progress: number) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
   }
 
   public async hide(time: number): Promise<void> {
-    await AnimationManager.linear((progress) => {
+    await AnimationManager.linear((progress: number) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
     }, time)
@@ -92,64 +92,37 @@ export default class UIText extends HTMLText {
     return ranges
   }
 
-  private getValidLength(text: string, tagRanges: Array<[number, number]>): number {
-    let length = 0
-    let pos = 0
-    let tagIndex = 0
-    const total = text.length
-    while (pos < total) {
-      if (tagIndex < tagRanges.length && pos === tagRanges[tagIndex][0]) {
-        length++
-        pos = tagRanges[tagIndex][1] + 1
-        tagIndex++
-      } else {
-        length++
-        pos++
-      }
-    }
-    return length
-  }
-
-  private getCurrentCount(
-    validCount: number,
-    text: string,
-    tagRanges: Array<[number, number]>
-  ): number {
-    if (validCount === 0) return 0
-    let count = 0
-    let currentValid = 0
-    let pos = 0
-    let tagIndex = 0
-    const total = text.length
-    while (currentValid < validCount && pos < total) {
-      if (tagIndex < tagRanges.length && pos === tagRanges[tagIndex][0]) {
-        currentValid++
-        count = tagRanges[tagIndex][1] + 1
-        pos = count
-        tagIndex++
-      } else {
-        currentValid++
-        pos++
-        count = pos
-      }
-    }
-    return validCount === this.getValidLength(text, tagRanges) ? total : count
-  }
-
   public async startDisplayContent(): Promise<void> {
-    const text = this.data
-    const tagRanges = this.getTagRanges(text)
-    const validLength = this.getValidLength(text, tagRanges)
-    let lastCount = -1
-
-    await AnimationManager.linear((progress) => {
-      const validCount = progress >= 1 ? validLength : Math.floor(progress * validLength)
-      const count = this.getCurrentCount(validCount, text, tagRanges)
-
+    const text: string = this.data
+    const tagRanges: Array<[number, number]> = this.getTagRanges(text)
+    const units: string[] = []
+    let pos = 0
+    let tagIndex = 0
+    while (pos < text.length) {
+      if (tagIndex < tagRanges.length && pos === tagRanges[tagIndex][0]) {
+        const [start, end] = tagRanges[tagIndex]
+        units.push(text.substring(start, end + 1))
+        pos = end + 1
+        tagIndex++
+      } else {
+        units.push(text[pos])
+        pos++
+      }
+    }
+    const totalUnits: number = units.length
+    let lastCount: number = -1
+    await AnimationManager.linear((progress: number) => {
+      let count: number
+      if (progress >= 1) {
+        count = totalUnits
+      } else {
+        count = Math.min(Math.floor(progress * totalUnits), totalUnits - 1)
+      }
       if (count !== lastCount) {
-        this.text = text.substring(0, count)
+        this.text = units.slice(0, count).join('')
         lastCount = count
       }
-    }, validLength * 70)
+    }, totalUnits * 70)
+    this.text = units.join('')
   }
 }

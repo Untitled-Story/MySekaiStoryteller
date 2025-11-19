@@ -39,11 +39,9 @@ export default class AnimationManager {
         (ticker) => {
           const rawDeltaTime = ticker.elapsedMS
           let usedTime = rawDeltaTime
-          if (usedTime < 21) {
-            usedTime = 16.67
-          } else if (usedTime > 41) {
+          if (usedTime > 100) {
             this.logger.warn(`A frame time of up to ${rawDeltaTime.toFixed(2)}ms has been detected`)
-            usedTime = 16.67
+            usedTime = 20
           }
 
           progress += usedTime / time_ms
