@@ -26,14 +26,14 @@ export default class UISpeakerText extends Text {
 
   public async show(time: number): Promise<void> {
     this.visible = true
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
   }
 
   public async hide(time: number): Promise<void> {
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
     }, time)

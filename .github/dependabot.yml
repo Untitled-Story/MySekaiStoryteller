@@ -6,4 +6,4 @@ updates:
       interval: 'weekly'
     commit-message:
       prefix: 'chore(deps)'
-      include: "scope"
+      include: 'scope'

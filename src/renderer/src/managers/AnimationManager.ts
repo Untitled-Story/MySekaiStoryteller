@@ -27,7 +27,11 @@ export default class AnimationManager {
     await task
   }
 
-  public static async run(animation: (progress: number) => void, time_ms: number): Promise<void> {
+  public static async linear(
+    animation: (progress: number) => void,
+    time_ms: number,
+    elegant: boolean = false
+  ): Promise<void> {
     let progress = 0
     animation(0)
 
@@ -36,11 +40,12 @@ export default class AnimationManager {
         (ticker) => {
           const rawDeltaTime = ticker.elapsedMS
           let usedTime = rawDeltaTime
-          if (usedTime < 21) {
-            usedTime = 16.67
-          } else if (usedTime > 41) {
+          if (elegant && usedTime > 30 && usedTime < 100) {
+            usedTime = 20
+          }
+          if (usedTime > 100) {
             this.logger.warn(`A frame time of up to ${rawDeltaTime.toFixed(2)}ms has been detected`)
-            usedTime = 16.67
+            usedTime = 20
           }
 
           progress += usedTime / time_ms
@@ -51,6 +56,36 @@ export default class AnimationManager {
       )
     }
     animation(1)
+  }
+
+  public static async cosine(
+    animation: (progress: number) => void,
+    time_ms: number,
+    elegant: boolean = false
+  ): Promise<void> {
+    await AnimationManager.linear(
+      (p) => {
+        const eased = (1 - Math.cos(p * Math.PI)) / 2
+        animation(eased)
+      },
+      time_ms,
+      elegant
+    )
+  }
+
+  public static async sine(
+    animation: (progress: number) => void,
+    time_ms: number,
+    elegant: boolean = false
+  ): Promise<void> {
+    await AnimationManager.linear(
+      (p) => {
+        const eased = Math.sin((p * Math.PI) / 2)
+        animation(eased)
+      },
+      time_ms,
+      elegant
+    )
   }
 
   public static async delay(time_ms: number): Promise<void> {

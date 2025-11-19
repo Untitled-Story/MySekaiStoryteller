@@ -18,6 +18,12 @@ export enum MoveSpeed {
   Immediate = 'Immediate'
 }
 
+export enum Curves {
+  Linear = 'Linear',
+  Sine = 'Sine',
+  Cosine = 'Cosine'
+}
+
 const ModelSchema = z.object({
   id: z.number(),
   model: z.string(),
@@ -34,6 +40,7 @@ const ImageSchema = z.object({
 const LayoutModeEnum = z.nativeEnum(LayoutModes)
 const SideEnum = z.nativeEnum(Sides)
 const MoveSpeedEnum = z.nativeEnum(MoveSpeed)
+const CurvesEnum = z.nativeEnum(Curves)
 
 const SnippetSchema = z.discriminatedUnion('type', [
   z.object({
@@ -154,6 +161,23 @@ const SnippetSchema = z.discriminatedUnion('type', [
     delay: z.number(),
     data: z.object({
       duration: z.number()
+    })
+  }),
+  z.object({
+    type: z.literal('DoParam'),
+    wait: z.boolean(),
+    delay: z.number(),
+    data: z.object({
+      modelId: z.number(),
+      params: z.array(
+        z.object({
+          paramId: z.string(),
+          start: z.number(),
+          end: z.number(),
+          curve: CurvesEnum,
+          duration: z.number()
+        })
+      )
     })
   })
 ])

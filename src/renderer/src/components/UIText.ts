@@ -30,14 +30,14 @@ export default class UIText extends Text {
 
   public async show(time: number): Promise<void> {
     this.visible = true
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = progress
     }, time)
   }
 
   public async hide(time: number): Promise<void> {
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const alpha_filter: AlphaFilter = this.filters![0] as AlphaFilter
       alpha_filter.alpha = 1 - progress
     }, time)
@@ -47,7 +47,7 @@ export default class UIText extends Text {
   public async startDisplayContent(): Promise<void> {
     const contentLength = this.data.length
     const timeMS = contentLength * 70
-    await AnimationManager.run((progress) => {
+    await AnimationManager.linear((progress) => {
       const charsToShow = Math.min(Math.floor(progress * contentLength), contentLength)
       this.text = this.data.substring(0, charsToShow)
     }, timeMS)

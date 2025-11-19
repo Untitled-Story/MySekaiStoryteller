@@ -27,7 +27,6 @@ Users must strictly abide by the following restrictions when using project-recor
 1. **Prohibition of Commercial Use**
 
    Project-recorded videos shall not be used for any profit-making activities, including but not limited to:
-
    - Being used as promotional materials for goods/services (such as advertisements, product promotion videos);
    - Being disseminated in a paid form (such as member-only videos, paid course materials);
    - Being licensed to third parties for commercial use (such as selling video usage rights to enterprises, institutions);
@@ -37,7 +36,6 @@ Users must strictly abide by the following restrictions when using project-recor
 2. **Attribution Requirements**
 
    Any public dissemination of project-recorded videos must clearly indicate the use of this project in a prominent position. Qualified behaviors include but are not limited to:
-
    - Indicating "This video was recorded by MySekaiStoryteller" on the video details page;
    - Mentioning "This video was recorded by MySekaiStoryteller" in the video;
    - Adding the "MySekaiStoryteller" tag to the video tags.
