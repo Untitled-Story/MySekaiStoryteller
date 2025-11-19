@@ -70,8 +70,8 @@ importers:
         specifier: ^3.6.2
         version: 3.6.2
       tslog:
-        specifier: ^4.9.3
-        version: 4.9.3
+        specifier: ^4.10.2
+        version: 4.10.2
       typescript:
         specifier: ^5.8.3
         version: 5.8.3
@@ -2718,8 +2718,8 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
-  tslog@4.9.3:
-    resolution: {integrity: sha512-oDWuGVONxhVEBtschLf2cs/Jy8i7h1T+CpdkTNWQgdAF7DhRo2G8vMCgILKe7ojdEkLhICWgI1LYSSKaJsRgcw==}
+  tslog@4.10.2:
+    resolution: {integrity: sha512-XuELoRpMR+sq8fuWwX7P0bcj+PRNiicOKDEb3fGNURhxWVyykCi9BNq7c4uVz7h7P0sj8qgBsr5SWS6yBClq3g==}
     engines: {node: '>=16'}
 
   type-check@0.4.0:
@@ -5850,7 +5850,7 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tslog@4.9.3: {}
+  tslog@4.10.2: {}
 
   type-check@0.4.0:
     dependencies:
