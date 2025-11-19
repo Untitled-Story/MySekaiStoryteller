@@ -10,6 +10,8 @@ import { getRandomNumber } from '../utils/HelperUtils'
 import { ModelData } from '../../../common/types/Story'
 import { VisualEffectManager } from '../managers/VisualEffectManager'
 import { AlphaFilter } from 'pixi.js'
+import { ILogObj, Logger } from 'tslog'
+import getSubLogger from '../utils/Logger'
 
 export default class AdvancedModel extends Live2DModel {
   public autoBlink: boolean = true
@@ -19,6 +21,8 @@ export default class AdvancedModel extends Live2DModel {
 
   private readonly visualEffectManager: VisualEffectManager = new VisualEffectManager(this)
   private inHologram: boolean = false
+
+  private logger: Logger<ILogObj> = getSubLogger('AdvancedModel[Uninitialized]')
 
   get metadata(): ModelData {
     return this._metadata!
@@ -42,6 +46,8 @@ export default class AdvancedModel extends Live2DModel {
     this.anchor.y = this.metadata.anchor
 
     this.visualEffectManager.createAll()
+
+    this.logger = getSubLogger(`AdvancedModel(${this._metadata.id})`)
   }
 
   public async applyMotion(motion: string, ignoreFacial: boolean = false): Promise<void> {
@@ -206,6 +212,7 @@ export default class AdvancedModel extends Live2DModel {
           this.internalModel.coreModel.getParamFloat('PARAM_EYE_L_OPEN') < 1 ||
           this.internalModel.coreModel.getParamFloat('PARAM_EYE_R_OPEN') < 1
         ) {
+          this.logger.info('Blink has been blocked by eye param')
           await AnimationManager.delay(getRandomNumber(4000, 6500))
           continue
         }
@@ -214,6 +221,7 @@ export default class AdvancedModel extends Live2DModel {
           this.internalModel.coreModel.getParameterValueById('ParamEyeLOpen') < 1 ||
           this.internalModel.coreModel.getParameterValueById('ParamEyeROpen') < 1
         ) {
+          this.logger.info('Blink has been blocked by eye param')
           await AnimationManager.delay(getRandomNumber(4000, 6500))
           continue
         }
