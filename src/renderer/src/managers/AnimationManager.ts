@@ -41,7 +41,7 @@ export default class AnimationManager {
           const rawDeltaTime = ticker.elapsedMS
           let usedTime = rawDeltaTime
           if (elegant && usedTime > 30 && usedTime < 100) {
-            usedTime = 25
+            usedTime = 20
           }
           if (usedTime > 100) {
             this.logger.warn(`A frame time of up to ${rawDeltaTime.toFixed(2)}ms has been detected`)
