@@ -118,12 +118,15 @@ export default class AdvancedModel extends Live2DModel {
     }
 
     this.lastChangeBlinkTime = Date.now()
+
     await Promise.all(waits)
 
     await AnimationManager.in_ticker(
       () => {},
       () => motion_manager.isFinished() && facial_manager.isFinished()
     )
+
+    this.lastChangeBlinkTime = Date.now()
   }
 
   public setPositionRel(stage_size: [number, number], position: PositionRel): void {
@@ -202,8 +205,8 @@ export default class AdvancedModel extends Live2DModel {
   private async updateAutoBlink(): Promise<void> {
     while (this.autoBlink) {
       const now = Date.now()
-      if (this.lastChangeBlinkTime && now - this.lastChangeBlinkTime < 2000) {
-        await AnimationManager.delay(200)
+      if (this.lastChangeBlinkTime && now - this.lastChangeBlinkTime < 2500) {
+        await AnimationManager.delay(500)
         continue
       }
 
@@ -229,8 +232,8 @@ export default class AdvancedModel extends Live2DModel {
         throw new Error('Not implement.')
       }
 
-      await this.closeEyes(300)
-      await this.openEyes(300)
+      await this.closeEyes(200)
+      await this.openEyes(250)
 
       this.lastChangeBlinkTime = Date.now()
 
