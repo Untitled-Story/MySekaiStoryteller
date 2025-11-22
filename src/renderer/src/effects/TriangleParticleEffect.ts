@@ -137,4 +137,12 @@ export default class TriangleParticleEffect extends VisualEffect {
     }
     this.particles.length = 0
   }
+
+  clearAllParticles(): void {
+    for (const particle of this.particles) {
+      if (particle.parent) this.model.removeChild(particle)
+      particle.destroy()
+    }
+    this.particles.length = 0
+  }
 }
