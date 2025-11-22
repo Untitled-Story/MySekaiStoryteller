@@ -20,6 +20,8 @@ files:
 asarUnpack:
   - resources/**
 artifactName: ${name}-v${version}-${os}-${arch}.${ext}
+electronLanguages:
+  - 'en_US'
 win:
   executableName: MySekaiStoryteller
   icon: resources/icon_128.ico
