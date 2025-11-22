@@ -50,13 +50,14 @@ export default class AdvancedModel extends Live2DModel {
     this.logger = getSubLogger(`AdvancedModel(${this._metadata.id})`)
   }
 
-  public async applyMotion(motion: string, ignoreFacial: boolean = false): Promise<void> {
+  public async applyMotion(motion: string, ignoreParams: boolean = false): Promise<void> {
     const manager = this.internalModel.parallelMotionManager[0]
-    if (ignoreFacial) {
+    if (ignoreParams) {
       await manager.startMotion(motion, 0, MotionPriority.FORCE, [
         'ParamEyeROpen',
         'ParamEyeLOpen',
-        'ParamEyeballX'
+        'ParamEyeballX',
+        'ParamEyeballY'
       ])
     } else {
       await manager.startMotion(motion, 0, MotionPriority.FORCE)
@@ -101,17 +102,17 @@ export default class AdvancedModel extends Live2DModel {
     this.autoBlink = false
   }
 
-  public async applyAndWait(motion?: string, facial?: string): Promise<void> {
+  public async applyAndWait(
+    motion?: string,
+    facial?: string,
+    facialFirst?: boolean
+  ): Promise<void> {
     const waits: Promise<void>[] = []
     const motion_manager = this.internalModel.parallelMotionManager[0]
     const facial_manager = this.internalModel.parallelMotionManager[1]
 
     if (motion) {
-      if (facial) {
-        waits.push(this.applyMotion(motion, true))
-      } else {
-        waits.push(this.applyMotion(motion))
-      }
+      waits.push(this.applyMotion(motion, facialFirst))
     }
     if (facial) {
       waits.push(this.applyFacial(facial))

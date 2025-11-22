@@ -9,7 +9,7 @@ export default class LayoutAppearSnippet extends BaseSnippet {
     if (this.data.type !== 'LayoutAppear') return
 
     const model = this.app.getModelById(this.data.data.modelId)
-    this.app.layerModel.addModelAndInitialize(model)
+    this.app.layerModel.addModelToLayer(model)
 
     await model.playMotionLastFrame(this.data.data.motion, this.data.data.facial)
 
@@ -46,7 +46,7 @@ export default class LayoutAppearSnippet extends BaseSnippet {
     AnimationManager.delay(10).then(() => {
       if (this.data.type !== 'LayoutAppear') return
 
-      model.applyAndWait(this.data.data.motion, this.data.data.facial)
+      model.applyAndWait(this.data.data.motion, this.data.data.facial, this.data.data.facialFirst)
     })
 
     await show_task

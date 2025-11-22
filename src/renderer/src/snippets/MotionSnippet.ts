@@ -5,8 +5,12 @@ export default class MotionSnippet extends BaseSnippet {
     if (this.data.type !== 'Motion') return
 
     const model = this.app.getModelById(this.data.data.modelId)
-    this.app.layerModel.addModelAndInitialize(model)
+    this.app.layerModel.addModelToLayer(model)
 
-    await model.applyAndWait(this.data.data.motion, this.data.data.facial)
+    await model.applyAndWait(
+      this.data.data.motion,
+      this.data.data.facial,
+      this.data.data.facialFirst
+    )
   }
 }
