@@ -69,8 +69,7 @@ export class VisualEffectManager {
       this.model.filters = this.model.filters.filter((f) => !effect.parentFilters.includes(f))
     }
 
-    effect.destroyEffect()
-    delete this.effectSet.effects[effectName]
+    effect.clearAllParticles()
   }
 
   public getEffect(effectName: string): VisualEffect | undefined {

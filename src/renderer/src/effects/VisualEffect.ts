@@ -17,4 +17,8 @@ export abstract class VisualEffect extends Container {
 
   abstract update(delta: number): void
   abstract destroyEffect(): void
+
+  public clearAllParticles(): void {
+    /* empty */
+  }
 }
