@@ -159,6 +159,10 @@
                   "facial": {
                     "type": "string"
                   },
+                  "facialFirst": {
+                    "type": "boolean",
+                    "default": true
+                  },
                   "moveSpeed": {
                     "enum": ["Slow", "Normal", "Fast", "Immediate"]
                   },
@@ -167,7 +171,16 @@
                     "default": false
                   }
                 },
-                "required": ["modelId", "from", "to", "motion", "facial", "moveSpeed", "hologram"],
+                "required": [
+                  "modelId",
+                  "from",
+                  "to",
+                  "motion",
+                  "facial",
+                  "facialFirst",
+                  "moveSpeed",
+                  "hologram"
+                ],
                 "additionalProperties": false
               }
             },
@@ -364,9 +377,13 @@
                   },
                   "facial": {
                     "type": "string"
+                  },
+                  "facialFirst": {
+                    "type": "boolean",
+                    "default": true
                   }
                 },
-                "required": ["modelId", "motion", "facial"],
+                "required": ["modelId", "motion", "facial", "facialFirst"],
                 "additionalProperties": false
               }
             },
