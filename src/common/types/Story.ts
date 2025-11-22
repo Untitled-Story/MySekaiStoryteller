@@ -75,6 +75,7 @@ const SnippetSchema = z.discriminatedUnion('type', [
       }),
       motion: z.string(),
       facial: z.string(),
+      facialFirst: z.boolean().default(true),
       moveSpeed: MoveSpeedEnum,
       hologram: z.boolean().default(false)
     })
@@ -136,7 +137,8 @@ const SnippetSchema = z.discriminatedUnion('type', [
     data: z.object({
       modelId: z.number(),
       motion: z.string(),
-      facial: z.string()
+      facial: z.string(),
+      facialFirst: z.boolean().default(true)
     })
   }),
   z.object({
