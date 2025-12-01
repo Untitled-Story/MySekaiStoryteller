@@ -37,7 +37,7 @@ h1#configuration_label {
   margin-bottom: 5px;
 }
 
-select#resolution {
+select.option-select {
   margin-top: 5px;
   appearance: none;
   -webkit-appearance: none;
@@ -56,27 +56,27 @@ select#resolution {
   width: 100%;
 }
 
-select#resolution:hover {
+select.option-select:hover {
   border-color: #94a3b8;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-select#resolution:focus {
+select.option-select:focus {
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }
 
-select#resolution option {
+select.option-select option {
   background-color: white;
   color: #334155;
 }
 
-select#resolution option:hover {
+select.option-select option:hover {
   background-color: #f1f5f9;
 }
 
-select#resolution option:checked {
+select.option-select option:checked {
   background-color: #e0f2fe;
   color: #0369a1;
 }
