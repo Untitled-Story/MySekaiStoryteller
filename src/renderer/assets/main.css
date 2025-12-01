@@ -37,7 +37,7 @@ h1#configuration_label {
   margin-bottom: 5px;
 }
 
-select.option-select {
+select#resolution {
   margin-top: 5px;
   appearance: none;
   -webkit-appearance: none;
@@ -56,27 +56,27 @@ select.option-select {
   width: 100%;
 }
 
-select.option-select:hover {
+select#resolution:hover {
   border-color: #94a3b8;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-select.option-select:focus {
+select#resolution:focus {
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }
 
-select.option-select option {
+select#resolution option {
   background-color: white;
   color: #334155;
 }
 
-select.option-select option:hover {
+select#resolution option:hover {
   background-color: #f1f5f9;
 }
 
-select.option-select option:checked {
+select#resolution option:checked {
   background-color: #e0f2fe;
   color: #0369a1;
 }
