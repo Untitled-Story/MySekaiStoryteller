@@ -70,7 +70,7 @@ export class App {
     this.logger.info('SnippetStrategyManager initialized')
   }
 
-  private initializeRenderer(scale: number): void {
+  private initializeRenderer(): void {
     this.applicationWrapper = document.getElementById('app')! as HTMLDivElement
 
     this.pixiApplication = new Application({
@@ -78,7 +78,7 @@ export class App {
       resizeTo: this.applicationWrapper,
       autoDensity: true,
       antialias: true,
-      resolution: scale
+      resolution: window.devicePixelRatio || 1
     })
     Ticker.shared.maxFPS = 60
 
@@ -143,14 +143,9 @@ export class App {
     return this.storyManager.geVoiceUrlByName(name)
   }
 
-  private async runSnippets(
-    story: SelectStoryResponse,
-    options: {
-      scale: number
-    }
-  ): Promise<void> {
+  private async runSnippets(story: SelectStoryResponse): Promise<void> {
     await this.initializeManagers(story)
-    this.initializeRenderer(options.scale)
+    this.initializeRenderer()
     await this.preloadStoryAssets()
     this.initializeLayers()
     await this.readUntilFinish()
@@ -165,21 +160,18 @@ export class App {
     const config_element = document.getElementById('config')! as HTMLDivElement
     const apply_btn = document.getElementById('apply')! as HTMLButtonElement
     const resolutionSelect = document.getElementById('resolution')! as HTMLSelectElement
-    const renderScaleSelect = document.getElementById('renderScale')! as HTMLSelectElement
 
     apply_btn.addEventListener('click', async () => {
-      const resolutionValue = resolutionSelect.value
-      const renderScaleValue = parseFloat(renderScaleSelect.value)
+      const value = resolutionSelect.value
+      if (value) {
+        const width = value.split('x')[0]
+        const height = value.split('x')[1]
+        window.electron.ipcRenderer.send('electron:resize', parseInt(width), parseInt(height))
+        app_element.hidden = false
 
-      const width = resolutionValue.split('x')[0]
-      const height = resolutionValue.split('x')[1]
-      window.electron.ipcRenderer.send('electron:resize', parseInt(width), parseInt(height))
-      app_element.hidden = false
-
-      config_element.remove()
-      await this.runSnippets(story, {
-        scale: renderScaleValue
-      })
+        config_element.remove()
+        await this.runSnippets(story)
+      }
     })
     config_element.hidden = false
   }
