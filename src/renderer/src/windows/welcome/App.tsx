@@ -3,7 +3,7 @@ import LeftSidebar from '@windows/welcome/components/LeftSidebar'
 import { Route, Routes } from 'react-router'
 import HomePage from '@windows/welcome/pages/HomePage'
 
-function App(): React.JSX.Element {
+export default function App(): React.JSX.Element {
   return (
     <>
       <LeftSidebar />
@@ -17,5 +17,3 @@ function App(): React.JSX.Element {
     </>
   )
 }
-
-export default App

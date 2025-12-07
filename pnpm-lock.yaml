@@ -10,10 +10,10 @@ importers:
     dependencies:
       '@electron-toolkit/preload':
         specifier: ^3.0.2
-        version: 3.0.2(electron@37.4.0)
+        version: 3.0.2(electron@39.2.6)
       '@electron-toolkit/utils':
         specifier: ^4.0.0
-        version: 4.0.0(electron@37.4.0)
+        version: 4.0.0(electron@39.2.6)
     devDependencies:
       '@electron-toolkit/eslint-config-prettier':
         specifier: ^3.0.0
@@ -64,8 +64,8 @@ importers:
         specifier: ^1.11.18
         version: 1.11.18
       electron:
-        specifier: ^37.2.3
-        version: 37.4.0
+        specifier: ^39.2.6
+        version: 39.2.6
       electron-builder:
         specifier: ^25.1.8
         version: 25.1.8(electron-builder-squirrel-windows@25.1.8)
@@ -1721,8 +1721,8 @@ packages:
       '@swc/core':
         optional: true
 
-  electron@37.4.0:
-    resolution: {integrity: sha512-HhsSdWowE5ODOeWNc/323Ug2C52mq/TqNBG+4uMeOA3G2dMXNc/nfyi0RYu1rJEgiaJLEjtHveeZZaYRYFsFCQ==}
+  electron@39.2.6:
+    resolution: {integrity: sha512-dHBgTodWBZd+tL1Dt0PSh/CFLHeDkFCTKCTXu1dgPhlE9Z3k2zzlBQ9B2oW55CFsKanBDHiUomHJNw0XaSdQpA==}
     engines: {node: '>= 12.20.55'}
     hasBin: true
 
@@ -3610,17 +3610,17 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@electron-toolkit/preload@3.0.2(electron@37.4.0)':
+  '@electron-toolkit/preload@3.0.2(electron@39.2.6)':
     dependencies:
-      electron: 37.4.0
+      electron: 39.2.6
 
   '@electron-toolkit/tsconfig@1.0.1(@types/node@22.18.1)':
     dependencies:
       '@types/node': 22.18.1
 
-  '@electron-toolkit/utils@4.0.0(electron@37.4.0)':
+  '@electron-toolkit/utils@4.0.0(electron@39.2.6)':
     dependencies:
-      electron: 37.4.0
+      electron: 39.2.6
 
   '@electron/asar@3.4.1':
     dependencies:
@@ -5176,7 +5176,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@37.4.0:
+  electron@39.2.6:
     dependencies:
       '@electron/get': 2.0.3
       '@types/node': 22.18.1

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -20,19 +20,21 @@ export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreatePro
   const [projectName, setProjectName] = useState('')
   const [error, setError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleCreate = async () => {
     if (!projectName.trim()) {
       setError('请输入项目名称')
       return
     }
-
     setIsCreating(true)
     setError('')
-
     try {
       const result = await window.projectAPI.createProject(projectName.trim())
-
       if (result.success) {
         setProjectName('')
         setError('')
@@ -58,6 +60,8 @@ export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreatePro
       onOpenChange(newOpen)
     }
   }
+
+  if (!mounted) return null
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

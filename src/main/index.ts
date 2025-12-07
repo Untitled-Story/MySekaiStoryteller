@@ -1,42 +1,22 @@
-import { app, shell, BrowserWindow } from 'electron'
-import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { app, BrowserWindow } from 'electron'
+import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { registerProjectIPC } from '@/ipc/project'
-import { getIconPath } from '@/utils/getIconPath'
+import { createWindow } from '@/utils/createWindow'
 
-function createWelcomeWindow(): void {
-  // Create the browser window.
-  const welcomeWindow = new BrowserWindow({
+function createWelcomeWindow() {
+  return createWindow({
     width: 1000,
     height: 600,
-    useContentSize: true,
-    show: false,
-    autoHideMenuBar: true,
-    icon: getIconPath(),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
+    html: 'welcome.html'
   })
+}
 
-  welcomeWindow.setMenu(null)
-
-  welcomeWindow.on('ready-to-show', () => {
-    welcomeWindow.show()
+function createEditorWindow() {
+  return createWindow({
+    width: 1280,
+    height: 720,
+    html: 'editor.html'
   })
-
-  welcomeWindow.webContents.setWindowOpenHandler((details) => {
-    setTimeout(() => shell.openExternal(details.url))
-    return { action: 'deny' }
-  })
-
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    setTimeout(() => welcomeWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/welcome.html`))
-  } else {
-    setTimeout(() => welcomeWindow.loadFile(join(__dirname, '../renderer/welcome.html')))
-  }
 }
 
 // This method will be called when Electron has finished
@@ -56,9 +36,10 @@ app.whenReady().then(() => {
   registerProjectIPC()
 
   createWelcomeWindow()
+  createEditorWindow()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
+    // On macOS, it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWelcomeWindow()
   })
