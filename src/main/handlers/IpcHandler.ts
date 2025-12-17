@@ -50,25 +50,46 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
     }
   )
 
-  ipcMain.on('electron:on-error', (_event, err: Error) => {
-    logger.info('Handle IPC event: electron:on-error')
-    logger.error(err)
-    dialog
-      .showMessageBox({
-        type: 'error',
-        title: 'Render Error',
-        message: 'An error occurred in the rendering process.',
-        detail: `${err.message}\n\n${err.stack}`,
-        buttons: ['Reload', 'Exit']
-      })
-      .then((resp) => {
-        if (resp.response === 0) {
-          mainWindow.reload()
-        } else {
-          app.quit()
-        }
-      })
-  })
+  ipcMain.on(
+    'electron:on-error',
+    (
+      _event,
+      err: {
+        name: string
+        message: string
+        stack?: string
+        cause?: unknown
+      }
+    ) => {
+      logger.info('Handle IPC event: electron:on-error')
+      console.error(typeof err)
+
+      let detail: string
+      if (err.cause && err.stack) {
+        detail = `${err.stack}\n\nCause: \n${JSON.stringify(err.cause, undefined, 2).replace(
+          '\\n',
+          '\n'
+        )}`
+      } else if (err.stack) {
+        detail = err.stack
+      } else {
+        detail = `${err.name}: ${err.message}`
+      }
+
+      dialog
+        .showMessageBox({
+          type: 'error',
+          title: 'Render Error',
+          message: 'An error occurred.',
+          detail: detail,
+          buttons: ['Reload', 'Exit']
+        })
+        .then((resp) => {
+          if (resp.response === 0) mainWindow.reload()
+          else app.quit()
+        })
+    }
+  )
 
   ipcMain.on('electron:resize', (_event, width: number, height: number) => {
     logger.info('Handle IPC event: electron:resize')

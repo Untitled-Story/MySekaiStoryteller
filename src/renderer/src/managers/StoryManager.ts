@@ -2,7 +2,7 @@ import { SelectStoryResponse } from '../../../common/types/IpcResponse'
 import { SnippetData, StoryData } from '../../../common/types/Story'
 import { Live2DModelMap, TextureMap } from '../types/AssetMap'
 import AdvancedModel from '../model/AdvancedModel'
-import { Texture, Ticker } from 'pixi.js'
+import { Resource, Texture, Ticker } from 'pixi.js'
 import { Cubism2InternalModel } from 'pixi-live2d-display-advanced'
 
 export default class StoryManager {
@@ -20,12 +20,27 @@ export default class StoryManager {
     const result: Live2DModelMap[] = []
     for (const model_data of this.storyData.models) {
       const fullPath = `mss://load-file/${this.storyFolder}/models/${model_data.model}`
-      const model = await AdvancedModel.from(fullPath, {
-        ticker: Ticker.shared,
-        autoFocus: false,
-        autoHitTest: false,
-        breathDepth: 0
-      })
+
+      let model: AdvancedModel
+
+      try {
+        model = await AdvancedModel.from(fullPath, {
+          ticker: Ticker.shared,
+          autoFocus: false,
+          autoHitTest: false,
+          breathDepth: 0
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Network error.') {
+          throw new Error(
+            `Model ${model_data.id} could not be loaded.\nModel path: ${model_data.model}\n`,
+            {
+              cause: error
+            }
+          )
+        }
+        throw error
+      }
 
       if (model.internalModel instanceof Cubism2InternalModel) {
         model.internalModel.setAutoBlinkEnable(false)
@@ -46,7 +61,18 @@ export default class StoryManager {
 
     for (const image of this.storyData.images) {
       const imageUrl = `mss://load-file/${this.storyFolder}/images/${image.image}`
-      const texture = await Texture.fromURL(imageUrl)
+
+      let texture: Texture<Resource>
+
+      try {
+        texture = await Texture.fromURL(imageUrl)
+      } catch (error) {
+        if (error instanceof Event && error.type === 'error') {
+          throw new Error(`Image ${image.id} could not be loaded.\nImage path: ${image.image}\n`)
+        }
+
+        throw error
+      }
 
       result.push({
         id: image.id,
