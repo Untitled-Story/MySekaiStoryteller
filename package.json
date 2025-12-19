@@ -36,7 +36,7 @@
     "@types/node": "^24.10.1",
     "electron": "^39.2.3",
     "electron-builder": "^26.0.12",
-    "electron-vite": "^4.0.1",
+    "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
     "fontfaceobserver": "^2.3.0",
     "pixi-filters": "^5.3.0",
