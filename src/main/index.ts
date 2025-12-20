@@ -1,23 +1,8 @@
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { registerProjectIPC } from '@/ipc/project'
-import { createWindow } from '@/utils/createWindow'
-
-function createWelcomeWindow() {
-  return createWindow({
-    width: 1000,
-    height: 600,
-    html: 'welcome.html'
-  })
-}
-
-function createEditorWindow() {
-  return createWindow({
-    width: 1280,
-    height: 720,
-    html: 'editor.html'
-  })
-}
+import { registerEditorIPC } from '@/ipc/editor'
+import { windowManager } from '@/manager/WindowManager'
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -34,14 +19,14 @@ app.whenReady().then(() => {
   })
 
   registerProjectIPC()
+  registerEditorIPC()
 
-  createWelcomeWindow()
-  createEditorWindow()
+  windowManager.showWelcomeWindow()
 
   app.on('activate', function () {
     // On macOS, it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWelcomeWindow()
+    if (BrowserWindow.getAllWindows().length === 0) windowManager.showWelcomeWindow()
   })
 })
 

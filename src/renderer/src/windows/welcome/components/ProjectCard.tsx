@@ -41,6 +41,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
   const [newName, setNewName] = useState(metadata.title)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
+  const [openingEditor, setOpeningEditor] = useState(false)
   const [contextMenuKey, setContextMenuKey] = useState(0)
 
   const handleDelete = async () => {
@@ -82,6 +83,21 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
     }
   }
 
+  const handleOpenEditor = async () => {
+    if (openingEditor) return
+    setOpeningEditor(true)
+    try {
+      const result = await window.editorAPI.openProject(metadata.title)
+      if (!result.success) {
+        alert(result.error || '打开编辑器失败')
+      }
+    } catch (error) {
+      alert('打开编辑器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    } finally {
+      setOpeningEditor(false)
+    }
+  }
+
   return (
     <>
       <ContextMenu>
@@ -100,7 +116,13 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
               </div>
             </div>
             <div className="flex space-x-2">
-              <Button size="sm" variant="outline" className="flex-1 bg-transparent">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 bg-transparent"
+                onClick={handleOpenEditor}
+                disabled={openingEditor}
+              >
                 <Edit3 className="w-3 h-3 mr-1" />
                 编辑
               </Button>

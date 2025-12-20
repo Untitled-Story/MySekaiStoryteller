@@ -6,15 +6,18 @@ import { is } from '@electron-toolkit/utils'
 export function createWindow({
   width,
   height,
-  html
+  html,
+  title
 }: {
   width: number
   height: number
   html: string
+  title?: string
 }) {
   const window = new BrowserWindow({
     width,
     height,
+    title,
     useContentSize: true,
     show: false,
     autoHideMenuBar: true,
