@@ -41,6 +41,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
   const [newName, setNewName] = useState(metadata.title)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
+  const [contextMenuKey, setContextMenuKey] = useState(0)
 
   const handleDelete = async () => {
     setIsDeleting(true)
@@ -84,7 +85,10 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
   return (
     <>
       <ContextMenu>
-        <ContextMenuTrigger className="select-none">
+        <ContextMenuTrigger
+          className="select-none"
+          onContextMenu={() => setContextMenuKey((key) => key + 1)}
+        >
           <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1">
@@ -107,7 +111,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
             </div>
           </Card>
         </ContextMenuTrigger>
-        <ContextMenuContent className="font-medium select-none">
+        <ContextMenuContent key={contextMenuKey} className="font-medium select-none">
           <ContextMenuItem
             onClick={() => {
               setNewName(metadata.title)
