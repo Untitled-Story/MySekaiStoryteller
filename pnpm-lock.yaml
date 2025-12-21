@@ -61,8 +61,8 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0(@pixi/core@7.4.3)(@pixi/filter-alpha@7.4.3(@pixi/core@7.4.3))(@pixi/filter-blur@7.4.3(@pixi/core@7.4.3))
       pixi-live2d-display-advanced:
-        specifier: ^1.0.1
-        version: 1.0.1(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3)
+        specifier: ^1.1.0
+        version: 1.1.0(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3)
       pixi.js:
         specifier: ^7.4.3
         version: 7.4.3
@@ -2541,8 +2541,8 @@ packages:
   pixi-filters@5.3.0:
     resolution: {integrity: sha512-Dyop7gqgHl5Jc/Bm0QH0CQIDogdICp3hf2CihvgI4AvQebIotPY3yX2MZ/YUcE/7b2aIQQQ2CCt/uc2bBnLRAg==}
 
-  pixi-live2d-display-advanced@1.0.1:
-    resolution: {integrity: sha512-DzisgvCZQZy+ptPoK7ypRL3+RJBFhJBre0g20cTTjpTGZtVeKwUIevVkOVA+QoysxfDLcWVp3BA/tdwJhRh95g==}
+  pixi-live2d-display-advanced@1.1.0:
+    resolution: {integrity: sha512-P8eo9mrnbmfsxqWRzKRc20afuvnoK3tpOuwvSa0Gg9jkqiIKsOwPfPEyLnSoUseThgmAbdVk3SBAz+Do6CuFAA==}
     peerDependencies:
       '@pixi/sound': ^5.2.3
       pixi.js: ^7.0.0
@@ -5718,7 +5718,7 @@ snapshots:
       - '@pixi/filter-alpha'
       - '@pixi/filter-blur'
 
-  pixi-live2d-display-advanced@1.0.1(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3):
+  pixi-live2d-display-advanced@1.1.0(@pixi/sound@5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3))(pixi.js@7.4.3):
     dependencies:
       '@pixi/sound': 5.2.3(@pixi/assets@7.4.3(@pixi/core@7.4.3))(@pixi/core@7.4.3)
       pixi.js: 7.4.3
