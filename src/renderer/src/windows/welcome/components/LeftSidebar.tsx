@@ -1,8 +1,9 @@
+import type { JSX } from 'react'
 import { NavLink, useLocation } from 'react-router'
 import logo from '@renderer/assets/logo.png'
 import { BookOpen, Folder, Settings } from 'lucide-react'
 
-export default function LeftSidebar() {
+export default function LeftSidebar(): JSX.Element {
   const location = useLocation()
 
   const navItems = [
@@ -12,7 +13,7 @@ export default function LeftSidebar() {
   ]
 
   return (
-    <aside className="fixed top-0 left-0 h-full w-65 bg-[#FCFCFC] shadow-sm z-50 flex flex-col items-center py-4">
+    <aside className="fixed top-0 left-0 h-full w-65 border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm z-50 flex flex-col items-center py-4 transition-colors duration-300">
       <div className="flex items-center mb-5 select-none mt-4">
         <img src={logo} draggable={false} alt="Logo" className="w-7 h-7 object-contain mr-2" />
         <h1 className="text-lg font-bold">MySekaiStoryteller</h1>

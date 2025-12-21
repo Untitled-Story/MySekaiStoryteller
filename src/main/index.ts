@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { registerProjectIPC } from '@/ipc/project'
 import { registerEditorIPC } from '@/ipc/editor'
+import { registerSettingsIPC } from '@/ipc/settings'
 import { windowManager } from '@/manager/WindowManager'
 
 // This method will be called when Electron has finished
@@ -20,6 +21,7 @@ app.whenReady().then(() => {
 
   registerProjectIPC()
   registerEditorIPC()
+  registerSettingsIPC()
 
   windowManager.showWelcomeWindow()
 

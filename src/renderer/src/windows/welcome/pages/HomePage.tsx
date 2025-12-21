@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@renderer/components/ui/Button'
 import { Plus, RefreshCw } from 'lucide-react'
@@ -7,7 +8,7 @@ import { useProjectsMetadata } from '@windows/welcome/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@windows/welcome/hooks/useSpinOnce'
 import { ProjectMetadata } from '@common/types/ProjectMetadata'
 
-export default function HomePage() {
+export default function HomePage(): JSX.Element {
   const { projects, fetchProjects } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -39,7 +40,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="flex-1 px-8 overflow-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-white">
+      <div className="flex-1 px-8 overflow-auto scrollbar-thin scrollbar-thumb-gray-400 dark:scrollbar-thumb-[#2C2C2C] scrollbar-track-transparent">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-4 pb-4">
           {recentProjects.map((metadata) => (
             <ProjectCard
