@@ -1,64 +1,145 @@
-### MySekaiStoryteller Video Production and Distribution License Agreement
+# MySekaiStoryteller Video Creation and Distribution License Agreement
 
-This agreement is entered into between the MySekaiStoryteller project party (i.e., Untitled-Story Organization, hereinafter referred to as the "Project Party") and users who record videos using this project (hereinafter referred to as "Users"). By recording videos through this project, users are deemed to have fully read and agreed to all terms of this agreement.
+This Agreement is entered into by and between **MySekaiStoryteller Project** (i.e., _Untitled-Story Organization_, hereinafter referred to as the "Project Party")  
+and users who use this project to record videos (hereinafter referred to as "Users").
 
-#### I. Definitions
+By recording, generating, or exporting videos through this project, Users are deemed to have read and fully agreed to all terms of this Agreement.
 
-1. **Project-recorded Videos**: Refer to video files directly produced by users through the functions of the MySekaiStoryteller project (including but not limited to recording, generating, exporting, etc.), as well as derivative versions of such files after simple editing (such as trimming the duration, adding subtitles without changing the main content).
+---
 
-#### II. Intellectual Property Ownership
+## I. Definitions
 
-1. **Intellectual Property of the Project Itself**
+### 1. Project Recorded Videos
 
-   The source code of MySekaiStoryteller is open-sourced under The GNU General Public License v3.0 (see the LICENSE file in the project source code for details). Users may freely use, modify, and redistribute it in accordance with the terms of The GNU General Public License v3.0, but must comply with the requirements of the open-source agreement (such as retaining copyright notices, disclosing modified content, keeping derivative works open-source, etc.).
+Refers to video files directly produced by users through the functions of **MySekaiStoryteller** (including but not limited to recording, generating, exporting, etc.),  
+as well as derivative versions created through **simple edits that do not alter the main content**, including but not limited to:
 
-2. **Intellectual Property of Project-recorded Videos**
+- Trimming video length
+- Adding subtitles or simple visual edits
 
-   The copyright of project-recorded videos belongs to the recording user, but the exercise of this right is subject to the "Usage Restrictions" clause of this agreement. When distributing project-recorded videos, users must clearly indicate that the videos are produced by this project (see Section 2 of Chapter III for details).
+This does not include deep adaptations that substantially alter the core content, main subject, or nature of the video.
 
-3. **Limitation of Liability**
+---
 
-   The Project Party only provides the technical tools of MySekaiStoryteller and shall not be responsible for the authenticity, legality, or completeness of the content of the "project-recorded videos" produced by users. Any disputes arising from the video content (including but not limited to third-party claims, administrative penalties) shall be borne solely by the user and have no connection with the Project Party.
+## II. Intellectual Property Ownership
 
-#### III. Usage Restrictions on Project-recorded Videos
+### 1. Project's Intellectual Property
 
-Users must strictly abide by the following restrictions when using project-recorded videos:
+The source code of MySekaiStoryteller is open-sourced under the **GNU General Public License v3.0 (GPL v3)**.  
+Users may freely use, modify, and redistribute the project code according to the terms of GPL v3, but must comply with obligations including but not limited to:
 
-1. **Prohibition of Commercial Use**
+- Retaining the original copyright notice;
+- Open-sourcing any modified code;
+- Releasing derivative works under GPL v3.
 
-   Project-recorded videos shall not be used for any profit-making activities, including but not limited to:
-   - Being used as promotional materials for goods/services (such as advertisements, product promotion videos);
-   - Being disseminated in a paid form (such as member-only videos, paid course materials);
-   - Being licensed to third parties for commercial use (such as selling video usage rights to enterprises, institutions);
-   - Being used to drive traffic for commercial activities (such as being "fan-attracting materials" for self-media accounts that profit through advertising, product promotion, etc.);
-   - Being embedded in commercial websites/APPs as content to attract traffic.
+For details, refer to the `LICENSE` file in the project source code.
 
-2. **Attribution Requirements**
+---
 
-   Any public dissemination of project-recorded videos must clearly indicate the use of this project in a prominent position. Qualified behaviors include but are not limited to:
-   - Indicating "This video was recorded by MySekaiStoryteller" on the video details page;
-   - Mentioning "This video was recorded by MySekaiStoryteller" in the video;
-   - Adding the "MySekaiStoryteller" tag to the video tags.
+### 2. Intellectual Property of Project Recorded Videos
 
-     Other qualified contents are also acceptable and are not listed here.
+The copyright of project recorded videos belongs to **the user who actually recorded or produced the video**.
 
-3. **Restrictions on Dissemination Scope**  
-   Dissemination is only allowed in non-commercial scenarios (such as personal social sharing, non-profit community communication, etc.), and the disseminated content must not violate local laws and regulations.
+However, the exercise of this copyright by the user must comply with the **usage restrictions and attribution requirements** set forth in Chapter III of this Agreement.
 
-#### IV. User Commitments and Obligations
+---
 
-1. Users guarantee that the content of project-recorded videos is legal, does not infringe upon any third party's portrait rights, copyrights, reputation rights, etc., and does not violate local laws and regulations.
-2. If third-party claims arise due to illegal or infringing content of project-recorded videos, the user shall bear full responsibility. If losses are caused to the Project Party (such as being jointly claimed), the user shall fully compensate.
+### 3. Disclaimer of Liability
 
-#### V. Breach of Contract Liability
+The Project Party only provides the **technical tools and software functions of MySekaiStoryteller**,  
+and does not participate in or control the content of the project recorded videos created by users.
 
-If a user violates the "Usage Restrictions" or "Open-Source Software Compliance Clauses" of this agreement, the Project Party has the right to take the following measures:
+The Project Party does not encourage or support any creation that may infringe the intellectual property rights of third parties,  
+**regardless of whether the action involves paid commissions or any form of compensation**.  
+Users should verify the legality of all content before creating, distributing, or accepting commissions.
 
-- Require the user to immediately delete the infringing video and stop the infringing act;
-- Restrict or terminate the user's right to use this project;
-- Claim compensation for actual losses from the user (including but not limited to attorney fees, litigation fees).
+Any disputes arising from the content of project recorded videos, including but not limited to:
 
-#### VI. Effectiveness and Modification of the Agreement
+- Issues of authenticity or legality;
+- Infringement of third-party portrait rights, copyrights, reputation rights, or other rights;
+- Administrative penalties, civil claims, or other legal liabilities;
 
-1. This agreement shall take effect upon the user's first use of project-recorded videos and shall remain valid for a long time.
-2. The Project Party has the right to modify this agreement according to the needs of project development. The modified agreement will be publicly announced in the project's GitHub repository. The user's continued use of project-recorded videos shall be deemed as acceptance of the modified terms.
+shall be borne solely by the user, and the Project Party shall not be held responsible.
+
+---
+
+## III. Usage Restrictions of Project Recorded Videos
+
+### 1. Principle of Commercial Use and Permitted Situations
+
+In principle, project recorded videos **are for non-commercial use only** and may not be used in large-scale, platform-based, or profit-driven activities centered on the video itself, including but not limited to:
+
+- Commercial promotion such as advertisements, product placement, or branding;
+- Direct paid distribution such as premium content, membership-exclusive videos, or paid course materials;
+- Selling, licensing, or redistributing the videos as repeatable products;
+- Using videos as traffic content or revenue sources on commercial websites or apps;
+- Operating video accounts or content accounts with the primary goal of profit.
+
+---
+
+#### Permitted Exceptions
+
+Subject to the other terms of this Agreement, **users are allowed to use this project to provide paid video creation services for others**, such as:
+
+- Commissioned fan works
+- Story custom videos
+- Personal commemorative videos
+- Personalized custom works for non-commercial purposes
+
+The above activities must **meet all of the following conditions**:
+
+1. Fees are for the **creation and production service itself**, not for distribution, licensing, or resale of the video product;
+2. Videos are **custom-made per order** and do not constitute a material library, template product, or bulk-sale content;
+3. The video product is primarily for **personal enjoyment, non-commercial display, or fan use**;
+4. The video or its description must clearly indicate the use of **MySekaiStoryteller** (see Chapter III, Section 2);
+5. Users may not imply in any form that the Project Party authorizes, cooperates, endorses, or recognizes such paid creation.
+
+All other commercial uses not explicitly permitted above remain prohibited.
+
+---
+
+### 2. Attribution Requirements
+
+Any public distribution of project recorded videos must prominently indicate the use of this project, including but not limited to:
+
+- In the video description or details:
+  > "This video was recorded using MySekaiStoryteller"
+- Within the video through subtitles, voice, or other means;
+- Adding a **MySekaiStoryteller** tag or mark in the video metadata or description.
+
+---
+
+### 3. Scope of Distribution
+
+Project recorded videos may be shared and distributed in legal, non-commercial contexts.
+
+If a project recorded video involves paid commissions or custom creation, any subsequent distribution, usage scope, or compliance responsibility  
+shall be borne by the user or commissioner, and the Project Party shall not be held responsible.
+
+---
+
+## IV. User Representations and Obligations
+
+1. Users guarantee that the content of their project recorded videos is legal and does not infringe any third-party rights;
+2. Users guarantee that their actions comply with local laws, regulations, and relevant platform rules;
+3. Users shall bear all responsibility for any third-party claims or disputes arising from illegal or infringing content of project recorded videos;
+4. Users shall fully compensate the Project Party for any losses incurred (including but not limited to joint claims, litigation, attorney fees, etc.).
+
+---
+
+## V. Breach of Agreement
+
+If a user violates this Agreement, the Project Party may take measures including but not limited to:
+
+- Requiring the user to immediately stop the relevant actions and delete infringing content;
+- Limiting or terminating the user's access to this project;
+- Seeking compensation from the user for actual losses in accordance with the law (including reasonable enforcement costs).
+
+---
+
+## VI. Effectiveness and Amendment of the Agreement
+
+1. This Agreement shall take effect from the first use of the project recorded videos by the user and remain effective indefinitely;
+2. The Project Party reserves the right to amend this Agreement as necessary for project development;
+3. Amended terms will be published on the project's GitHub repository or other official channels;
+4. Continued use of project recorded videos by the user shall be deemed acceptance of the amended terms.
