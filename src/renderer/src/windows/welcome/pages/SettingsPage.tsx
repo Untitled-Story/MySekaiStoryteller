@@ -1,7 +1,8 @@
-import type { JSX, ReactNode } from 'react'
+import type { JSX } from 'react'
 import { Input } from '@renderer/components/ui/Input'
 import { Switch } from '@renderer/components/ui/Switch'
 import { useSettings } from '@renderer/hooks/useSettings'
+import { SettingRow } from '@windows/welcome/components/SettingRow'
 
 export default function SettingsPage(): JSX.Element {
   const {
@@ -21,11 +22,11 @@ export default function SettingsPage(): JSX.Element {
       </div>
 
       <div className="w-full max-w-2xl divide-y divide-border">
-        <SettingRow title="深浅模式" description="在跟随系统关闭时，手动切换深色或浅色。">
+        <SettingRow title="深色模式" description="在跟随系统关闭时，手动切换深色或浅色。">
           <Switch
             checked={appearance.manualTheme === 'dark'}
             disabled={appearance.followSystem}
-            aria-label="切换深浅模式"
+            aria-label="切换深色模式"
             onCheckedChange={(checked) => setManualTheme(checked ? 'dark' : 'light')}
           />
         </SettingRow>
@@ -79,26 +80,6 @@ export default function SettingsPage(): JSX.Element {
           />
         </SettingRow>
       </div>
-    </div>
-  )
-}
-
-function SettingRow({
-  title,
-  description,
-  children
-}: {
-  title: string
-  description: string
-  children: ReactNode
-}): JSX.Element {
-  return (
-    <div className="flex flex-col gap-2 py-5 md:flex-row md:items-center md:justify-between">
-      <div>
-        <p className="font-medium">{title}</p>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-      <div className="md:pl-6">{children}</div>
     </div>
   )
 }
