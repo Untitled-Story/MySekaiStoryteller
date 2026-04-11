@@ -1,12 +1,11 @@
 // noinspection JSUnusedGlobalSymbols
 
 import { resolve } from 'path'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
         '@': resolve('src/main'),
@@ -16,7 +15,6 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
         '@': resolve('src/main'),
@@ -40,7 +38,8 @@ export default defineConfig({
         '@preload': resolve('src/preload'),
         '@renderer': resolve('src/renderer/src'),
         '@windows': resolve('src/renderer/src/windows'),
-        '@common': resolve('src/common')
+        '@common': resolve('src/common'),
+        '@dev': resolve('src/dev')
       }
     },
     plugins: [react()]
