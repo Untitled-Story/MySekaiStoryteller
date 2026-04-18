@@ -32,7 +32,7 @@ export default function SettingsPage(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-y-auto px-8 py-8 select-none scrollbar-thin scrollbar-thumb-gray-400 dark:scrollbar-thumb-[#2C2C2C] scrollbar-track-transparent">
+    <div className="flex flex-col h-screen overflow-y-auto px-8 py-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
       <div className="w-full max-w-2xl space-y-1 mb-2">
         <h2 className="text-2xl font-semibold leading-tight">数据存储</h2>
         <p className="text-sm text-muted-foreground">管理项目数据的保存位置。</p>
@@ -79,7 +79,7 @@ export default function SettingsPage(): JSX.Element {
       <div className="w-full max-w-2xl divide-y divide-border">
         <SettingRow
           title="内存大小 (MB)"
-          description="放映时使用的内存大小，越大支持的模型数越多，也会越流畅。"
+          description="放映时使用的内存大小，越大支持的模型数越多，也会越流畅。最小 64 MB。"
         >
           <Input
             type="number"
@@ -96,7 +96,7 @@ export default function SettingsPage(): JSX.Element {
           />
         </SettingRow>
 
-        <SettingRow title="渲染精度" description="放映时的分辨率，数值越大越清晰，资源消耗越大。">
+        <SettingRow title="渲染精度" description="放映时的分辨率，数值越大越清晰，资源消耗越大。推荐 0.5 ~ 2.0。">
           <Input
             type="number"
             step={0.1}

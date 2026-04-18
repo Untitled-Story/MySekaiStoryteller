@@ -26,34 +26,15 @@ export default function LeftSidebar(): JSX.Element {
               key={to}
               to={to}
               draggable={false}
-              className="relative flex items-center w-full px-3 py-2 rounded-md overflow-hidden group"
+              aria-current={isActive ? 'page' : undefined}
+              className={`relative flex items-center w-full px-3 py-2 rounded-md transition-colors duration-200 ${
+                isActive
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-sidebar-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground'
+              }`}
             >
-              <span
-                className={`absolute inset-0 rounded-md ${
-                  isActive
-                    ? 'bg-sidebar-accent opacity-100'
-                    : 'bg-sidebar-accent opacity-0 transition-opacity duration-400'
-                }`}
-              />
-
-              <span className="absolute inset-0 rounded-md bg-sidebar-accent opacity-0 group-hover:opacity-40 transition-opacity duration-200" />
-
-              <Icon
-                className={`w-4 h-4 mr-3 relative z-10 transition-colors duration-300 ${
-                  isActive
-                    ? 'text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground'
-                }`}
-              />
-              <span
-                className={`relative z-10 transition-colors duration-300 ${
-                  isActive
-                    ? 'text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground'
-                }`}
-              >
-                {label}
-              </span>
+              <Icon className="w-4 h-4 mr-3" />
+              <span>{label}</span>
             </NavLink>
           )
         })}

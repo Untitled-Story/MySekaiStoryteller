@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import LeftSidebar from '@/windows/main/components/LeftSidebar'
 import { Route, Routes } from 'react-router'
 import HomePage from '@/windows/main/pages/HomePage'
+import ProjectsPage from '@/windows/main/pages/ProjectsPage'
 import SettingsPage from '@/windows/main/pages/SettingsPage'
 import { SettingsProvider } from '@/providers/SettingsProvider'
 import { useSettings } from '@/hooks/useSettings'
@@ -45,7 +46,7 @@ function AppContent(): React.JSX.Element {
       <main className="fixed top-0 left-65 right-0 bottom-0 overflow-auto">
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/projects" element={<text>Projects</text>} />
+          <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>

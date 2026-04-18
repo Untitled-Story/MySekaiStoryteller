@@ -100,7 +100,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
               <div className="flex-1">
                 <h4 className="font-medium text-base mb-1">{metadata.title}</h4>
                 <div className="flex items-center text-sm text-muted-foreground">
-                  <Clock className="w-3 h-3 mr-1" />
+                  <Clock className="w-3.5 h-3.5 mr-1" />
                   <span>{timeAgo(metadata.lastModified)}</span>
                 </div>
               </div>
@@ -113,11 +113,11 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
                 onClick={handleOpenEditor}
                 disabled={openingEditor}
               >
-                <Edit3 className="w-3 h-3 mr-1" />
+                <Edit3 className="w-3.5 h-3.5 mr-1" />
                 编辑
               </Button>
               <Button size="sm" variant="outline" className="flex-1 bg-transparent">
-                <Play className="w-3 h-3 mr-1" />
+                <Play className="w-3.5 h-3.5 mr-1" />
                 播放
               </Button>
             </div>
@@ -153,7 +153,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
             <AlertDialogAction
               onClick={handleDelete}
               disabled={isDeleting}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? '删除中...' : '删除'}
             </AlertDialogAction>
