@@ -1,0 +1,24 @@
+[package]
+name = "my-sekai-storyteller"
+version = "1.0.0"
+description = "A Live2D reading tool in Project SEKAI style"
+authors = ["GuangChen2333"]
+edition = "2021"
+
+[lib]
+name = "my_sekai_storyteller_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+http = "1"
+mime_guess = "2"
+percent-encoding = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"

@@ -1,0 +1,356 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Untitled-Story/MySekaiStoryteller/refs/heads/master/sekai-story.schema.json",
+  "title": "6",
+  "models": [
+    {
+      "id": 0,
+      "model": "21miku_band_3.0_f_t01/21miku_band_3.0_f_t01.model3.json",
+      "normal_scale": 2.1,
+      "small_scale": 1.8,
+      "anchor": 0.5
+    },
+    {
+      "id": 1,
+      "model": "01ichika_normal_3.0_f_t04/01ichika_normal_3.0_f_t04.model3.json",
+      "normal_scale": 2.1,
+      "small_scale": 1.8,
+      "anchor": 0.5
+    }
+  ],
+  "images": [
+    {
+      "id": 0,
+      "image": "Bg_area_5.png"
+    },
+    {
+      "id": 1,
+      "image": "Classroom_Sekai_(evening).png"
+    }
+  ],
+  "snippets": [
+    {
+      "type": "ChangeLayoutMode",
+      "wait": true,
+      "delay": 0.0,
+      "data": {
+        "mode": "Normal"
+      }
+    },
+    {
+      "type": "ChangeBackgroundImage",
+      "wait": true,
+      "delay": 0.0,
+      "data": {
+        "imageId": 1
+      }
+    },
+    {
+      "type": "Telop",
+      "wait": true,
+      "delay": 1.0,
+      "data": {
+        "content": "教室世界"
+      }
+    },
+    {
+      "type": "LayoutAppear",
+      "wait": true,
+      "delay": 1.0,
+      "data": {
+        "modelId": 1,
+        "from": {
+          "side": "Center",
+          "offset": 1.0
+        },
+        "to": {
+          "side": "Center",
+          "offset": 1.0
+        },
+        "motion": "w-adult-think02",
+        "facial": "face_smallmouth_01",
+        "facialFirst": true,
+        "moveSpeed": "Normal",
+        "hologram": false
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": true,
+      "delay": 1.5,
+      "data": {
+        "speaker": "一歌",
+        "content": "Miku，你知道42号混凝土拌意大利面吗？",
+        "modelId": 1,
+        "voice": ""
+      }
+    },
+    {
+      "type": "LayoutClear",
+      "wait": true,
+      "delay": 6.0,
+      "data": {
+        "modelId": 1,
+        "from": {
+          "side": "Center",
+          "offset": 0.5
+        },
+        "to": {
+          "side": "Center",
+          "offset": 0.5
+        },
+        "moveSpeed": "Normal"
+      }
+    },
+    {
+      "type": "LayoutAppear",
+      "wait": true,
+      "delay": 0.0,
+      "data": {
+        "modelId": 1,
+        "from": {
+          "side": "Left",
+          "offset": 0.0
+        },
+        "to": {
+          "side": "Left",
+          "offset": 0.0
+        },
+        "motion": "w-adult-think02",
+        "facial": "face_smallmouth_01",
+        "facialFirst": true,
+        "moveSpeed": "Normal",
+        "hologram": false
+      }
+    },
+    {
+      "type": "LayoutAppear",
+      "wait": true,
+      "delay": 0.5,
+      "data": {
+        "modelId": 0,
+        "from": {
+          "side": "Right",
+          "offset": 0.0
+        },
+        "to": {
+          "side": "Right",
+          "offset": 0.0
+        },
+        "motion": "w-cool-forward01",
+        "facial": "face_band_surprise_01",
+        "facialFirst": true,
+        "moveSpeed": "Normal",
+        "hologram": false
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": true,
+      "delay": 2.0,
+      "data": {
+        "speaker": "MIKU",
+        "content": "什……？",
+        "modelId": 0,
+        "voice": ""
+      }
+    },
+    {
+      "type": "HideTalk",
+      "wait": true,
+      "delay": 1.5
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 0.0,
+      "data": {
+        "modelId": 1,
+        "motion": "w-adult-think01",
+        "facial": "face_smile_01",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": false,
+      "delay": 0.0,
+      "data": {
+        "speaker": "一歌",
+        "content": "这是互联网上的一个梗哦。是不是觉得很荒诞？这样反而有种喜剧效果。",
+        "modelId": 1,
+        "voice": ""
+      }
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 5.0,
+      "data": {
+        "modelId": 0,
+        "motion": "w-cool-sigh02",
+        "facial": "face_band_smile_05",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": true,
+      "delay": 1.5,
+      "data": {
+        "speaker": "MIKU",
+        "content": "这样啊……我以为你在说某种古老的暗黑食谱……",
+        "modelId": 0,
+        "voice": ""
+      }
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 5.0,
+      "data": {
+        "modelId": 1,
+        "motion": "w-cutenormal-tilthead0705",
+        "facial": "face_ncsmile_03",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": false,
+      "delay": 0.0,
+      "data": {
+        "speaker": "一歌",
+        "content": "毕竟不会真有人吃这种东西吧。",
+        "modelId": 1,
+        "voice": ""
+      }
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 3.0,
+      "data": {
+        "modelId": 0,
+        "motion": "w-cool-sigh02",
+        "facial": "face_band_smile_05",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": false,
+      "delay": 0.0,
+      "data": {
+        "speaker": "MIKU",
+        "content": "是啊，光代入一下就很恐怖。",
+        "modelId": 0,
+        "voice": ""
+      }
+    },
+    {
+      "type": "HideTalk",
+      "wait": true,
+      "delay": 3.5
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 0.5,
+      "data": {
+        "modelId": 1,
+        "motion": "w-cute-tilthead02",
+        "facial": "face_smallmouth_01",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": false,
+      "delay": 0.0,
+      "data": {
+        "speaker": "一歌",
+        "content": "这么说来，难道miku喜欢吃意面吗？",
+        "modelId": 1,
+        "voice": ""
+      }
+    },
+    {
+      "type": "HideTalk",
+      "wait": true,
+      "delay": 4.5
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 0.0,
+      "data": {
+        "modelId": 0,
+        "motion": "w-cute-glad04",
+        "facial": "face_band_smile_03",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": false,
+      "delay": 0.0,
+      "data": {
+        "speaker": "MIKU",
+        "content": "没有，我代入的是炒面面包。",
+        "modelId": 0,
+        "voice": ""
+      }
+    },
+    {
+      "type": "HideTalk",
+      "wait": true,
+      "delay": 4.0
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 0.0,
+      "data": {
+        "modelId": 1,
+        "motion": "w-cool-shakehead01",
+        "facial": "face_surprise_02",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Motion",
+      "wait": true,
+      "delay": 0.1,
+      "data": {
+        "modelId": 1,
+        "motion": "w-cute-shakehead02",
+        "facial": "face_smile_04",
+        "facialFirst": true
+      }
+    },
+    {
+      "type": "Talk",
+      "wait": false,
+      "delay": 0.0,
+      "data": {
+        "speaker": "一歌",
+        "content": "还是……不要想象那么暗黑的事情了……",
+        "modelId": 1,
+        "voice": ""
+      }
+    },
+    {
+      "type": "HideTalk",
+      "wait": true,
+      "delay": 4.5
+    },
+    {
+      "type": "BlackOut",
+      "wait": true,
+      "delay": 2.0,
+      "data": {
+        "duration": 500
+      }
+    }
+  ]
+}

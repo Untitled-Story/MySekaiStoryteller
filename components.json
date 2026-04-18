@@ -5,16 +5,16 @@
   "tsx": true,
   "tailwind": {
     "config": "",
-    "css": "src/renderer/src/assets/base.css",
+    "css": "src/assets/base.css",
     "baseColor": "neutral",
     "cssVariables": true,
     "prefix": ""
   },
   "aliases": {
-    "ui": "@renderer/components/ui",
-    "utils": "@renderer/utils/StyleUtils",
-    "components": "@renderer/components",
-    "lib": "@renderer/utils"
+    "ui": "@/components/ui",
+    "utils": "@/lib/style",
+    "components": "@/components",
+    "lib": "@/lib"
   },
   "iconLibrary": "lucide"
 }

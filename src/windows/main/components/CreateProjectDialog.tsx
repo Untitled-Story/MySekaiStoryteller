@@ -1,0 +1,105 @@
+import { useState, useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/Dialog'
+import { Input } from '@/components/ui/Input'
+import { Button } from '@/components/ui/Button'
+
+interface CreateProjectDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess: () => void
+}
+
+export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreateProjectDialogProps) {
+  const [projectName, setProjectName] = useState('')
+  const [error, setError] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const handleCreate = async () => {
+    if (!projectName.trim()) {
+      setError('请输入项目名称')
+      return
+    }
+    setIsCreating(true)
+    setError('')
+    try {
+      await invoke('create_project', { projectName: projectName.trim() })
+      setProjectName('')
+      setError('')
+      onOpenChange(false)
+      onSuccess()
+    } catch (err) {
+      setError('创建项目时发生错误')
+      console.error('Failed to create project:', err)
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!isCreating) {
+      if (!newOpen) {
+        setProjectName('')
+        setError('')
+      }
+      onOpenChange(newOpen)
+    }
+  }
+
+  if (!mounted) return null
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="select-none">
+        <DialogHeader>
+          <DialogTitle>新建项目</DialogTitle>
+          <DialogDescription>为您的新项目输入一个名称</DialogDescription>
+        </DialogHeader>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!isCreating) setTimeout(() => handleCreate())
+          }}
+        >
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Input
+                placeholder="项目名称"
+                value={projectName}
+                onChange={(e) => {
+                  setProjectName(e.target.value)
+                  setError('')
+                }}
+                disabled={isCreating}
+                autoFocus
+              />
+              {error && <p className="text-sm text-red-500">{error}</p>}
+            </div>
+          </div>
+        </form>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => handleOpenChange(false)} disabled={isCreating}>
+            取消
+          </Button>
+          <Button onClick={handleCreate} disabled={isCreating}>
+            {isCreating ? '创建中...' : '创建'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
