@@ -54,6 +54,13 @@ interface ProcessResult {
   stderr: string
 }
 
+interface VideoEncoderConfig {
+  name: string
+  label: string
+  globalArgs: string[]
+  outputArgs: string[]
+}
+
 const frameExportSession: FrameExportSession = {
   outputDir: null,
   storyPath: null,
@@ -62,6 +69,8 @@ const frameExportSession: FrameExportSession = {
   width: 0,
   height: 0
 }
+
+let encoderProbePromise: Promise<Set<string>> | null = null
 
 function sanitizeFileName(name: string): string {
   const invalidCharacters = '<>:"/\\|?*'
@@ -105,6 +114,83 @@ function resolveFfmpegExecutable(): string {
 
 function resolveFfprobeExecutable(): string {
   return 'ffprobe'
+}
+
+async function probeFfmpegEncoders(): Promise<Set<string>> {
+  if (!encoderProbePromise) {
+    encoderProbePromise = runProcess(resolveFfmpegExecutable(), ['-hide_banner', '-encoders']).then(
+      ({ stdout, stderr }) => {
+        const output = `${stdout}\n${stderr}`.split('------').at(-1) || ''
+        const encoders = new Set<string>()
+        const encoderPattern = /^\s*[VAS.][F.][S.][X.][B.][D.]\s+([^\s]+)/gmu
+        let match: RegExpExecArray | null
+
+        while ((match = encoderPattern.exec(output)) !== null) {
+          encoders.add(match[1])
+        }
+
+        return encoders
+      }
+    )
+  }
+
+  return encoderProbePromise
+}
+
+function hasVaapiDevice(): boolean {
+  return fs.existsSync('/dev/dri/renderD128')
+}
+
+function selectVideoEncoder(encoders: Set<string>): VideoEncoderConfig {
+  const software: VideoEncoderConfig = {
+    name: 'libx264',
+    label: 'Software H.264 (libx264)',
+    globalArgs: [],
+    outputArgs: ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium']
+  }
+
+  const candidates: VideoEncoderConfig[] = []
+
+  if (process.platform === 'darwin') {
+    candidates.push({
+      name: 'h264_videotoolbox',
+      label: 'Hardware H.264 (VideoToolbox)',
+      globalArgs: [],
+      outputArgs: ['-c:v', 'h264_videotoolbox', '-pix_fmt', 'yuv420p', '-b:v', '12000k']
+    })
+  }
+
+  candidates.push(
+    {
+      name: 'h264_nvenc',
+      label: 'Hardware H.264 (NVIDIA NVENC)',
+      globalArgs: [],
+      outputArgs: ['-c:v', 'h264_nvenc', '-pix_fmt', 'yuv420p', '-preset', 'medium', '-cq', '18']
+    },
+    {
+      name: 'h264_qsv',
+      label: 'Hardware H.264 (Intel Quick Sync)',
+      globalArgs: [],
+      outputArgs: ['-c:v', 'h264_qsv', '-pix_fmt', 'nv12', '-global_quality', '18']
+    },
+    {
+      name: 'h264_amf',
+      label: 'Hardware H.264 (AMD AMF)',
+      globalArgs: [],
+      outputArgs: ['-c:v', 'h264_amf', '-pix_fmt', 'yuv420p', '-quality', 'quality', '-qp_i', '18']
+    }
+  )
+
+  if (process.platform === 'linux' && hasVaapiDevice()) {
+    candidates.push({
+      name: 'h264_vaapi',
+      label: 'Hardware H.264 (VAAPI)',
+      globalArgs: ['-vaapi_device', '/dev/dri/renderD128'],
+      outputArgs: ['-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-qp', '20']
+    })
+  }
+
+  return candidates.find((candidate) => encoders.has(candidate.name)) ?? software
 }
 
 function runProcess(command: string, args: string[]): Promise<ProcessResult> {
@@ -196,7 +282,8 @@ function sendFrameExportProgress(
 function buildFfmpegArgs(
   session: FrameExportSession,
   payload: FinishFrameExportPayload,
-  videoPath: string
+  videoPath: string,
+  encoder: VideoEncoderConfig
 ): string[] {
   if (!session.outputDir || !session.storyFolder) {
     throw new Error('Frame export session has not been started.')
@@ -209,6 +296,7 @@ function buildFfmpegArgs(
   const args = [
     '-y',
     '-hide_banner',
+    ...encoder.globalArgs,
     '-loglevel',
     'error',
     '-progress',
@@ -260,31 +348,28 @@ function buildFfmpegArgs(
     )
   }
 
-  args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium', videoPath)
+  args.push(...encoder.outputArgs, videoPath)
 
   return args
 }
 
-function mergeFramesWithFfmpeg(
+function runFfmpegMerge(
   event: IpcMainInvokeEvent,
-  session: FrameExportSession,
-  payload: FinishFrameExportPayload
+  args: string[],
+  totalDurationMs: number,
+  videoPath: string,
+  encoder: VideoEncoderConfig
 ): Promise<string> {
-  if (!session.outputDir) {
-    throw new Error('Frame export session has not been started.')
-  }
-
-  const videoPath = path.join(session.outputDir, 'output.mp4')
-  const args = buildFfmpegArgs(session, payload, videoPath)
-  const totalDurationMs = Math.max(
-    payload.totalDurationMs,
-    (payload.frameCount / payload.fps) * 1000
-  )
-
   return new Promise((resolve, reject) => {
     const child = spawn(resolveFfmpegExecutable(), args, { windowsHide: true })
     let stderr = ''
     let progressBuffer = ''
+
+    sendFrameExportProgress(event, {
+      phase: 'merging',
+      percent: 0,
+      message: `Merging video with ${encoder.label}`
+    })
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8')
@@ -302,7 +387,7 @@ function mergeFramesWithFfmpeg(
         sendFrameExportProgress(event, {
           phase: 'merging',
           percent,
-          message: `Merging video ${(percent * 100).toFixed(1)}%`
+          message: `Merging video with ${encoder.label} ${(percent * 100).toFixed(1)}%`
         })
       }
     })
@@ -321,7 +406,7 @@ function mergeFramesWithFfmpeg(
         sendFrameExportProgress(event, {
           phase: 'merging',
           percent: 1,
-          message: 'Video merge complete.'
+          message: `Video merge complete with ${encoder.label}.`
         })
         resolve(videoPath)
         return
@@ -330,6 +415,41 @@ function mergeFramesWithFfmpeg(
       reject(new Error(`ffmpeg exited with code ${code}.\n${stderr}`))
     })
   })
+}
+
+async function mergeFramesWithFfmpeg(
+  event: IpcMainInvokeEvent,
+  session: FrameExportSession,
+  payload: FinishFrameExportPayload
+): Promise<string> {
+  if (!session.outputDir) {
+    throw new Error('Frame export session has not been started.')
+  }
+
+  const videoPath = path.join(session.outputDir, 'output.mp4')
+  const totalDurationMs = Math.max(
+    payload.totalDurationMs,
+    (payload.frameCount / payload.fps) * 1000
+  )
+  const encoders = await probeFfmpegEncoders()
+  const selectedEncoder = selectVideoEncoder(encoders)
+  const fallbackEncoder = selectVideoEncoder(new Set(['libx264']))
+
+  try {
+    const args = buildFfmpegArgs(session, payload, videoPath, selectedEncoder)
+    return await runFfmpegMerge(event, args, totalDurationMs, videoPath, selectedEncoder)
+  } catch (error) {
+    if (selectedEncoder.name === fallbackEncoder.name) throw error
+
+    sendFrameExportProgress(event, {
+      phase: 'merging',
+      percent: 0,
+      message: `${selectedEncoder.label} failed, falling back to ${fallbackEncoder.label}.`
+    })
+
+    const args = buildFfmpegArgs(session, payload, videoPath, fallbackEncoder)
+    return runFfmpegMerge(event, args, totalDurationMs, videoPath, fallbackEncoder)
+  }
 }
 
 async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
