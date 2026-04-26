@@ -145,7 +145,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除项目 "{metadata.title}" 吗？此操作无法撤销。
+              确定要删除项目「{metadata.title}」吗？此操作无法撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

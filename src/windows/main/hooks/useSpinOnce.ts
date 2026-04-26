@@ -3,7 +3,7 @@ import { useState, useCallback } from 'react'
 export function useSpinOnce() {
   const [spinning, setSpinning] = useState(false)
 
-  const spin = useCallback(async (callable: () => Promise<any>) => {
+  const spin = useCallback(async (callable: () => Promise<unknown>) => {
     setSpinning(true)
     try {
       await callable()
