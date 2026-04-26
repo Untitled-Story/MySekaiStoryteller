@@ -38,7 +38,9 @@ interface StartFrameExportResponse {
 
 interface RenderProgressState {
   phase: RenderProgressPhase
-  fps?: number
+  targetFps?: number
+  renderFps?: number
+  speed?: number
   frameIndex?: number
   totalFrameCount?: number
   virtualTimeMs?: number
@@ -80,6 +82,7 @@ export class App {
   private estimatedRenderDurationMs = 0
   private estimatedRenderFrameCount = 0
   private renderStartedAtMs = 0
+  private renderFinishedNotificationSent = false
 
   private async selectStoryFile(): Promise<SelectStoryResponse> {
     const selectResult: SelectStoryResponse = await window.electron.ipcRenderer.invoke(
@@ -339,6 +342,72 @@ export class App {
     element.hidden = false
   }
 
+  private notifyRenderFinished(): void {
+    document.title = '录制完成 - MySekaiStoryteller'
+
+    if (!this.renderFinishedNotificationSent) {
+      this.renderFinishedNotificationSent = true
+
+      try {
+        window.electron.ipcRenderer.send('electron:render-finished')
+      } catch (error) {
+        this.logger.warn('Failed to notify main process about render finished.', error)
+      }
+
+      this.setupRenderFinishedNotification()
+    }
+  }
+
+  private notifyRenderFailed(): void {
+    document.title = '录制出错 - MySekaiStoryteller'
+  }
+
+  private setupRenderFinishedNotification(): void {
+    const resetTitle = (): void => {
+      if (document.title === '录制完成 - MySekaiStoryteller') {
+        document.title = 'MySekaiStoryteller'
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        resetTitle()
+      }
+    })
+
+    window.addEventListener('focus', resetTitle)
+
+    if (Notification.permission === 'granted') {
+      const notification = new Notification('MySekaiStoryteller', { body: '录制完成' })
+
+      notification.onclick = (): void => {
+        try {
+          window.electron.ipcRenderer.send('electron:render-finished')
+        } catch (error) {
+          this.logger.warn('Failed to focus main window from notification click.', error)
+        }
+
+        resetTitle()
+      }
+    } else if (Notification.permission === 'default') {
+      Notification.requestPermission().then((permission) => {
+        if (permission === 'granted') {
+          const notification = new Notification('MySekaiStoryteller', { body: '录制完成' })
+
+          notification.onclick = (): void => {
+            try {
+              window.electron.ipcRenderer.send('electron:render-finished')
+            } catch (error) {
+              this.logger.warn('Failed to focus main window from notification click.', error)
+            }
+
+            resetTitle()
+          }
+        }
+      })
+    }
+  }
+
   private updateRenderProgress(state: RenderProgressState): void {
     const phaseElement = document.getElementById('renderProgressPhase')! as HTMLParagraphElement
     const fpsElement = document.getElementById('renderProgressFps')! as HTMLParagraphElement
@@ -352,7 +421,7 @@ export class App {
     const outputElement = document.getElementById('renderProgressOutput')! as HTMLParagraphElement
     const ffmpegElement = document.getElementById('renderProgressFfmpeg')! as HTMLParagraphElement
 
-    const fps = state.fps ?? this.renderFps
+    const targetFps = state.targetFps ?? this.renderFps
     const frameIndex = state.frameIndex ?? 0
     const totalFrameCount = state.totalFrameCount ?? this.estimatedRenderFrameCount
     const virtualTimeMs = state.virtualTimeMs ?? 0
@@ -377,9 +446,12 @@ export class App {
       (frameIndex > 0 && displayTotalFrameCount > 0
         ? (elapsedRenderMs / frameIndex) * Math.max(displayTotalFrameCount - frameIndex, 0)
         : null)
+    const actualRenderFps =
+      state.renderFps ?? (elapsedRenderMs > 0 ? frameIndex / (elapsedRenderMs / 1000) : 0)
+    const speed = state.speed ?? (targetFps > 0 ? actualRenderFps / targetFps : 0)
 
     phaseElement.textContent = `Phase: ${state.phase}${state.message ? ` - ${state.message}` : ''}`
-    fpsElement.textContent = `FPS: ${fps}`
+    fpsElement.textContent = `FPS: ${actualRenderFps.toFixed(2)} (${speed.toFixed(2)}x)`
     frameElement.textContent = `Frames: ${frameIndex} / ${displayTotalFrameCount}`
     timeElement.textContent = `Time: ${this.formatSeconds(virtualTimeMs)} / ${this.formatSeconds(
       displayTotalDurationMs
@@ -393,6 +465,18 @@ export class App {
     ffmpegElement.textContent = `FFmpeg: ${
       ffmpegPercent === undefined ? '-' : `${(ffmpegPercent * 100).toFixed(1)}%`
     }`
+
+    const progressElement = document.getElementById('renderProgress')! as HTMLDivElement
+
+    progressElement.classList.remove('completed', 'error')
+
+    if (state.phase === 'done') {
+      progressElement.classList.add('completed')
+      this.notifyRenderFinished()
+    } else if (state.phase === 'error') {
+      progressElement.classList.add('error')
+      this.notifyRenderFailed()
+    }
   }
 
   private registerFrameExportProgressListener(): void {
@@ -434,6 +518,7 @@ export class App {
     this.renderAudioEvents = []
     this.currentSnippetIndex = 0
     this.totalSnippetCount = this.storyManager.snippets.length
+    this.renderFinishedNotificationSent = false
     this.updateRenderProgress({ phase: 'preparing', message: 'Preparing render...' })
 
     await this.prepareRenderVoiceDurations()
@@ -445,7 +530,7 @@ export class App {
     this.renderStartedAtMs = performance.now()
     this.updateRenderProgress({
       phase: 'preparing',
-      fps,
+      targetFps: fps,
       totalFrameCount: this.estimatedRenderFrameCount,
       totalDurationMs: this.estimatedRenderDurationMs,
       message: 'Preparing ticker...'
@@ -460,7 +545,7 @@ export class App {
     const startResult = (await window.electron.ipcRenderer.invoke('electron:start-frame-export', {
       storyPath: this.storyManager.storyJsonPath,
       outputRoot: this.exportRootDirectory,
-      fps,
+      targetFps: fps,
       width: this.pixiApplication.screen.width,
       height: this.pixiApplication.screen.height
     })) as StartFrameExportResponse
@@ -473,7 +558,7 @@ export class App {
     this.logger.info(`Frame export started: ${this.exportOutputDirectory}`)
     this.updateRenderProgress({
       phase: 'rendering',
-      fps,
+      targetFps: fps,
       totalFrameCount: this.estimatedRenderFrameCount,
       totalDurationMs: this.estimatedRenderDurationMs,
       outputDir: this.exportOutputDirectory,
@@ -497,7 +582,7 @@ export class App {
       if (frameIndex % 10 === 0) {
         this.updateRenderProgress({
           phase: 'rendering',
-          fps,
+          targetFps: fps,
           frameIndex: frameIndex + 1,
           totalFrameCount: this.estimatedRenderFrameCount,
           virtualTimeMs: virtualTime,
@@ -520,7 +605,7 @@ export class App {
 
     this.updateRenderProgress({
       phase: 'merging',
-      fps,
+      targetFps: fps,
       frameIndex,
       totalFrameCount: frameIndex,
       virtualTimeMs: frameIndex * frameMs,
@@ -534,7 +619,7 @@ export class App {
 
     const finishResult = (await window.electron.ipcRenderer.invoke('electron:finish-frame-export', {
       frameCount: frameIndex,
-      fps,
+      fps: fps,
       totalDurationMs: frameIndex * frameMs,
       audioEvents: this.renderAudioEvents
     })) as FinishFrameExportResponse
@@ -542,7 +627,7 @@ export class App {
     this.logger.info('Frame export finished', finishResult)
     this.updateRenderProgress({
       phase: 'done',
-      fps,
+      targetFps: fps,
       frameIndex,
       totalFrameCount: frameIndex,
       virtualTimeMs: frameIndex * frameMs,

@@ -670,6 +670,26 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
       return { outputDir, frameCount: payload.frameCount, videoPath }
     }
   )
+
+  ipcMain.on('electron:render-finished', () => {
+    logger.info('Handle IPC event: electron:render-finished')
+
+    try {
+      if (!mainWindow.isVisible()) {
+        mainWindow.show()
+      }
+
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore()
+      }
+
+      mainWindow.focus()
+      mainWindow.flashFrame(true)
+      mainWindow.moveTop()
+    } catch (error) {
+      logger.error('Failed to bring main window to front after render finished.', error)
+    }
+  })
 }
 
 export default setupIpcHandlers

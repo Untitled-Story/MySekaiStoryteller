@@ -152,3 +152,26 @@ p#exportDirectoryPath {
   margin-top: 3px;
   word-break: break-all;
 }
+
+@keyframes renderProgressAttentionPulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.82;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+#renderProgress.completed {
+  background: rgba(22, 163, 74, 0.95);
+  box-shadow: 0 10px 28px rgba(22, 163, 74, 0.4);
+  animation: renderProgressAttentionPulse 1.6s ease-in-out infinite;
+}
+
+#renderProgress.error {
+  background: rgba(220, 38, 38, 0.95);
+  box-shadow: 0 10px 28px rgba(220, 38, 38, 0.4);
+}
