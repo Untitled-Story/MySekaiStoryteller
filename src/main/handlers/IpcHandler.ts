@@ -4,10 +4,10 @@ import type { IpcMainInvokeEvent } from 'electron'
 import path from 'node:path'
 import * as fs from 'node:fs'
 import { spawn } from 'node:child_process'
-import { SelectStoryResponse } from '../../common/types/IpcResponse'
+import { SelectStoryResponse, LoadStoryFromPathResponse, CliProgressState } from '../../common/types/IpcResponse'
 import { StoryData, StorySchema } from '../../common/types/Story'
 import { z } from 'zod'
-import { mainWindow } from '../index'
+import { mainWindow, cliArgs } from '../index'
 import {
   FinishFrameExportPayload,
   FinishFrameExportResponse,
@@ -426,7 +426,13 @@ async function mergeFramesWithFfmpeg(
     throw new Error('Frame export session has not been started.')
   }
 
-  const videoPath = path.join(session.outputDir, 'output.mp4')
+  // CLI 模式下使用指定的视频输出路径
+  const videoPath = cliArgs ? cliArgs.outputFile : path.join(session.outputDir, 'output.mp4')
+  
+  // 确保视频输出目录存在
+  const videoDir = path.dirname(videoPath)
+  await fs.promises.mkdir(videoDir, { recursive: true })
+  
   const totalDurationMs = Math.max(
     payload.totalDurationMs,
     (payload.frameCount / payload.fps) * 1000
@@ -596,8 +602,14 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
     async (_event, payload: StartFrameExportPayload): Promise<StartFrameExportResponse> => {
       logger.info('Handle IPC event: electron:start-frame-export')
 
-      const storyName = getStoryName(payload.storyPath)
-      const outputDir = path.join(payload.outputRoot, `${storyName}-${createTimestamp()}`)
+      // CLI 模式下使用指定的输出目录
+      let outputDir: string
+      if (cliArgs) {
+        outputDir = cliArgs.outputDir
+      } else {
+        const storyName = getStoryName(payload.storyPath)
+        outputDir = path.join(payload.outputRoot, `${storyName}-${createTimestamp()}`)
+      }
 
       await fs.promises.mkdir(outputDir, { recursive: true })
       await fs.promises.writeFile(
@@ -688,6 +700,94 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
       mainWindow.moveTop()
     } catch (error) {
       logger.error('Failed to bring main window to front after render finished.', error)
+    }
+  })
+
+  // CLI 模式相关 IPC handlers
+  ipcMain.handle('electron:get-cli-args', () => {
+    logger.info('Handle IPC event: electron:get-cli-args')
+    return cliArgs
+  })
+
+  ipcMain.handle('electron:load-story-from-path', async (_event, storyPath: string): Promise<LoadStoryFromPathResponse> => {
+    logger.info('Handle IPC event: electron:load-story-from-path')
+    logger.info(`Loading story from path: ${storyPath}`)
+
+    try {
+      const normalizedPath = path.resolve(storyPath)
+      const rawData = await fs.promises.readFile(normalizedPath, 'utf8')
+      const parsedData = StorySchema.parse(JSON.parse(rawData))
+
+      return { success: true, path: normalizedPath, data: parsedData }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const errorMessage = error.issues
+          .map((issue) => `'${issue.path.join('.')}': ${issue.message}`)
+          .join('\n')
+        return { success: false, error: errorMessage }
+      } else {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  })
+
+  ipcMain.on('electron:cli-render-finished', () => {
+    logger.info('Handle IPC event: electron:cli-render-finished')
+
+    if (cliArgs?.exit) {
+      logger.info('CLI mode: --exit flag set, quitting app')
+      app.quit()
+    }
+  })
+
+  ipcMain.on('electron:cli-progress', (_event, state: CliProgressState) => {
+    if (!cliArgs) return
+
+    const formatEta = (ms: number | null | undefined): string => {
+      if (ms === null || ms === undefined || ms < 0) return '--:--'
+      const seconds = Math.floor(ms / 1000)
+      const minutes = Math.floor(seconds / 60)
+      const hours = Math.floor(minutes / 60)
+      if (hours > 0) {
+        return `${hours}:${(minutes % 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
+      }
+      return `${minutes}:${(seconds % 60).toString().padStart(2, '0')}`
+    }
+
+    switch (state.phase) {
+      case 'preparing':
+        if (state.message) {
+          console.log(`[preparing] ${state.message}`)
+        }
+        break
+      case 'rendering': {
+        const percentStr = state.percent !== undefined ? `${(state.percent * 100).toFixed(1)}%` : '0.0%'
+        const frameStr = state.frameIndex !== undefined && state.totalFrameCount !== undefined
+          ? `Frame ${state.frameIndex}/${state.totalFrameCount}`
+          : ''
+        const speedStr = state.speed !== undefined ? `FPS: ${(state.speed * (state.targetFps ?? 60)).toFixed(1)} (${state.speed.toFixed(2)}x)` : ''
+        const etaStr = state.etaMs !== undefined ? `ETA: ${formatEta(state.etaMs)}` : ''
+        const parts = [percentStr, frameStr, speedStr, etaStr].filter(Boolean)
+        process.stdout.write(`\r[rendering]  ${parts.join(' | ')}`)
+        break
+      }
+      case 'merging': {
+        const ffmpegPercent = state.ffmpegPercent !== undefined ? `${(state.ffmpegPercent * 100).toFixed(1)}%` : '0.0%'
+        console.log(`\n[merging]    FFmpeg: ${ffmpegPercent}`)
+        break
+      }
+      case 'done': {
+        const videoPath = state.outputFile || state.outputDir || 'unknown'
+        console.log(`\n[done]       Video saved: ${videoPath}`)
+        break
+      }
+      case 'error':
+        console.error(`\n[error]      ${state.message ?? 'Unknown error'}`)
+        break
+      default:
+        if (state.message) {
+          console.log(`[${state.phase}] ${state.message}`)
+        }
     }
   })
 }

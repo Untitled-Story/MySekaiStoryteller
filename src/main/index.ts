@@ -6,8 +6,10 @@ import { ILogObj, Logger } from 'tslog'
 import setupIpcHandlers from './handlers/IpcHandler'
 import setupProtocolHandlers from './handlers/ProtocolHandler'
 import setupShortcutHandlers from './handlers/ShortcutHandler'
+import { parseCliArgs } from './CliArgs'
 
 export let mainWindow!: BrowserWindow
+export let cliArgs = parseCliArgs(process.argv)
 
 const logger: Logger<ILogObj> = new Logger({
   name: 'electron',
@@ -34,12 +36,12 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-function createWindow(): void {
+function createWindow(headless = false): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 600,
     height: 400,
-    show: false,
+    show: !headless,
     autoHideMenuBar: true,
     resizable: false,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -51,9 +53,11 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
+  if (!headless) {
+    mainWindow.on('ready-to-show', () => {
+      mainWindow.show()
+    })
+  }
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url).catch(logger.error)
@@ -85,22 +89,27 @@ app.whenReady().then(() => {
 
   setupProtocolHandlers().catch(logger.error)
   setupIpcHandlers(logger).catch(logger.error)
-  setupShortcutHandlers(logger, process.platform === 'darwin')
 
-  createWindow()
+  // 只在 GUI 模式下注册快捷键
+  if (!cliArgs) {
+    setupShortcutHandlers(logger, process.platform === 'darwin')
+  }
+
+  createWindow(cliArgs?.headless ?? false)
 
   app.on('activate', function () {
     // On macOS, it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(cliArgs?.headless ?? false)
   })
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
+// CLI 模式下直接退出
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (cliArgs || process.platform !== 'darwin') {
     app.quit()
   }
 })

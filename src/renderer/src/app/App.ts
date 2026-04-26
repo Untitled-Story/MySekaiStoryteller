@@ -1,7 +1,7 @@
 import '@pixi/unsafe-eval'
 import getSubLogger from '../utils/Logger'
 import { ILogObj, Logger } from 'tslog'
-import { SelectStoryResponse } from '../../../common/types/IpcResponse'
+import { SelectStoryResponse, CliArgs, LoadStoryFromPathResponse } from '../../../common/types/IpcResponse'
 import { SnippetData } from '../../../common/types/Story'
 import StoryManager from '../managers/StoryManager'
 import { Live2DModelMap, TextureMap } from '../types/AssetMap'
@@ -83,6 +83,7 @@ export class App {
   private estimatedRenderFrameCount = 0
   private renderStartedAtMs = 0
   private renderFinishedNotificationSent = false
+  private cliArgs: CliArgs | null = null
 
   private async selectStoryFile(): Promise<SelectStoryResponse> {
     const selectResult: SelectStoryResponse = await window.electron.ipcRenderer.invoke(
@@ -127,7 +128,7 @@ export class App {
     return result.path
   }
 
-  private async initializeManagers(story: SelectStoryResponse): Promise<void> {
+  private async initializeManagers(story: SelectStoryResponse | LoadStoryFromPathResponse): Promise<void> {
     this.storyManager = new StoryManager(story)
     this.logger.info(`StoryManager initialized, root path: ${this.storyManager.storyFolder}`)
 
@@ -348,13 +349,24 @@ export class App {
     if (!this.renderFinishedNotificationSent) {
       this.renderFinishedNotificationSent = true
 
+      // CLI 模式下通知主进程
+      if (this.cliArgs) {
+        try {
+          window.electron.ipcRenderer.send('electron:cli-render-finished')
+        } catch (error) {
+          this.logger.warn('Failed to notify main process about CLI render finished.', error)
+        }
+      }
+
       try {
         window.electron.ipcRenderer.send('electron:render-finished')
       } catch (error) {
         this.logger.warn('Failed to notify main process about render finished.', error)
       }
 
-      this.setupRenderFinishedNotification()
+      if (!this.cliArgs) {
+        this.setupRenderFinishedNotification()
+      }
     }
   }
 
@@ -409,6 +421,41 @@ export class App {
   }
 
   private updateRenderProgress(state: RenderProgressState): void {
+    // CLI/headless 模式下通过 IPC 发送进度到主进程
+    if (this.cliArgs) {
+      const frameIndex = state.frameIndex ?? 0
+      const totalFrameCount = state.totalFrameCount ?? this.estimatedRenderFrameCount
+      const percent = state.percent ?? (totalFrameCount > 0 ? Math.min(frameIndex / Math.max(totalFrameCount, 1), 1) : 0)
+      const elapsedRenderMs = state.elapsedRenderMs ?? (this.renderStartedAtMs === 0 ? 0 : performance.now() - this.renderStartedAtMs)
+      const etaMs = state.etaMs ?? (frameIndex > 0 && totalFrameCount > 0
+        ? (elapsedRenderMs / frameIndex) * Math.max(totalFrameCount - frameIndex, 0)
+        : null)
+      const speed = state.speed ?? (this.renderFps > 0 ? (elapsedRenderMs > 0 ? frameIndex / (elapsedRenderMs / 1000) : 0) / this.renderFps : 0)
+
+      window.electron.ipcRenderer.send('electron:cli-progress', {
+        phase: state.phase,
+        message: state.message,
+        frameIndex,
+        totalFrameCount,
+        percent,
+        speed,
+        targetFps: state.targetFps ?? this.renderFps,
+        elapsedRenderMs,
+        etaMs,
+        ffmpegPercent: state.ffmpegPercent,
+        outputDir: state.outputDir ?? this.exportOutputDirectory,
+        outputFile: this.cliArgs.outputFile
+      })
+
+      // CLI 模式下 done 阶段通知主进程
+      if (state.phase === 'done') {
+        this.notifyRenderFinished()
+      } else if (state.phase === 'error') {
+        this.notifyRenderFailed()
+      }
+      return
+    }
+
     const phaseElement = document.getElementById('renderProgressPhase')! as HTMLParagraphElement
     const fpsElement = document.getElementById('renderProgressFps')! as HTMLParagraphElement
     const frameElement = document.getElementById('renderProgressFrame')! as HTMLParagraphElement
@@ -506,14 +553,16 @@ export class App {
       throw new Error('Export directory is not selected.')
     }
 
-    const fps = 60
+    const fps = this.cliArgs?.fps ?? 60
     this.renderFps = fps
     const frameMs = 1000 / fps
     let frameIndex = 0
     let virtualTime = 0
     let storyFinished = false
 
-    this.showRenderProgress()
+    if (!this.cliArgs) {
+      this.showRenderProgress()
+    }
     this.registerFrameExportProgressListener()
     this.renderAudioEvents = []
     this.currentSnippetIndex = 0
@@ -665,7 +714,7 @@ export class App {
   }
 
   private async runSnippets(
-    story: SelectStoryResponse,
+    story: SelectStoryResponse | LoadStoryFromPathResponse,
     options: {
       scale: number
       runMode: RunMode
@@ -684,7 +733,61 @@ export class App {
     }
   }
 
+  private async initializeCliMode(): Promise<boolean> {
+    try {
+      const args = await window.electron.ipcRenderer.invoke('electron:get-cli-args') as CliArgs | null
+      if (!args) return false
+
+      this.cliArgs = args
+      this.logger.info('CLI mode detected', args)
+
+      // 加载故事文件
+      const story = await window.electron.ipcRenderer.invoke(
+        'electron:load-story-from-path', args.storyFile
+      ) as LoadStoryFromPathResponse
+
+      if (!story.success) {
+        throw new Error(`Failed to load story: ${story.error}`)
+      }
+
+      // 设置输出目录
+      this.exportRootDirectory = args.outputDir
+
+      // 设置分辨率
+      window.electron.ipcRenderer.send('electron:resize', args.width, args.height)
+
+      // 显示应用层
+      const appElement = document.getElementById('app')! as HTMLDivElement
+      appElement.hidden = false
+
+      // 隐藏配置层（如果存在）
+      const configElement = document.getElementById('config') as HTMLDivElement | null
+      if (configElement) {
+        configElement.hidden = true
+      }
+
+      // 启动渲染
+      await this.runSnippets(story, {
+        scale: args.quality,
+        runMode: 'render'
+      })
+
+      return true
+    } catch (error) {
+      this.logger.error('CLI mode initialization failed', error)
+      // CLI 模式下输出错误到 stderr
+      console.error(`[error] CLI mode failed: ${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
+  }
+
   public async run(): Promise<void> {
+    // 检查是否为 CLI 模式
+    const isCliMode = await this.initializeCliMode()
+    if (isCliMode) {
+      return
+    }
+
     const selectFileTipsElement = document.getElementById('select-file-tips')! as HTMLHeadingElement
     const story: SelectStoryResponse = await this.selectStoryFileUntilSuccess()
     selectFileTipsElement.remove()
@@ -761,7 +864,20 @@ export class App {
 
 async function main(): Promise<void> {
   const app = new App()
-  await app.run()
+
+  try {
+    await app.run()
+  } catch (error) {
+    console.error(`[error] ${error instanceof Error ? error.message : String(error)}`)
+
+    // CLI 模式下，错误时发送进度通知
+    window.electron.ipcRenderer.send('electron:cli-progress', {
+      phase: 'error',
+      message: error instanceof Error ? error.message : String(error)
+    })
+
+    throw error
+  }
 }
 
 export default main
