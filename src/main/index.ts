@@ -9,7 +9,7 @@ import setupShortcutHandlers from './handlers/ShortcutHandler'
 import { parseCliArgs } from './CliArgs'
 
 export let mainWindow!: BrowserWindow
-export let cliArgs = parseCliArgs(process.argv)
+export const cliArgs = parseCliArgs(process.argv)
 
 const logger: Logger<ILogObj> = new Logger({
   name: 'electron',

@@ -1,7 +1,11 @@
 import '@pixi/unsafe-eval'
 import getSubLogger from '../utils/Logger'
 import { ILogObj, Logger } from 'tslog'
-import { SelectStoryResponse, CliArgs, LoadStoryFromPathResponse } from '../../../common/types/IpcResponse'
+import {
+  SelectStoryResponse,
+  CliArgs,
+  LoadStoryFromPathResponse
+} from '../../../common/types/IpcResponse'
 import { SnippetData } from '../../../common/types/Story'
 import StoryManager from '../managers/StoryManager'
 import { Live2DModelMap, TextureMap } from '../types/AssetMap'
@@ -128,7 +132,9 @@ export class App {
     return result.path
   }
 
-  private async initializeManagers(story: SelectStoryResponse | LoadStoryFromPathResponse): Promise<void> {
+  private async initializeManagers(
+    story: SelectStoryResponse | LoadStoryFromPathResponse
+  ): Promise<void> {
     this.storyManager = new StoryManager(story)
     this.logger.info(`StoryManager initialized, root path: ${this.storyManager.storyFolder}`)
 
@@ -425,12 +431,22 @@ export class App {
     if (this.cliArgs) {
       const frameIndex = state.frameIndex ?? 0
       const totalFrameCount = state.totalFrameCount ?? this.estimatedRenderFrameCount
-      const percent = state.percent ?? (totalFrameCount > 0 ? Math.min(frameIndex / Math.max(totalFrameCount, 1), 1) : 0)
-      const elapsedRenderMs = state.elapsedRenderMs ?? (this.renderStartedAtMs === 0 ? 0 : performance.now() - this.renderStartedAtMs)
-      const etaMs = state.etaMs ?? (frameIndex > 0 && totalFrameCount > 0
-        ? (elapsedRenderMs / frameIndex) * Math.max(totalFrameCount - frameIndex, 0)
-        : null)
-      const speed = state.speed ?? (this.renderFps > 0 ? (elapsedRenderMs > 0 ? frameIndex / (elapsedRenderMs / 1000) : 0) / this.renderFps : 0)
+      const percent =
+        state.percent ??
+        (totalFrameCount > 0 ? Math.min(frameIndex / Math.max(totalFrameCount, 1), 1) : 0)
+      const elapsedRenderMs =
+        state.elapsedRenderMs ??
+        (this.renderStartedAtMs === 0 ? 0 : performance.now() - this.renderStartedAtMs)
+      const etaMs =
+        state.etaMs ??
+        (frameIndex > 0 && totalFrameCount > 0
+          ? (elapsedRenderMs / frameIndex) * Math.max(totalFrameCount - frameIndex, 0)
+          : null)
+      const speed =
+        state.speed ??
+        (this.renderFps > 0
+          ? (elapsedRenderMs > 0 ? frameIndex / (elapsedRenderMs / 1000) : 0) / this.renderFps
+          : 0)
 
       window.electron.ipcRenderer.send('electron:cli-progress', {
         phase: state.phase,
@@ -735,16 +751,19 @@ export class App {
 
   private async initializeCliMode(): Promise<boolean> {
     try {
-      const args = await window.electron.ipcRenderer.invoke('electron:get-cli-args') as CliArgs | null
+      const args = (await window.electron.ipcRenderer.invoke(
+        'electron:get-cli-args'
+      )) as CliArgs | null
       if (!args) return false
 
       this.cliArgs = args
       this.logger.info('CLI mode detected', args)
 
       // 加载故事文件
-      const story = await window.electron.ipcRenderer.invoke(
-        'electron:load-story-from-path', args.storyFile
-      ) as LoadStoryFromPathResponse
+      const story = (await window.electron.ipcRenderer.invoke(
+        'electron:load-story-from-path',
+        args.storyFile
+      )) as LoadStoryFromPathResponse
 
       if (!story.success) {
         throw new Error(`Failed to load story: ${story.error}`)
@@ -776,7 +795,9 @@ export class App {
     } catch (error) {
       this.logger.error('CLI mode initialization failed', error)
       // CLI 模式下输出错误到 stderr
-      console.error(`[error] CLI mode failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(
+        `[error] CLI mode failed: ${error instanceof Error ? error.message : String(error)}`
+      )
       throw error
     }
   }
