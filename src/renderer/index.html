@@ -34,10 +34,36 @@
           <option value="1.75">1.75</option>
           <option value="2.0">2.0</option>
         </select>
+
+        <label for="runMode">Run Mode: </label>
+        <select id="runMode" class="option-select">
+          <option value="preview" selected>Preview</option>
+          <option value="render">Render Frames</option>
+        </select>
+
+        <div id="exportDirectoryControls" hidden="hidden">
+          <label>Export Directory: </label>
+          <button class="styled-button" id="selectExportDirectory">Select Directory</button>
+          <p id="exportDirectoryPath">No directory selected</p>
+        </div>
       </div>
       <button class="styled-button" id="apply">Apply</button>
     </div>
     <div id="app" hidden="hidden"></div>
+    <div id="renderProgress" hidden="hidden">
+      <h2>Rendering</h2>
+      <p id="renderProgressPhase">Phase: Idle</p>
+      <p id="renderProgressFps">FPS: -</p>
+      <p id="renderProgressFrame">Frames: 0 / 0</p>
+      <p id="renderProgressTime">Time: 0s / 0s</p>
+      <p id="renderProgressPercent">Progress: 0.0%</p>
+      <p id="renderProgressElapsed">Rendered elapsed: 0s</p>
+      <p id="renderProgressEta">ETA: -</p>
+      <p id="renderProgressSnippet">Snippet: 0 / 0</p>
+      <p id="renderProgressAudio">Audio clips: 0</p>
+      <p id="renderProgressOutput">Output: -</p>
+      <p id="renderProgressFfmpeg">FFmpeg: -</p>
+    </div>
     <script type="module" src="src/index.ts"></script>
     <!-- Live2D libraries imported at electron.vite.config.ts -->
   </body>

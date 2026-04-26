@@ -1,4 +1,4 @@
-import { Ticker } from 'pixi.js'
+import { Ticker, UPDATE_PRIORITY } from 'pixi.js'
 import AdvancedModel from '../model/AdvancedModel'
 import { VisualEffect } from '../effects/VisualEffect'
 import { HologramEffect } from '../effects/HologramEffect'
@@ -8,30 +8,20 @@ interface EffectSet {
   effects: Record<string, VisualEffect>
 }
 
-class VFXGlobalTicker {
-  private static instance: Ticker
-
-  static getInstance(): Ticker {
-    if (!VFXGlobalTicker.instance) {
-      VFXGlobalTicker.instance = new Ticker()
-      VFXGlobalTicker.instance.start()
-    }
-    return VFXGlobalTicker.instance
-  }
-}
-
 export class VisualEffectManager {
   private effectSet: EffectSet = { effects: {} }
-  private ticker: Ticker = VFXGlobalTicker.getInstance()
   private readonly effectFactories: Record<string, () => VisualEffect> = {}
 
-  constructor(private model: AdvancedModel) {
+  constructor(
+    private model: AdvancedModel,
+    private ticker: Ticker
+  ) {
     this.effectFactories = {
       hologram: () => new HologramEffect(this.model, 3000, 4500),
       triangles: () => new TriangleParticleEffect(this.model)
     }
 
-    this.ticker.add((delta) => this.updateAll(delta))
+    this.ticker.add((delta) => this.updateAll(delta), undefined, UPDATE_PRIORITY.NORMAL)
   }
 
   private updateAll(delta: number): void {

@@ -117,3 +117,38 @@ select.option-select option:checked {
   cursor: not-allowed;
   box-shadow: none;
 }
+
+p#exportDirectoryPath {
+  margin-top: 5px;
+  color: #475569;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+#renderProgress {
+  backdrop-filter: blur(10px);
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1000;
+  min-width: 260px;
+  max-width: 420px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.86);
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.35);
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+#renderProgress h2 {
+  margin-bottom: 6px;
+  font-size: 1rem;
+}
+
+#renderProgress p {
+  margin-top: 3px;
+  word-break: break-all;
+}

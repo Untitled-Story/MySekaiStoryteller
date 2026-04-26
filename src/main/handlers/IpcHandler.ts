@@ -1,11 +1,336 @@
 import { ILogObj, Logger } from 'tslog'
 import { app, dialog, ipcMain } from 'electron'
+import type { IpcMainInvokeEvent } from 'electron'
 import path from 'node:path'
 import * as fs from 'node:fs'
+import { spawn } from 'node:child_process'
 import { SelectStoryResponse } from '../../common/types/IpcResponse'
 import { StoryData, StorySchema } from '../../common/types/Story'
 import { z } from 'zod'
 import { mainWindow } from '../index'
+import {
+  FinishFrameExportPayload,
+  FinishFrameExportResponse,
+  FrameExportProgressPayload,
+  ProbeStoryVoiceDurationsPayload,
+  ProbeStoryVoiceDurationsResponse,
+  RenderAudioEvent
+} from '../../common/types/FrameExport'
+
+interface SelectExportDirectoryResponse {
+  canceled: boolean
+  path?: string
+}
+
+interface StartFrameExportPayload {
+  storyPath: string
+  outputRoot: string
+  fps: number
+  width: number
+  height: number
+}
+
+interface StartFrameExportResponse {
+  success: boolean
+  outputDir: string
+}
+
+interface SaveFramePayload {
+  index: number
+  buffer: ArrayBuffer | Uint8Array
+}
+
+interface FrameExportSession {
+  outputDir: string | null
+  storyPath: string | null
+  storyFolder: string | null
+  fps: number
+  width: number
+  height: number
+}
+
+interface ProcessResult {
+  stdout: string
+  stderr: string
+}
+
+const frameExportSession: FrameExportSession = {
+  outputDir: null,
+  storyPath: null,
+  storyFolder: null,
+  fps: 60,
+  width: 0,
+  height: 0
+}
+
+function sanitizeFileName(name: string): string {
+  const invalidCharacters = '<>:"/\\|?*'
+
+  return name
+    .split('')
+    .map((char) => {
+      if (char.charCodeAt(0) < 32 || invalidCharacters.includes(char)) return '_'
+      return char
+    })
+    .join('')
+    .replace(/\s+/g, '_')
+}
+
+function toFrameBuffer(data: ArrayBuffer | Uint8Array): Buffer {
+  if (data instanceof Uint8Array) return Buffer.from(data)
+
+  return Buffer.from(new Uint8Array(data))
+}
+
+function createTimestamp(): string {
+  const now = new Date()
+  const pad = (value: number): string => value.toString().padStart(2, '0')
+
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(
+    now.getHours()
+  )}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+
+function getStoryName(storyPath: string): string {
+  return sanitizeFileName(path.basename(storyPath).replace(/\.sekai-story\.json$/u, ''))
+}
+
+function getVoicePath(storyFolder: string, voice: string): string {
+  return path.resolve(storyFolder, 'voices', voice)
+}
+
+function resolveFfmpegExecutable(): string {
+  return 'ffmpeg'
+}
+
+function resolveFfprobeExecutable(): string {
+  return 'ffprobe'
+}
+
+function runProcess(command: string, args: string[]): Promise<ProcessResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { windowsHide: true })
+    let stdout = ''
+    let stderr = ''
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+
+    child.on('error', (error) => {
+      reject(
+        new Error(
+          `${command} failed to start. FFmpeg is required. Please install ffmpeg and ensure it is available in PATH.`,
+          { cause: error }
+        )
+      )
+    })
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr })
+        return
+      }
+
+      reject(new Error(`${command} exited with code ${code}.\n${stderr}`))
+    })
+  })
+}
+
+async function probeAudioDurationMs(voicePath: string): Promise<number> {
+  await fs.promises.access(voicePath, fs.constants.R_OK)
+
+  const { stdout } = await runProcess(resolveFfprobeExecutable(), [
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration',
+    '-of',
+    'default=noprint_wrappers=1:nokey=1',
+    voicePath
+  ])
+
+  const durationSeconds = Number.parseFloat(stdout.trim())
+  if (!Number.isFinite(durationSeconds)) {
+    throw new Error(`Failed to probe audio duration: ${voicePath}`)
+  }
+
+  return durationSeconds * 1000
+}
+
+function parseProgressTimeMs(line: string): number | null {
+  const [key, value] = line.trim().split('=')
+  if (!key || !value) return null
+
+  if (key === 'out_time_us' || key === 'out_time_ms') {
+    const raw = Number.parseInt(value, 10)
+    if (!Number.isFinite(raw)) return null
+    return raw / 1000
+  }
+
+  if (key === 'out_time') {
+    const match = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/u.exec(value)
+    if (!match) return null
+
+    const hours = Number.parseInt(match[1], 10)
+    const minutes = Number.parseInt(match[2], 10)
+    const seconds = Number.parseFloat(match[3])
+
+    return (hours * 3600 + minutes * 60 + seconds) * 1000
+  }
+
+  return null
+}
+
+function sendFrameExportProgress(
+  event: IpcMainInvokeEvent,
+  payload: FrameExportProgressPayload
+): void {
+  event.sender.send('electron:frame-export-progress', payload)
+}
+
+function buildFfmpegArgs(
+  session: FrameExportSession,
+  payload: FinishFrameExportPayload,
+  videoPath: string
+): string[] {
+  if (!session.outputDir || !session.storyFolder) {
+    throw new Error('Frame export session has not been started.')
+  }
+
+  const durationSeconds = Math.max(payload.totalDurationMs / 1000, payload.frameCount / payload.fps)
+  const durationText = durationSeconds.toFixed(3)
+  const framePattern = path.join(session.outputDir, '%06d.png')
+
+  const args = [
+    '-y',
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-progress',
+    'pipe:2',
+    '-nostats',
+    '-framerate',
+    payload.fps.toString(),
+    '-i',
+    framePattern
+  ]
+
+  if (payload.audioEvents.length > 0) {
+    args.push(
+      '-f',
+      'lavfi',
+      '-t',
+      durationText,
+      '-i',
+      'anullsrc=channel_layout=stereo:sample_rate=48000'
+    )
+
+    payload.audioEvents.forEach((audioEvent) => {
+      args.push('-i', getVoicePath(session.storyFolder!, audioEvent.voice))
+    })
+
+    const filters = payload.audioEvents.map((audioEvent, index) => {
+      const inputIndex = index + 2
+      const delay = Math.max(0, Math.round(audioEvent.startTimeMs))
+      return `[${inputIndex}:a]adelay=${delay}:all=1,aresample=48000[a${index}]`
+    })
+    const mixInputs = ['[1:a]', ...payload.audioEvents.map((_, index) => `[a${index}]`)].join('')
+    filters.push(
+      `${mixInputs}amix=inputs=${payload.audioEvents.length + 1}:duration=first:dropout_transition=0[aout]`
+    )
+
+    args.push(
+      '-filter_complex',
+      filters.join(';'),
+      '-map',
+      '0:v',
+      '-map',
+      '[aout]',
+      '-t',
+      durationText,
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k'
+    )
+  }
+
+  args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium', videoPath)
+
+  return args
+}
+
+function mergeFramesWithFfmpeg(
+  event: IpcMainInvokeEvent,
+  session: FrameExportSession,
+  payload: FinishFrameExportPayload
+): Promise<string> {
+  if (!session.outputDir) {
+    throw new Error('Frame export session has not been started.')
+  }
+
+  const videoPath = path.join(session.outputDir, 'output.mp4')
+  const args = buildFfmpegArgs(session, payload, videoPath)
+  const totalDurationMs = Math.max(
+    payload.totalDurationMs,
+    (payload.frameCount / payload.fps) * 1000
+  )
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(resolveFfmpegExecutable(), args, { windowsHide: true })
+    let stderr = ''
+    let progressBuffer = ''
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8')
+      stderr += text
+      progressBuffer += text
+
+      const lines = progressBuffer.split(/\r?\n/u)
+      progressBuffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const outTimeMs = parseProgressTimeMs(line)
+        if (outTimeMs === null) continue
+
+        const percent = totalDurationMs > 0 ? Math.min(outTimeMs / totalDurationMs, 1) : 0
+        sendFrameExportProgress(event, {
+          phase: 'merging',
+          percent,
+          message: `Merging video ${(percent * 100).toFixed(1)}%`
+        })
+      }
+    })
+
+    child.on('error', (error) => {
+      reject(
+        new Error(
+          'ffmpeg failed to start. FFmpeg is required to merge rendered frames. Please install ffmpeg and ensure it is available in PATH.',
+          { cause: error }
+        )
+      )
+    })
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        sendFrameExportProgress(event, {
+          phase: 'merging',
+          percent: 1,
+          message: 'Video merge complete.'
+        })
+        resolve(videoPath)
+        return
+      }
+
+      reject(new Error(`ffmpeg exited with code ${code}.\n${stderr}`))
+    })
+  })
+}
 
 async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
   ipcMain.handle(
@@ -107,6 +432,124 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
     mainWindow.setContentSize(width, height, true)
     mainWindow.setPosition(newX, newY, true)
   })
+
+  ipcMain.handle(
+    'electron:select-export-directory',
+    async (): Promise<SelectExportDirectoryResponse> => {
+      logger.info('Handle IPC event: electron:select-export-directory')
+
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        title: 'Select export directory',
+        properties: ['openDirectory', 'createDirectory']
+      })
+
+      if (canceled || filePaths.length === 0) {
+        return { canceled: true }
+      }
+
+      return { canceled: false, path: filePaths[0] }
+    }
+  )
+
+  ipcMain.handle(
+    'electron:probe-story-voice-durations',
+    async (
+      _event,
+      payload: ProbeStoryVoiceDurationsPayload
+    ): Promise<ProbeStoryVoiceDurationsResponse> => {
+      logger.info('Handle IPC event: electron:probe-story-voice-durations')
+
+      const storyFolder = path.dirname(payload.storyPath)
+      const uniqueVoices = Array.from(new Set(payload.voices))
+      const durations: Record<string, number> = {}
+
+      for (const voice of uniqueVoices) {
+        durations[voice] = await probeAudioDurationMs(getVoicePath(storyFolder, voice))
+      }
+
+      return { durations }
+    }
+  )
+
+  ipcMain.handle(
+    'electron:start-frame-export',
+    async (_event, payload: StartFrameExportPayload): Promise<StartFrameExportResponse> => {
+      logger.info('Handle IPC event: electron:start-frame-export')
+
+      const storyName = getStoryName(payload.storyPath)
+      const outputDir = path.join(payload.outputRoot, `${storyName}-${createTimestamp()}`)
+
+      await fs.promises.mkdir(outputDir, { recursive: true })
+      await fs.promises.writeFile(
+        path.join(outputDir, 'metadata.json'),
+        JSON.stringify(
+          {
+            storyPath: payload.storyPath,
+            fps: payload.fps,
+            width: payload.width,
+            height: payload.height,
+            createdAt: new Date().toISOString()
+          },
+          undefined,
+          2
+        ),
+        'utf8'
+      )
+
+      frameExportSession.outputDir = outputDir
+      frameExportSession.storyPath = payload.storyPath
+      frameExportSession.storyFolder = path.dirname(payload.storyPath)
+      frameExportSession.fps = payload.fps
+      frameExportSession.width = payload.width
+      frameExportSession.height = payload.height
+      logger.info(`Frame export directory: ${outputDir}`)
+
+      return { success: true, outputDir }
+    }
+  )
+
+  ipcMain.handle(
+    'electron:save-frame',
+    async (_event, payload: SaveFramePayload): Promise<string> => {
+      if (!frameExportSession.outputDir) {
+        throw new Error('Frame export session has not been started.')
+      }
+
+      const filename = `${payload.index.toString().padStart(6, '0')}.png`
+      const outputPath = path.join(frameExportSession.outputDir, filename)
+
+      await fs.promises.writeFile(outputPath, toFrameBuffer(payload.buffer))
+
+      return outputPath
+    }
+  )
+
+  ipcMain.handle(
+    'electron:finish-frame-export',
+    async (event, payload: FinishFrameExportPayload): Promise<FinishFrameExportResponse> => {
+      logger.info('Handle IPC event: electron:finish-frame-export')
+      logger.info(`Frame export finished, frame count: ${payload.frameCount}`)
+
+      if (!frameExportSession.outputDir) {
+        throw new Error('Frame export session has not been started.')
+      }
+
+      await fs.promises.writeFile(
+        path.join(frameExportSession.outputDir, 'audio-manifest.json'),
+        JSON.stringify(payload.audioEvents satisfies RenderAudioEvent[], undefined, 2),
+        'utf8'
+      )
+
+      const videoPath = await mergeFramesWithFfmpeg(event, frameExportSession, payload)
+      const outputDir = frameExportSession.outputDir
+
+      frameExportSession.outputDir = null
+      frameExportSession.storyPath = null
+      frameExportSession.storyFolder = null
+
+      return { outputDir, frameCount: payload.frameCount, videoPath }
+    }
+  )
 }
 
 export default setupIpcHandlers

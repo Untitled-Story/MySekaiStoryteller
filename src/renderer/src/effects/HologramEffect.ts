@@ -36,13 +36,6 @@ export class HologramEffect extends VisualEffect {
       new AdjustmentFilter({ alpha: 0.85, brightness: 1.25, red: 0.75 })
     ]
     this.filters = [this.crtFilter, this.adjustFilter, new BloomFilter(15)]
-
-    const animateCRT = (): void => {
-      this.crtFilter.time += 0.03
-      this.crtFilter.seed = Math.random()
-      requestAnimationFrame(animateCRT)
-    }
-    animateCRT()
   }
 
   update(delta: number): void {
@@ -53,6 +46,7 @@ export class HologramEffect extends VisualEffect {
     const offset = 1.2
     this.adjustFilter.brightness = offset + amp * Math.sin(this.elapsed * 0.05)
     this.crtFilter.time += delta * 0.01
+    this.crtFilter.seed = Math.random()
 
     const small = this.graphic_s
     const large = this.graphic_l
@@ -63,19 +57,24 @@ export class HologramEffect extends VisualEffect {
       const startScale = small.scale.x
       const targetScale = this.scaleLarge
 
-      AnimationManager.linear((progress) => {
-        const eased = 0.5 - 0.5 * Math.cos(Math.PI * progress)
+      AnimationManager.linear(
+        (progress) => {
+          const eased = 0.5 - 0.5 * Math.cos(Math.PI * progress)
 
-        small.scale.set(startScale + (targetScale - startScale) * eased)
+          small.scale.set(startScale + (targetScale - startScale) * eased)
 
-        const fadeIn = eased * this.maxAlpha
-        const fadeOut = (1 - eased) * this.maxAlpha
-        const totalAlpha = fadeIn + fadeOut
-        const normalize = totalAlpha > 1.5 ? 1.5 / totalAlpha : 1
+          const fadeIn = eased * this.maxAlpha
+          const fadeOut = (1 - eased) * this.maxAlpha
+          const totalAlpha = fadeIn + fadeOut
+          const normalize = totalAlpha > 1.5 ? 1.5 / totalAlpha : 1
 
-        small.alpha = fadeIn * normalize
-        large.alpha = fadeOut * normalize
-      }, 5000).then(() => {
+          small.alpha = fadeIn * normalize
+          large.alpha = fadeOut * normalize
+        },
+        5000,
+        false,
+        false
+      ).then(() => {
         const temp = this.graphic_l
         this.graphic_l = this.graphic_s
         this.graphic_s = temp

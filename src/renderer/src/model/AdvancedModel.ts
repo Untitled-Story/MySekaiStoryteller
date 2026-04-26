@@ -9,7 +9,7 @@ import PositionRel from '../types/PositionRel'
 import { getRandomNumber } from '../utils/HelperUtils'
 import { ModelData } from '../../../common/types/Story'
 import { VisualEffectManager } from '../managers/VisualEffectManager'
-import { AlphaFilter } from 'pixi.js'
+import { AlphaFilter, Ticker } from 'pixi.js'
 import { ILogObj, Logger } from 'tslog'
 import getSubLogger from '../utils/Logger'
 
@@ -19,7 +19,7 @@ export default class AdvancedModel extends Live2DModel {
 
   private _metadata: ModelData | null = null
 
-  private readonly visualEffectManager: VisualEffectManager = new VisualEffectManager(this)
+  private visualEffectManager!: VisualEffectManager
   private inHologram: boolean = false
 
   private logger: Logger<ILogObj> = getSubLogger('AdvancedModel[Uninitialized]')
@@ -28,7 +28,7 @@ export default class AdvancedModel extends Live2DModel {
     return this._metadata!
   }
 
-  public initialize(metadata: ModelData): void {
+  public initialize(metadata: ModelData, ticker: Ticker): void {
     if (!this._metadata) {
       this._metadata = metadata
     } else {
@@ -45,6 +45,7 @@ export default class AdvancedModel extends Live2DModel {
     this.anchor.x = 0.5
     this.anchor.y = this.metadata.anchor
 
+    this.visualEffectManager = new VisualEffectManager(this, ticker)
     this.visualEffectManager.createAll()
 
     this.logger = getSubLogger(`AdvancedModel(${this._metadata.id})`)
@@ -83,8 +84,10 @@ export default class AdvancedModel extends Live2DModel {
       alpha_filter.alpha = progress
     }, time)
 
-    this.lastChangeBlinkTime = Date.now()
-    setTimeout(() => this.updateAutoBlink(), getRandomNumber(4000, 6500))
+    this.lastChangeBlinkTime = AnimationManager.now()
+    AnimationManager.delay(getRandomNumber(4000, 6500), false)
+      .then(() => this.updateAutoBlink())
+      .catch(this.logger.error)
   }
 
   public async hide(time: number): Promise<void> {
@@ -98,7 +101,7 @@ export default class AdvancedModel extends Live2DModel {
       this.visualEffectManager.disableAll()
     }
 
-    this.lastChangeBlinkTime = Date.now()
+    this.lastChangeBlinkTime = AnimationManager.now()
     this.autoBlink = false
   }
 
@@ -118,7 +121,7 @@ export default class AdvancedModel extends Live2DModel {
       waits.push(this.applyFacial(facial))
     }
 
-    this.lastChangeBlinkTime = Date.now()
+    this.lastChangeBlinkTime = AnimationManager.now()
 
     await Promise.all(waits)
 
@@ -127,7 +130,7 @@ export default class AdvancedModel extends Live2DModel {
       () => motion_manager.isFinished() && facial_manager.isFinished()
     )
 
-    this.lastChangeBlinkTime = Date.now()
+    this.lastChangeBlinkTime = AnimationManager.now()
   }
 
   public setPositionRel(stage_size: [number, number], position: PositionRel): void {
@@ -177,37 +180,51 @@ export default class AdvancedModel extends Live2DModel {
     }
   }
 
-  public async closeEyes(time_ms: number): Promise<void> {
-    await AnimationManager.linear((progress) => {
-      if (this.internalModel instanceof Cubism2InternalModel) {
-        this.internalModel.eyeBlink!.setEyeParams(1 - progress)
-      } else if (this.internalModel instanceof Cubism4InternalModel) {
-        this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 1 - progress)
-        this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 1 - progress)
-      } else {
-        throw new Error('Not implement.')
-      }
-    }, time_ms)
+  public async closeEyes(time_ms: number, track: boolean = true): Promise<void> {
+    await AnimationManager.linear(
+      (progress) => {
+        if (this.internalModel instanceof Cubism2InternalModel) {
+          this.internalModel.eyeBlink!.setEyeParams(1 - progress)
+        } else if (this.internalModel instanceof Cubism4InternalModel) {
+          this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', 1 - progress)
+          this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', 1 - progress)
+        } else {
+          throw new Error('Not implement.')
+        }
+      },
+      time_ms,
+      false,
+      track
+    )
   }
 
-  public async openEyes(time_ms: number, max_value: number = 1): Promise<void> {
-    await AnimationManager.linear((progress) => {
-      if (this.internalModel instanceof Cubism2InternalModel) {
-        this.internalModel.eyeBlink!.setEyeParams(progress * max_value)
-      } else if (this.internalModel instanceof Cubism4InternalModel) {
-        this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', progress * max_value)
-        this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', progress * max_value)
-      } else {
-        throw new Error('Not implement.')
-      }
-    }, time_ms)
+  public async openEyes(
+    time_ms: number,
+    max_value: number = 1,
+    track: boolean = true
+  ): Promise<void> {
+    await AnimationManager.linear(
+      (progress) => {
+        if (this.internalModel instanceof Cubism2InternalModel) {
+          this.internalModel.eyeBlink!.setEyeParams(progress * max_value)
+        } else if (this.internalModel instanceof Cubism4InternalModel) {
+          this.internalModel.coreModel.setParameterValueById('ParamEyeLOpen', progress * max_value)
+          this.internalModel.coreModel.setParameterValueById('ParamEyeROpen', progress * max_value)
+        } else {
+          throw new Error('Not implement.')
+        }
+      },
+      time_ms,
+      false,
+      track
+    )
   }
 
   private async updateAutoBlink(): Promise<void> {
     while (this.autoBlink) {
-      const now = Date.now()
+      const now = AnimationManager.now()
       if (this.lastChangeBlinkTime && now - this.lastChangeBlinkTime < 2500) {
-        await AnimationManager.delay(500)
+        await AnimationManager.delay(500, false)
         continue
       }
 
@@ -217,7 +234,7 @@ export default class AdvancedModel extends Live2DModel {
           this.internalModel.coreModel.getParamFloat('PARAM_EYE_R_OPEN') < 1
         ) {
           this.logger.info('Blink has been blocked by eye param')
-          await AnimationManager.delay(getRandomNumber(4000, 6500))
+          await AnimationManager.delay(getRandomNumber(4000, 6500), false)
           continue
         }
       } else if (this.internalModel instanceof Cubism4InternalModel) {
@@ -226,19 +243,19 @@ export default class AdvancedModel extends Live2DModel {
           this.internalModel.coreModel.getParameterValueById('ParamEyeROpen') < 1
         ) {
           this.logger.info('Blink has been blocked by eye param')
-          await AnimationManager.delay(getRandomNumber(4000, 6500))
+          await AnimationManager.delay(getRandomNumber(4000, 6500), false)
           continue
         }
       } else {
         throw new Error('Not implement.')
       }
 
-      await this.closeEyes(200)
-      await this.openEyes(250)
+      await this.closeEyes(200, false)
+      await this.openEyes(250, 1, false)
 
-      this.lastChangeBlinkTime = Date.now()
+      this.lastChangeBlinkTime = AnimationManager.now()
 
-      await AnimationManager.delay(getRandomNumber(4000, 6500))
+      await AnimationManager.delay(getRandomNumber(4000, 6500), false)
     }
   }
 }

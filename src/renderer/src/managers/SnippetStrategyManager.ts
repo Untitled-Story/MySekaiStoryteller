@@ -20,6 +20,7 @@ export default class SnippetStrategyManager {
   private readonly app: App
   private readonly logger: Logger<ILogObj> = getSubLogger('SnippetStrategyManager')
   private readonly snippets!: { [key: string]: new (app: App, data: SnippetData) => Snippet }
+  private pendingTasks = 0
 
   constructor(app: App) {
     this.app = app
@@ -39,6 +40,10 @@ export default class SnippetStrategyManager {
     }
   }
 
+  public hasPendingTasks(): boolean {
+    return this.pendingTasks > 0
+  }
+
   async handleSnippet(data: SnippetData): Promise<void> {
     const snippetConstructor = this.snippets[data.type]
     if (snippetConstructor) {
@@ -47,7 +52,13 @@ export default class SnippetStrategyManager {
       if (data.wait) {
         await snippet.runSnippet()
       } else {
-        snippet.runSnippet().catch(this.logger.error)
+        this.pendingTasks++
+        snippet
+          .runSnippet()
+          .catch(this.logger.error)
+          .finally(() => {
+            this.pendingTasks--
+          })
       }
     } else {
       throw new TypeError(`Not implemented ${data.type}`)

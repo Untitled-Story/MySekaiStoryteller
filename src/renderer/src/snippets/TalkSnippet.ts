@@ -1,3 +1,4 @@
+import AnimationManager from '../managers/AnimationManager'
 import BaseSnippet from './BaseSnippet'
 
 export default class TalkSnippet extends BaseSnippet {
@@ -7,7 +8,9 @@ export default class TalkSnippet extends BaseSnippet {
     this.app.layerUI.resetTalkData()
     this.app.layerUI.setTalkData(this.data.data.speaker, this.data.data.content)
 
-    const lipSyncEnable = this.data.data.modelId !== -1 && this.data.data.voice !== ''
+    const hasVoice = this.data.data.voice !== ''
+    const lipSyncEnable =
+      this.app.runMode === 'preview' && this.data.data.modelId !== -1 && hasVoice
 
     if (!this.app.layerUI.UITalkShowed) {
       await this.app.layerUI.showTextBackground()
@@ -28,6 +31,19 @@ export default class TalkSnippet extends BaseSnippet {
       })
 
       waits.push(speak_task)
+    } else if (this.app.runMode === 'render' && hasVoice) {
+      const durationMs = this.app.getRenderVoiceDurationMs(this.data.data.voice)
+      const startTimeMs = AnimationManager.now()
+
+      this.app.addRenderAudioEvent({
+        voice: this.data.data.voice,
+        startTimeMs,
+        durationMs,
+        speaker: this.data.data.speaker,
+        content: this.data.data.content
+      })
+
+      waits.push(AnimationManager.delay(durationMs))
     }
 
     waits.push(this.app.layerUI.startDisplayContent())

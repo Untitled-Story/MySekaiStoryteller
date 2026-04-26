@@ -16,7 +16,7 @@ export default class StoryManager {
     this.storyData = story.data!
   }
 
-  public async preloadModels(): Promise<Live2DModelMap[]> {
+  public async preloadModels(ticker: Ticker): Promise<Live2DModelMap[]> {
     const result: Live2DModelMap[] = []
     for (const model_data of this.storyData.models) {
       const fullPath = `mss://load-file/${this.storyFolder}/models/${model_data.model}`
@@ -25,7 +25,7 @@ export default class StoryManager {
 
       try {
         model = await AdvancedModel.from(fullPath, {
-          ticker: Ticker.shared,
+          ticker,
           autoFocus: false,
           autoHitTest: false,
           breathDepth: 0
@@ -46,7 +46,7 @@ export default class StoryManager {
         model.internalModel.setAutoBlinkEnable(false)
       }
 
-      model.initialize(model_data)
+      model.initialize(model_data, ticker)
 
       result.push({
         id: model_data.id,

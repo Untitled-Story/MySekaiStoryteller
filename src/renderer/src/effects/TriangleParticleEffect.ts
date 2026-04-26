@@ -1,4 +1,4 @@
-import { BLEND_MODES, Graphics } from 'pixi.js'
+import { BLEND_MODES, Graphics, Ticker } from 'pixi.js'
 import { VisualEffect } from './VisualEffect'
 import AdvancedModel from '../model/AdvancedModel'
 
@@ -63,6 +63,7 @@ class ParticleTriangle extends Graphics {
 
 export default class TriangleParticleEffect extends VisualEffect {
   private particles: ParticleTriangle[] = []
+  private elapsedMs = 0
   private lastSpawnTime = 0
 
   private readonly maxParticles = 15
@@ -115,10 +116,13 @@ export default class TriangleParticleEffect extends VisualEffect {
 
   update(delta: number): void {
     if (!this.enabled) return
-    const now = performance.now()
-    if (now - this.lastSpawnTime > this.spawnInterval) {
+
+    const deltaMs = delta / Ticker.targetFPMS
+    this.elapsedMs += deltaMs
+
+    if (this.elapsedMs - this.lastSpawnTime > this.spawnInterval) {
       this.spawnParticle()
-      this.lastSpawnTime = now
+      this.lastSpawnTime = this.elapsedMs
     }
 
     for (let i = this.particles.length - 1; i >= 0; i--) {
