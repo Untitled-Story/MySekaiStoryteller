@@ -282,9 +282,7 @@ async function probeAudioDurationMs(voicePath: string): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     Ffmpeg.ffprobe(voicePath, (err, metadata) => {
       if (err) {
-        reject(
-          new Error(`Failed to probe audio duration: ${voicePath}`, { cause: err })
-        )
+        reject(new Error(`Failed to probe audio duration: ${voicePath}`, { cause: err }))
       } else if (metadata?.format?.duration != null) {
         resolve(metadata.format.duration * 1000)
       } else {
@@ -321,9 +319,11 @@ function runStreamingMerge(
   payload: FinishFrameExportPayload,
   videoPath: string,
   encoder: VideoEncoderConfig,
-  totalDurationMs: number
+  totalDurationMs: number,
+  lavfiAvailable: boolean,
+  silentWavPath: string | null
 ): Promise<string> {
-  return new Promise<string>(async (resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     // Create a PassThrough stream and write all buffered frames into it
     const frameStream = new PassThrough()
 
@@ -356,33 +356,16 @@ function runStreamingMerge(
     )
     const durationText = durationSeconds.toFixed(3)
 
-    let silentWavPath: string | null = null
-
     if (payload.audioEvents.length > 0) {
-      // Use lavfi anullsrc if available, otherwise generate a short silent WAV
-      // and pad it to the full duration using ffmpeg's infinite stream trick.
-      const lavfiAvailable = await probeLavfiSupport()
-
+      // Use lavfi anullsrc if available, otherwise use the pre-generated silent WAV
       if (lavfiAvailable) {
         // Silent reference track via lavfi (supported on system ffmpeg)
         command
           .input('anullsrc=channel_layout=stereo:sample_rate=48000')
           .inputOptions(['-f', 'lavfi', '-t', durationText])
-      } else {
-        // Build a minimal silent WAV (1 second looped via stream spec) as fallback.
-        // We write a 1-second silent WAV and use it with -stream_loop -1.
-        // Simpler: just generate a short silence WAV and use it as-is (will be shorter
-        // than the video, but amix with a long voice track pads to video length).
-        const tmpSilentWav = path.join(
-          session.outputDir ?? process.env.TMPDIR ?? '/tmp',
-          `mss-silence-${Date.now()}.wav`
-        )
-        // Generate a 1-second silent WAV (minimal size)
-        await createSilentWavFile(tmpSilentWav, 1)
-        silentWavPath = tmpSilentWav
-
+      } else if (silentWavPath) {
         // Use the silent WAV as reference audio, looping indefinitely
-        command.input(tmpSilentWav).inputOptions(['-stream_loop', '-1', '-t', durationText])
+        command.input(silentWavPath).inputOptions(['-stream_loop', '-1', '-t', durationText])
       }
 
       // Individual voice files
@@ -448,7 +431,7 @@ function runStreamingMerge(
         }
         resolve(videoPath)
       })
-.on('error', (err) => {
+      .on('error', (err) => {
         if (silentWavPath) {
           fs.promises.unlink(silentWavPath).catch(() => {
             /* ignore cleanup errors */
@@ -485,6 +468,19 @@ async function mergeFramesWithFfmpeg(
   const selectedEncoder = selectVideoEncoder(encoders)
   const fallbackEncoder = selectVideoEncoder(new Set(['libx264']))
 
+  // Probe lavfi support and generate silent WAV outside the Promise
+  // so the Promise executor stays synchronous (avoids no-async-promise-executor lint error)
+  const lavfiAvailable = payload.audioEvents.length > 0 ? await probeLavfiSupport() : false
+  let silentWavPath: string | null = null
+  if (!lavfiAvailable && payload.audioEvents.length > 0) {
+    const tmpSilentWav = path.join(
+      session.outputDir ?? process.env.TMPDIR ?? '/tmp',
+      `mss-silence-${Date.now()}.wav`
+    )
+    await createSilentWavFile(tmpSilentWav, 1)
+    silentWavPath = tmpSilentWav
+  }
+
   try {
     return await runStreamingMerge(
       event,
@@ -492,7 +488,9 @@ async function mergeFramesWithFfmpeg(
       payload,
       videoPath,
       selectedEncoder,
-      totalDurationMs
+      totalDurationMs,
+      lavfiAvailable,
+      silentWavPath
     )
   } catch (error) {
     if (selectedEncoder.name === fallbackEncoder.name) throw error
@@ -509,7 +507,9 @@ async function mergeFramesWithFfmpeg(
       payload,
       videoPath,
       fallbackEncoder,
-      totalDurationMs
+      totalDurationMs,
+      lavfiAvailable,
+      silentWavPath
     )
   } finally {
     // Release frame buffer memory
