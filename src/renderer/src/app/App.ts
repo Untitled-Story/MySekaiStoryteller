@@ -610,7 +610,7 @@ export class App {
     const startResult = (await window.electron.ipcRenderer.invoke('electron:start-frame-export', {
       storyPath: this.storyManager.storyJsonPath,
       outputRoot: this.exportRootDirectory,
-      targetFps: fps,
+      fps: fps,
       width: this.pixiApplication.screen.width,
       height: this.pixiApplication.screen.height
     })) as StartFrameExportResponse

@@ -1,0 +1,22 @@
+# Open Source Software Notices
+
+This project incorporates the following third-party software:
+
+## 1. FFmpeg
+- **Description**: A complete, cross-platform solution to record, convert and stream audio and video.
+- **Project URL**: https://ffmpeg.org
+- **License**: LGPL v2.1 (or GPL, depending on build configuration)
+- **Usage**: Provided as a standalone binary via the `ffmpeg-static` npm package.
+
+## 2. ffprobe
+- **Description**: A command-line tool to display information from multimedia streams.
+- **Project URL**: https://ffmpeg.org/ffprobe.html
+- **License**: LGPL v2.1
+- **Usage**: Provided via the `@ffprobe-installer/ffprobe` npm package.
+
+---
+
+## License Disclaimer
+This project is not affiliated with the FFmpeg project. FFmpeg is a trademark of Fabrice Bellard.
+
+The FFmpeg source code is available at https://ffmpeg.org. No modifications were made to the FFmpeg source code used in this project.

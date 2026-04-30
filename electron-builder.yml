@@ -19,6 +19,8 @@ files:
       - 'live2dcubismcore.min.js'
 asarUnpack:
   - resources/**
+  - node_modules/ffmpeg-static/**
+  - node_modules/@ffprobe-installer/**
 artifactName: ${name}-v${version}-${os}-${arch}.${ext}
 electronLanguages:
   - 'en_US'

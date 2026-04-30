@@ -3,7 +3,10 @@ import { app, dialog, ipcMain } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
 import path from 'node:path'
 import * as fs from 'node:fs'
-import { spawn } from 'node:child_process'
+import Ffmpeg from 'fluent-ffmpeg'
+import ffmpegPath from 'ffmpeg-static'
+import ffprobeInstaller from '@ffprobe-installer/ffprobe'
+import { PassThrough } from 'node:stream'
 import {
   SelectStoryResponse,
   LoadStoryFromPathResponse,
@@ -20,6 +23,16 @@ import {
   ProbeStoryVoiceDurationsResponse,
   RenderAudioEvent
 } from '../../common/types/FrameExport'
+
+// ── FFmpeg/FFprobe binary path setup ────────────────────────────────────────
+if (ffmpegPath) {
+  Ffmpeg.setFfmpegPath(ffmpegPath)
+}
+if (ffprobeInstaller?.path) {
+  Ffmpeg.setFfprobePath(ffprobeInstaller.path)
+}
+
+// ── Local type definitions ──────────────────────────────────────────────────
 
 interface SelectExportDirectoryResponse {
   canceled: boolean
@@ -51,11 +64,7 @@ interface FrameExportSession {
   fps: number
   width: number
   height: number
-}
-
-interface ProcessResult {
-  stdout: string
-  stderr: string
+  frameBuffers: Buffer[]
 }
 
 interface VideoEncoderConfig {
@@ -65,16 +74,22 @@ interface VideoEncoderConfig {
   outputArgs: string[]
 }
 
+// ── Module state ─────────────────────────────────────────────────────────────
+
 const frameExportSession: FrameExportSession = {
   outputDir: null,
   storyPath: null,
   storyFolder: null,
   fps: 60,
   width: 0,
-  height: 0
+  height: 0,
+  frameBuffers: []
 }
 
 let encoderProbePromise: Promise<Set<string>> | null = null
+let lavfiCache: boolean | null = null
+
+// ── Utility functions ────────────────────────────────────────────────────────
 
 function sanitizeFileName(name: string): string {
   const invalidCharacters = '<>:"/\\|?*'
@@ -112,30 +127,92 @@ function getVoicePath(storyFolder: string, voice: string): string {
   return path.resolve(storyFolder, 'voices', voice)
 }
 
-function resolveFfmpegExecutable(): string {
-  return 'ffmpeg'
+// ── lavfi / silent WAV helpers ─────────────────────────────────────────────
+
+/**
+ * Checks whether the ffmpeg binary supports the lavfi input device (anullsrc, etc.).
+ * Result is cached after first check.
+ */
+async function probeLavfiSupport(): Promise<boolean> {
+  if (lavfiCache !== null) return lavfiCache
+
+  // Quick probe: run a minimal lavfi command that produces no output.
+  // Exit code 0 = supported, non-zero = not available.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const cmd = Ffmpeg()
+        .input('anullsrc=r=48000:channel_layout=stereo')
+        .inputOptions(['-f', 'lavfi', '-t', '0.01'])
+        .outputOptions('-f', 'null', '-')
+        .on('error', (err) => reject(err))
+        .on('end', () => resolve())
+        .run()
+      void cmd // suppress unused variable warning
+    })
+    lavfiCache = true
+  } catch {
+    lavfiCache = false
+  }
+
+  return lavfiCache
 }
 
-function resolveFfprobeExecutable(): string {
-  return 'ffprobe'
+/**
+ * Generates a minimal silent WAV file using Node.js alone (PCM 16-bit, 48kHz, stereo).
+ * This avoids depending on lavfi support in the ffmpeg binary.
+ * The generated file is exactly `durationSeconds` long.
+ */
+async function createSilentWavFile(outputPath: string, durationSeconds: number): Promise<void> {
+  const sampleRate = 48000
+  const channels = 2
+  const bitsPerSample = 16
+  const numSamples = Math.ceil(sampleRate * durationSeconds)
+  const dataSize = numSamples * channels * (bitsPerSample / 8)
+  const fileSize = 36 + dataSize
+
+  const buf = Buffer.alloc(44 + dataSize)
+
+  // RIFF header
+  buf.write('RIFF', 0)
+  buf.writeUInt32LE(fileSize, 4)
+  buf.write('WAVE', 8)
+
+  // fmt chunk
+  buf.write('fmt ', 12)
+  buf.writeUInt32LE(16, 16) // chunk size
+  buf.writeUInt16LE(1, 20) // audio format (PCM)
+  buf.writeUInt16LE(channels, 22)
+  buf.writeUInt32LE(sampleRate, 24)
+  buf.writeUInt32LE((sampleRate * channels * bitsPerSample) / 8, 28) // byte rate
+  buf.writeUInt16LE((channels * bitsPerSample) / 8, 32) // block align
+  buf.writeUInt16LE(bitsPerSample, 34)
+
+  // data chunk
+  buf.write('data', 36)
+  buf.writeUInt32LE(dataSize, 40)
+  // PCM silence is all zeros — buffer is already zero-filled
+
+  await fs.promises.writeFile(outputPath, buf)
 }
+
+// ── Encoder detection ───────────────────────────────────────────────────────
 
 async function probeFfmpegEncoders(): Promise<Set<string>> {
   if (!encoderProbePromise) {
-    encoderProbePromise = runProcess(resolveFfmpegExecutable(), ['-hide_banner', '-encoders']).then(
-      ({ stdout, stderr }) => {
-        const output = `${stdout}\n${stderr}`.split('------').at(-1) || ''
-        const encoders = new Set<string>()
-        const encoderPattern = /^\s*[VAS.][F.][S.][X.][B.][D.]\s+([^\s]+)/gmu
-        let match: RegExpExecArray | null
-
-        while ((match = encoderPattern.exec(output)) !== null) {
-          encoders.add(match[1])
+    encoderProbePromise = new Promise<Set<string>>((resolve, reject) => {
+      Ffmpeg.getAvailableEncoders((err, encoders) => {
+        if (err) {
+          reject(
+            new Error(
+              'Failed to probe FFmpeg encoders. FFmpeg is required. Please install ffmpeg and ensure it is available in PATH.',
+              { cause: err }
+            )
+          )
+        } else {
+          resolve(new Set(Object.keys(encoders)))
         }
-
-        return encoders
-      }
-    )
+      })
+    })
   }
 
   return encoderProbePromise
@@ -197,83 +274,36 @@ function selectVideoEncoder(encoders: Set<string>): VideoEncoderConfig {
   return candidates.find((candidate) => encoders.has(candidate.name)) ?? software
 }
 
-function runProcess(command: string, args: string[]): Promise<ProcessResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true })
-    let stdout = ''
-    let stderr = ''
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8')
-    })
-
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8')
-    })
-
-    child.on('error', (error) => {
-      reject(
-        new Error(
-          `${command} failed to start. FFmpeg is required. Please install ffmpeg and ensure it is available in PATH.`,
-          { cause: error }
-        )
-      )
-    })
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr })
-        return
-      }
-
-      reject(new Error(`${command} exited with code ${code}.\n${stderr}`))
-    })
-  })
-}
+// ── Audio duration probing ──────────────────────────────────────────────────
 
 async function probeAudioDurationMs(voicePath: string): Promise<number> {
   await fs.promises.access(voicePath, fs.constants.R_OK)
 
-  const { stdout } = await runProcess(resolveFfprobeExecutable(), [
-    '-v',
-    'error',
-    '-show_entries',
-    'format=duration',
-    '-of',
-    'default=noprint_wrappers=1:nokey=1',
-    voicePath
-  ])
-
-  const durationSeconds = Number.parseFloat(stdout.trim())
-  if (!Number.isFinite(durationSeconds)) {
-    throw new Error(`Failed to probe audio duration: ${voicePath}`)
-  }
-
-  return durationSeconds * 1000
+  return new Promise<number>((resolve, reject) => {
+    Ffmpeg.ffprobe(voicePath, (err, metadata) => {
+      if (err) {
+        reject(
+          new Error(`Failed to probe audio duration: ${voicePath}`, { cause: err })
+        )
+      } else if (metadata?.format?.duration != null) {
+        resolve(metadata.format.duration * 1000)
+      } else {
+        reject(new Error(`No duration found for: ${voicePath}`))
+      }
+    })
+  })
 }
 
-function parseProgressTimeMs(line: string): number | null {
-  const [key, value] = line.trim().split('=')
-  if (!key || !value) return null
+// ── Progress helpers ────────────────────────────────────────────────────────
 
-  if (key === 'out_time_us' || key === 'out_time_ms') {
-    const raw = Number.parseInt(value, 10)
-    if (!Number.isFinite(raw)) return null
-    return raw / 1000
-  }
+function parseTimeMarkToMs(timemark: string): number {
+  const match = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/u.exec(timemark)
+  if (!match) return 0
+  const hours = Number.parseInt(match[1], 10)
+  const minutes = Number.parseInt(match[2], 10)
+  const seconds = Number.parseFloat(match[3])
 
-  if (key === 'out_time') {
-    const match = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/u.exec(value)
-    if (!match) return null
-
-    const hours = Number.parseInt(match[1], 10)
-    const minutes = Number.parseInt(match[2], 10)
-    const seconds = Number.parseFloat(match[3])
-
-    return (hours * 3600 + minutes * 60 + seconds) * 1000
-  }
-
-  return null
+  return (hours * 3600 + minutes * 60 + seconds) * 1000
 }
 
 function sendFrameExportProgress(
@@ -283,141 +313,151 @@ function sendFrameExportProgress(
   event.sender.send('electron:frame-export-progress', payload)
 }
 
-function buildFfmpegArgs(
+// ── Streaming merge (core FFmpeg operation) ─────────────────────────────────
+
+function runStreamingMerge(
+  event: IpcMainInvokeEvent,
   session: FrameExportSession,
   payload: FinishFrameExportPayload,
   videoPath: string,
-  encoder: VideoEncoderConfig
-): string[] {
-  if (!session.outputDir || !session.storyFolder) {
-    throw new Error('Frame export session has not been started.')
-  }
-
-  const durationSeconds = Math.max(payload.totalDurationMs / 1000, payload.frameCount / payload.fps)
-  const durationText = durationSeconds.toFixed(3)
-  const framePattern = path.join(session.outputDir, '%06d.png')
-
-  const args = [
-    '-y',
-    '-hide_banner',
-    ...encoder.globalArgs,
-    '-loglevel',
-    'error',
-    '-progress',
-    'pipe:2',
-    '-nostats',
-    '-framerate',
-    payload.fps.toString(),
-    '-i',
-    framePattern
-  ]
-
-  if (payload.audioEvents.length > 0) {
-    args.push(
-      '-f',
-      'lavfi',
-      '-t',
-      durationText,
-      '-i',
-      'anullsrc=channel_layout=stereo:sample_rate=48000'
-    )
-
-    payload.audioEvents.forEach((audioEvent) => {
-      args.push('-i', getVoicePath(session.storyFolder!, audioEvent.voice))
-    })
-
-    const filters = payload.audioEvents.map((audioEvent, index) => {
-      const inputIndex = index + 2
-      const delay = Math.max(0, Math.round(audioEvent.startTimeMs))
-      return `[${inputIndex}:a]adelay=${delay}:all=1,aresample=48000[a${index}]`
-    })
-    const mixInputs = ['[1:a]', ...payload.audioEvents.map((_, index) => `[a${index}]`)].join('')
-    filters.push(
-      `${mixInputs}amix=inputs=${payload.audioEvents.length + 1}:duration=first:dropout_transition=0[aout]`
-    )
-
-    args.push(
-      '-filter_complex',
-      filters.join(';'),
-      '-map',
-      '0:v',
-      '-map',
-      '[aout]',
-      '-t',
-      durationText,
-      '-c:a',
-      'aac',
-      '-b:a',
-      '192k'
-    )
-  }
-
-  args.push(...encoder.outputArgs, videoPath)
-
-  return args
-}
-
-function runFfmpegMerge(
-  event: IpcMainInvokeEvent,
-  args: string[],
-  totalDurationMs: number,
-  videoPath: string,
-  encoder: VideoEncoderConfig
+  encoder: VideoEncoderConfig,
+  totalDurationMs: number
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveFfmpegExecutable(), args, { windowsHide: true })
-    let stderr = ''
-    let progressBuffer = ''
+  return new Promise<string>(async (resolve, reject) => {
+    // Create a PassThrough stream and write all buffered frames into it
+    const frameStream = new PassThrough()
 
+    // Write frames asynchronously so fluent-ffmpeg has time to set up its pipe listener
+    setImmediate(() => {
+      for (const buffer of session.frameBuffers) {
+        frameStream.write(buffer)
+      }
+      frameStream.end()
+    })
+
+    // Build the ffmpeg command
+    const command = Ffmpeg()
+
+    // ── video input (stdin pipe: image2pipe) ──
+    command
+      .input(frameStream)
+      .inputOptions([
+        ...encoder.globalArgs,
+        '-f',
+        'image2pipe',
+        '-framerate',
+        payload.fps.toString()
+      ])
+
+    // ── audio inputs ──
+    const durationSeconds = Math.max(
+      payload.totalDurationMs / 1000,
+      payload.frameCount / payload.fps
+    )
+    const durationText = durationSeconds.toFixed(3)
+
+    let silentWavPath: string | null = null
+
+    if (payload.audioEvents.length > 0) {
+      // Use lavfi anullsrc if available, otherwise generate a short silent WAV
+      // and pad it to the full duration using ffmpeg's infinite stream trick.
+      const lavfiAvailable = await probeLavfiSupport()
+
+      if (lavfiAvailable) {
+        // Silent reference track via lavfi (supported on system ffmpeg)
+        command
+          .input('anullsrc=channel_layout=stereo:sample_rate=48000')
+          .inputOptions(['-f', 'lavfi', '-t', durationText])
+      } else {
+        // Build a minimal silent WAV (1 second looped via stream spec) as fallback.
+        // We write a 1-second silent WAV and use it with -stream_loop -1.
+        // Simpler: just generate a short silence WAV and use it as-is (will be shorter
+        // than the video, but amix with a long voice track pads to video length).
+        const tmpSilentWav = path.join(
+          session.outputDir ?? process.env.TMPDIR ?? '/tmp',
+          `mss-silence-${Date.now()}.wav`
+        )
+        // Generate a 1-second silent WAV (minimal size)
+        await createSilentWavFile(tmpSilentWav, 1)
+        silentWavPath = tmpSilentWav
+
+        // Use the silent WAV as reference audio, looping indefinitely
+        command.input(tmpSilentWav).inputOptions(['-stream_loop', '-1', '-t', durationText])
+      }
+
+      // Individual voice files
+      for (const audioEvent of payload.audioEvents) {
+        command.input(getVoicePath(session.storyFolder!, audioEvent.voice))
+      }
+
+      // Build filter_complex for audio delay + mixing
+      const filterParts: string[] = payload.audioEvents.map((audioEvent, index) => {
+        const inputIndex = index + 2
+        const delay = Math.max(0, Math.round(audioEvent.startTimeMs))
+        return `[${inputIndex}:a]adelay=${delay}:all=1,aresample=48000[a${index}]`
+      })
+      const mixInputs = ['[1:a]', ...payload.audioEvents.map((_, i) => `[a${i}]`)].join('')
+      filterParts.push(
+        `${mixInputs}amix=inputs=${payload.audioEvents.length + 1}:duration=first:dropout_transition=0[aout]`
+      )
+
+      command
+        .complexFilter(filterParts)
+        .outputOptions('-map', '0:v')
+        .outputOptions('-map', '[aout]')
+        .outputOptions('-t', durationText)
+        .audioCodec('aac')
+        .audioBitrate('192k')
+    }
+
+    // ── encoder-specific output args ──
+    command.outputOptions(encoder.outputArgs)
+
+    // ── progress reporting ──
     sendFrameExportProgress(event, {
       phase: 'merging',
       percent: 0,
       message: `Merging video with ${encoder.label}`
     })
 
-    child.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString('utf8')
-      stderr += text
-      progressBuffer += text
-
-      const lines = progressBuffer.split(/\r?\n/u)
-      progressBuffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const outTimeMs = parseProgressTimeMs(line)
-        if (outTimeMs === null) continue
-
-        const percent = totalDurationMs > 0 ? Math.min(outTimeMs / totalDurationMs, 1) : 0
+    command
+      .on('progress', (info) => {
+        const progress =
+          info.percent !== undefined
+            ? info.percent / 100
+            : totalDurationMs > 0
+              ? parseTimeMarkToMs(info.timemark) / totalDurationMs
+              : 0
+        const clamped = Math.min(progress, 1)
         sendFrameExportProgress(event, {
           phase: 'merging',
-          percent,
-          message: `Merging video with ${encoder.label} ${(percent * 100).toFixed(1)}%`
+          percent: clamped,
+          message: `Merging video with ${encoder.label} ${(clamped * 100).toFixed(1)}%`
         })
-      }
-    })
-
-    child.on('error', (error) => {
-      reject(
-        new Error(
-          'ffmpeg failed to start. FFmpeg is required to merge rendered frames. Please install ffmpeg and ensure it is available in PATH.',
-          { cause: error }
-        )
-      )
-    })
-
-    child.on('close', (code) => {
-      if (code === 0) {
+      })
+      .on('end', () => {
         sendFrameExportProgress(event, {
           phase: 'merging',
           percent: 1,
           message: `Video merge complete with ${encoder.label}.`
         })
+        if (silentWavPath) {
+          fs.promises.unlink(silentWavPath).catch(() => {
+            /* ignore cleanup errors */
+          })
+        }
         resolve(videoPath)
-        return
-      }
-
-      reject(new Error(`ffmpeg exited with code ${code}.\n${stderr}`))
-    })
+      })
+.on('error', (err) => {
+        if (silentWavPath) {
+          fs.promises.unlink(silentWavPath).catch(() => {
+            /* ignore cleanup errors */
+          })
+        }
+        reject(new Error(`FFmpeg error (${encoder.name}): ${err.message}`))
+      })
+      .output(videoPath)
+      .run()
   })
 }
 
@@ -446,8 +486,14 @@ async function mergeFramesWithFfmpeg(
   const fallbackEncoder = selectVideoEncoder(new Set(['libx264']))
 
   try {
-    const args = buildFfmpegArgs(session, payload, videoPath, selectedEncoder)
-    return await runFfmpegMerge(event, args, totalDurationMs, videoPath, selectedEncoder)
+    return await runStreamingMerge(
+      event,
+      session,
+      payload,
+      videoPath,
+      selectedEncoder,
+      totalDurationMs
+    )
   } catch (error) {
     if (selectedEncoder.name === fallbackEncoder.name) throw error
 
@@ -457,10 +503,21 @@ async function mergeFramesWithFfmpeg(
       message: `${selectedEncoder.label} failed, falling back to ${fallbackEncoder.label}.`
     })
 
-    const args = buildFfmpegArgs(session, payload, videoPath, fallbackEncoder)
-    return runFfmpegMerge(event, args, totalDurationMs, videoPath, fallbackEncoder)
+    return await runStreamingMerge(
+      event,
+      session,
+      payload,
+      videoPath,
+      fallbackEncoder,
+      totalDurationMs
+    )
+  } finally {
+    // Release frame buffer memory
+    session.frameBuffers = []
   }
 }
+
+// ── IPC handler setup ────────────────────────────────────────────────────────
 
 async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
   ipcMain.handle(
@@ -638,6 +695,7 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
       frameExportSession.fps = payload.fps
       frameExportSession.width = payload.width
       frameExportSession.height = payload.height
+      frameExportSession.frameBuffers = []
       logger.info(`Frame export directory: ${outputDir}`)
 
       return { success: true, outputDir }
@@ -646,17 +704,15 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
 
   ipcMain.handle(
     'electron:save-frame',
-    async (_event, payload: SaveFramePayload): Promise<string> => {
+    async (_event, payload: SaveFramePayload): Promise<boolean> => {
       if (!frameExportSession.outputDir) {
         throw new Error('Frame export session has not been started.')
       }
 
-      const filename = `${payload.index.toString().padStart(6, '0')}.png`
-      const outputPath = path.join(frameExportSession.outputDir, filename)
+      // Buffer in memory instead of writing individual PNG files to disk
+      frameExportSession.frameBuffers.push(toFrameBuffer(payload.buffer))
 
-      await fs.promises.writeFile(outputPath, toFrameBuffer(payload.buffer))
-
-      return outputPath
+      return true
     }
   )
 
@@ -682,6 +738,7 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
       frameExportSession.outputDir = null
       frameExportSession.storyPath = null
       frameExportSession.storyFolder = null
+      frameExportSession.frameBuffers = []
 
       return { outputDir, frameCount: payload.frameCount, videoPath }
     }
