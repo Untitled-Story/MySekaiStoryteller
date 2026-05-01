@@ -32,7 +32,7 @@ export default class LayoutAppearSnippet extends BaseSnippet {
       this.data.data.to.offset
     )
 
-    if (from.x === to.x && to.y === to.y) {
+    if (from.x === to.x && from.y === to.y) {
       model.setPositionRel(this.app.stage_size, to)
     } else {
       move_task = model.move(
