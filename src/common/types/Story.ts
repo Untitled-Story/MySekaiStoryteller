@@ -181,6 +181,22 @@ const SnippetSchema = z.discriminatedUnion('type', [
         })
       )
     })
+  }),
+  z.object({
+    type: z.literal('WhiteOut'),
+    wait: z.boolean(),
+    delay: z.number(),
+    data: z.object({
+      duration: z.number()
+    })
+  }),
+  z.object({
+    type: z.literal('WhiteIn'),
+    wait: z.boolean(),
+    delay: z.number(),
+    data: z.object({
+      duration: z.number()
+    })
   })
 ])
 

@@ -15,6 +15,8 @@ import TelopSnippet from '../snippets/TelopSnippet'
 import BlackOutSnippet from '../snippets/BlackOutSnippet'
 import BlackInSnippet from '../snippets/BlackInSnippet'
 import DoParamSnippet from '../snippets/DoParamSnippet'
+import WhiteInSnippet from '../snippets/WhiteInSnippet'
+import WhiteOutSnippet from '../snippets/WhiteOutSnippet'
 
 export default class SnippetStrategyManager {
   private readonly app: App
@@ -35,7 +37,9 @@ export default class SnippetStrategyManager {
       Telop: TelopSnippet,
       BlackOut: BlackOutSnippet,
       BlackIn: BlackInSnippet,
-      DoParam: DoParamSnippet
+      DoParam: DoParamSnippet,
+      WhiteIn: WhiteInSnippet,
+      WhiteOut: WhiteOutSnippet
     }
   }
 
