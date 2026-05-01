@@ -227,7 +227,7 @@ function selectVideoEncoder(encoders: Set<string>): VideoEncoderConfig {
     name: 'libx264',
     label: 'Software H.264 (libx264)',
     globalArgs: [],
-    outputArgs: ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium']
+    outputArgs: ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'fast']
   }
 
   const candidates: VideoEncoderConfig[] = []
@@ -702,17 +702,14 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
     }
   )
 
-  ipcMain.handle(
+  ipcMain.on(
     'electron:save-frame',
-    async (_event, payload: SaveFramePayload): Promise<boolean> => {
+    (_event, payload: SaveFramePayload): void => {
       if (!frameExportSession.outputDir) {
         throw new Error('Frame export session has not been started.')
       }
 
-      // Buffer in memory instead of writing individual PNG files to disk
       frameExportSession.frameBuffers.push(toFrameBuffer(payload.buffer))
-
-      return true
     }
   )
 

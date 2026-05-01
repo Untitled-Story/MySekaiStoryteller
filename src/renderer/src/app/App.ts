@@ -151,7 +151,7 @@ export class App {
       backgroundColor: 0xffffff,
       resizeTo: this.applicationWrapper,
       autoDensity: true,
-      antialias: true,
+      antialias: !renderMode,
       resolution: options.scale,
       autoStart: !renderMode,
       preserveDrawingBuffer: renderMode
@@ -639,7 +639,6 @@ export class App {
       AnimationManager.setManualTime(virtualTime)
 
       this.pixiApplication.ticker.update(virtualTime)
-      await Promise.resolve()
       this.pixiApplication.render()
 
       await this.saveCurrentFrame(frameIndex)
@@ -665,6 +664,9 @@ export class App {
       this.snippetStrategyManager.hasPendingTasks() ||
       AnimationManager.hasTrackedTasks()
     )
+
+    // Wait for all in-flight frame encodings to complete before merging
+    await Promise.all(this.encodingQueue)
 
     await storyTask
 
@@ -707,25 +709,37 @@ export class App {
     AnimationManager.setMode('realtime')
   }
 
-  private async saveCurrentFrame(index: number): Promise<void> {
-    const canvas = this.pixiApplication.view as HTMLCanvasElement
+  private encodingQueue: Promise<void>[] = []
+  private readonly maxConcurrentEncodings = 3
 
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((value) => {
-        if (!value) {
+  private async saveCurrentFrame(index: number): Promise<void> {
+    // Wait for the oldest encoding to finish if we hit the concurrency limit
+    if (this.encodingQueue.length >= this.maxConcurrentEncodings) {
+      await Promise.race(this.encodingQueue)
+    }
+
+    // Synchronously snapshot WebGL pixels into an independent 2D canvas.
+    // This prevents a race condition where a subsequent render() overwrites
+    // the WebGL framebuffer before the async toBlob readback occurs.
+    const snapshotCanvas = this.pixiApplication.renderer.extract.canvas() as HTMLCanvasElement
+
+    const encodingPromise = new Promise<void>((resolve, reject) => {
+      snapshotCanvas.toBlob((blob) => {
+        if (!blob) {
           reject(new Error('Failed to encode frame.'))
           return
         }
 
-        resolve(value)
-      }, 'image/png')
+        blob.arrayBuffer().then((buffer) => {
+          window.electron.ipcRenderer.send('electron:save-frame', { index, buffer })
+          resolve()
+        }, reject)
+      }, 'image/jpeg', 0.95)
     })
 
-    const buffer = await blob.arrayBuffer()
-
-    await window.electron.ipcRenderer.invoke('electron:save-frame', {
-      index,
-      buffer
+    this.encodingQueue.push(encodingPromise)
+    encodingPromise.finally(() => {
+      this.encodingQueue = this.encodingQueue.filter((p) => p !== encodingPromise)
     })
   }
 
