@@ -724,17 +724,21 @@ export class App {
     const snapshotCanvas = this.pixiApplication.renderer.extract.canvas() as HTMLCanvasElement
 
     const encodingPromise = new Promise<void>((resolve, reject) => {
-      snapshotCanvas.toBlob((blob) => {
-        if (!blob) {
-          reject(new Error('Failed to encode frame.'))
-          return
-        }
+      snapshotCanvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error('Failed to encode frame.'))
+            return
+          }
 
-        blob.arrayBuffer().then((buffer) => {
-          window.electron.ipcRenderer.send('electron:save-frame', { index, buffer })
-          resolve()
-        }, reject)
-      }, 'image/jpeg', 0.95)
+          blob.arrayBuffer().then((buffer) => {
+            window.electron.ipcRenderer.send('electron:save-frame', { index, buffer })
+            resolve()
+          }, reject)
+        },
+        'image/jpeg',
+        0.95
+      )
     })
 
     this.encodingQueue.push(encodingPromise)

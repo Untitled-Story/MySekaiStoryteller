@@ -702,16 +702,13 @@ async function setupIpcHandlers(logger: Logger<ILogObj>): Promise<void> {
     }
   )
 
-  ipcMain.on(
-    'electron:save-frame',
-    (_event, payload: SaveFramePayload): void => {
-      if (!frameExportSession.outputDir) {
-        throw new Error('Frame export session has not been started.')
-      }
-
-      frameExportSession.frameBuffers.push(toFrameBuffer(payload.buffer))
+  ipcMain.on('electron:save-frame', (_event, payload: SaveFramePayload): void => {
+    if (!frameExportSession.outputDir) {
+      throw new Error('Frame export session has not been started.')
     }
-  )
+
+    frameExportSession.frameBuffers.push(toFrameBuffer(payload.buffer))
+  })
 
   ipcMain.handle(
     'electron:finish-frame-export',
