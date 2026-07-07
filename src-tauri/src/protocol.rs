@@ -11,7 +11,13 @@ use tauri::{
 };
 
 fn decode_request_path(request: &Request<Vec<u8>>) -> Option<PathBuf> {
-    let raw_path = request.uri().path();
+    decode_uri_path(request.uri().host(), request.uri().path())
+}
+
+fn decode_uri_path(host: Option<&str>, raw_path: &str) -> Option<PathBuf> {
+    if matches!(host, Some(host) if host != "load-file") {
+        return None;
+    }
     if raw_path.is_empty() || raw_path == "/" {
         return None;
     }

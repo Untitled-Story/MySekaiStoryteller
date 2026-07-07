@@ -2,8 +2,9 @@ import { Card } from '@/components/ui/Card'
 import { Clock, Edit3, Play, Trash2, FileEdit } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { timeAgo } from '@/windows/main/utils/time'
-import { ProjectMetadata } from '@/types/ProjectMetadata'
-import { invoke } from '@tauri-apps/api/core'
+import type { ProjectMetadata } from '@/project/metadata'
+import { deleteProject, renameProject } from '@/project/api'
+import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { useState } from 'react'
 import {
   ContextMenu,
@@ -43,12 +44,13 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
   const [openingEditor, setOpeningEditor] = useState(false)
+  const [openingPlayer, setOpeningPlayer] = useState(false)
   const [contextMenuKey, setContextMenuKey] = useState(0)
 
   const handleDelete = async () => {
     setIsDeleting(true)
     try {
-      await invoke('delete_project', { projectName: metadata.title })
+      await deleteProject(metadata.title)
       onDelete?.()
     } catch (error) {
       alert('删除失败: ' + (error instanceof Error ? error.message : '未知错误'))
@@ -66,7 +68,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
 
     setIsRenaming(true)
     try {
-      await invoke('rename_project', { oldName: metadata.title, newName: newName.trim() })
+      await renameProject(metadata.title, newName.trim())
       onRename?.()
     } catch (error) {
       alert('重命名失败: ' + (error instanceof Error ? error.message : '未知错误'))
@@ -80,11 +82,23 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
     if (openingEditor) return
     setOpeningEditor(true)
     try {
-      await invoke('open_editor', { projectName: metadata.title })
+      await openEditorWindow(metadata.title)
     } catch (error) {
       alert('打开编辑器失败: ' + (error instanceof Error ? error.message : '未知错误'))
     } finally {
       setOpeningEditor(false)
+    }
+  }
+
+  const handleOpenPlayer = async () => {
+    if (openingPlayer) return
+    setOpeningPlayer(true)
+    try {
+      await openPlayerWindow(metadata.title)
+    } catch (error) {
+      alert('打开播放器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    } finally {
+      setOpeningPlayer(false)
     }
   }
 
@@ -116,7 +130,13 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
                 <Edit3 className="w-3.5 h-3.5 mr-1" />
                 编辑
               </Button>
-              <Button size="sm" variant="outline" className="flex-1 bg-transparent">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 bg-transparent"
+                onClick={handleOpenPlayer}
+                disabled={openingPlayer}
+              >
                 <Play className="w-3.5 h-3.5 mr-1" />
                 播放
               </Button>

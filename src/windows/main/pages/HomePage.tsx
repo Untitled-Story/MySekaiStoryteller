@@ -1,12 +1,12 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { Plus, Edit3, Play, Clock, Folder, Settings } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
-import { ProjectMetadata } from '@/types/ProjectMetadata'
+import type { ProjectMetadata } from '@/project/metadata'
 import { timeAgo } from '@/windows/main/utils/time'
 import { useNavigate } from 'react-router'
+import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 
 export default function HomePage(): JSX.Element {
   const { projects, fetchProjects } = useProjectsMetadata()
@@ -19,9 +19,17 @@ export default function HomePage(): JSX.Element {
 
   const handleOpenEditor = async (title: string) => {
     try {
-      await invoke('open_editor', { projectName: title })
+      await openEditorWindow(title)
     } catch (error) {
       alert('打开编辑器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
+  const handleOpenPlayer = async (title: string) => {
+    try {
+      await openPlayerWindow(title)
+    } catch (error) {
+      alert('打开播放器失败: ' + (error instanceof Error ? error.message : '未知错误'))
     }
   }
 
@@ -52,7 +60,10 @@ export default function HomePage(): JSX.Element {
                   <Edit3 className="w-3.5 h-3.5" />
                   继续编辑
                 </button>
-                <button className="flex items-center gap-2 px-4 py-2.5 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors">
+                <button
+                  onClick={() => handleOpenPlayer(latest.title)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors"
+                >
                   <Play className="w-3.5 h-3.5" />
                   播放
                 </button>

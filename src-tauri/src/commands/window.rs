@@ -1,29 +1,5 @@
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewUrl, Window};
-
-#[tauri::command]
-pub fn resize_window<R: Runtime>(
-    window: Window<R>,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
-    let outer_position = window.outer_position().map_err(|e| e.to_string())?;
-    let outer_size = window.outer_size().map_err(|e| e.to_string())?;
-
-    let center_x = outer_position.x as f64 + outer_size.width as f64 / 2.0;
-    let center_y = outer_position.y as f64 + outer_size.height as f64 / 2.0;
-
-    let new_x = (center_x - width as f64 / 2.0).round() as i32;
-    let new_y = (center_y - height as f64 / 2.0).round() as i32;
-
-    window
-        .set_size(PhysicalSize::new(width, height))
-        .map_err(|e| e.to_string())?;
-    window
-        .set_position(PhysicalPosition::new(new_x, new_y))
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl};
 
 #[tauri::command]
 pub fn open_editor(app: AppHandle, project_name: String) -> Result<(), String> {
@@ -37,7 +13,8 @@ pub fn open_editor(app: AppHandle, project_name: String) -> Result<(), String> {
         return Ok(());
     }
 
-    let url = WebviewUrl::App(format!("src/windows/editor/index.html?project={}", project_name).into());
+    let url =
+        WebviewUrl::App(project_window_url("src/windows/editor/index.html", &project_name).into());
 
     tauri::WebviewWindowBuilder::new(&app, label, url)
         .title("MySekaiStoryteller - Editor")
@@ -60,13 +37,23 @@ pub fn open_player(app: AppHandle, project_name: String) -> Result<(), String> {
         return Ok(());
     }
 
-    let url = WebviewUrl::App(format!("src/windows/player/index.html?project={}", project_name).into());
+    let url =
+        WebviewUrl::App(project_window_url("src/windows/player/index.html", &project_name).into());
 
     tauri::WebviewWindowBuilder::new(&app, label, url)
         .title("MySekaiStoryteller - Player")
         .inner_size(1280.0, 720.0)
+        .resizable(false)
+        .decorations(false)
         .build()
         .map_err(|e: tauri::Error| e.to_string())?;
 
     Ok(())
+}
+
+fn project_window_url(path: &str, project_name: &str) -> String {
+    format!(
+        "{path}?project={}",
+        utf8_percent_encode(project_name, NON_ALPHANUMERIC)
+    )
 }

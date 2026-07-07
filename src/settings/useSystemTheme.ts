@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { SystemTheme } from '@/types/Settings'
+import type { SystemTheme } from './types'
 
 const getPreferredTheme = (): SystemTheme => {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {

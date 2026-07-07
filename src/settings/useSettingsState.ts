@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSystemTheme } from '@/hooks/useSystemTheme'
-import { invoke } from '@tauri-apps/api/core'
+import { getSettings, saveSettings } from './api'
+import { useSystemTheme } from './useSystemTheme'
 import type {
   AppSettings,
   AppearanceSettings,
   PlaybackSettings,
+  RenderPrecision,
   SystemTheme
-} from '@/types/Settings'
+} from './types'
 
 export type SettingsHook = {
   loaded: boolean
@@ -16,13 +17,13 @@ export type SettingsHook = {
   setFollowSystem: (follow: boolean) => void
   setManualTheme: (theme: SystemTheme) => void
   setMemorySizeMb: (value: number) => void
-  setRenderPrecision: (value: number) => void
+  setRenderPrecision: (value: RenderPrecision) => void
   setWorkspaceDir: (dir: string) => void
 }
 
 const DEFAULT_PLAYBACK: PlaybackSettings = {
   memorySizeMb: 128,
-  renderPrecision: 1.0
+  renderPrecision: 'Auto'
 }
 
 export function useSettingsState(): SettingsHook {
@@ -48,7 +49,7 @@ export function useSettingsState(): SettingsHook {
   useEffect(() => {
     let cancelled = false
 
-    invoke<AppSettings | null>('get_settings')
+    getSettings()
       .then((stored) => {
         if (cancelled || !stored) {
           setLoaded(true)
@@ -60,7 +61,7 @@ export function useSettingsState(): SettingsHook {
         })
         setPlayback({
           memorySizeMb: stored.playback?.memorySizeMb ?? DEFAULT_PLAYBACK.memorySizeMb,
-          renderPrecision: stored.playback?.renderPrecision ?? DEFAULT_PLAYBACK.renderPrecision
+          renderPrecision: normalizeRenderPrecision(stored.playback?.renderPrecision)
         })
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setLoaded(true)
@@ -87,7 +88,7 @@ export function useSettingsState(): SettingsHook {
       workspaceDir: workspaceDir ?? undefined
     }
 
-    invoke('save_settings', { settings: payload }).catch(console.error)
+    saveSettings(payload).catch(console.error)
   }, [appearance.followSystem, appearance.manualTheme, playback, workspaceDir, loaded])
 
   return {
@@ -117,4 +118,10 @@ export function useSettingsState(): SettingsHook {
       })),
     setWorkspaceDir: (dir) => setWorkspaceDirState(dir)
   }
+}
+
+function normalizeRenderPrecision(value: RenderPrecision | undefined): RenderPrecision {
+  if (value === 'Auto') return value
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+  return DEFAULT_PLAYBACK.renderPrecision
 }

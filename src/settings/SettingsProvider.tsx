@@ -1,6 +1,6 @@
 import type { ReactNode, JSX } from 'react'
-import { SettingsContext } from '@/context/SettingsContext'
-import { useSettingsState } from '@/hooks/useSettingsState'
+import { SettingsContext } from './SettingsContext'
+import { useSettingsState } from './useSettingsState'
 
 export function SettingsProvider({ children }: { children: ReactNode }): JSX.Element {
   const value = useSettingsState()

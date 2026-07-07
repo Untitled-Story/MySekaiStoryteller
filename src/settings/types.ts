@@ -7,8 +7,10 @@ export type AppearanceSettings = {
 
 export type PlaybackSettings = {
   memorySizeMb: number
-  renderPrecision: number
+  renderPrecision: RenderPrecision
 }
+
+export type RenderPrecision = number | 'Auto'
 
 export type AppSettings = {
   appearance: AppearanceSettings

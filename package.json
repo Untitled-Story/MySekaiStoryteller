@@ -7,7 +7,11 @@
   "homepage": "https://github.com/Untitled-Story/MySekaiStoryteller/",
   "packageManager": "pnpm@10.15.1",
   "scripts": {
+    "setup:live2d": "node scripts/setup-live2d-cores.mjs",
+    "reset:settings": "node scripts/reset-settings.mjs",
+    "predev": "pnpm setup:live2d",
     "dev": "vite",
+    "prebuild": "pnpm setup:live2d",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -20,9 +24,12 @@
     "@tauri-apps/plugin-dialog": "^2.2.3",
     "@tauri-apps/plugin-global-shortcut": "^2.2.1",
     "@tauri-apps/plugin-opener": "^2.2.8",
+    "pixi-filters": "6.1.5",
+    "pixi.js": "^8.19.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router": "^7.12.0",
+    "untitled-pixi-live2d-engine": "^1.2.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -47,6 +54,7 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.544.0",
     "postcss": "^8.5.10",
     "prettier": "^3.6.2",

@@ -1,6 +1,6 @@
 import { useContext } from 'react'
-import { SettingsContext } from '@/context/SettingsContext'
-import type { SettingsHook } from '@/hooks/useSettingsState'
+import { SettingsContext } from './SettingsContext'
+import type { SettingsHook } from './useSettingsState'
 
 export function useSettings(): SettingsHook {
   const ctx = useContext(SettingsContext)

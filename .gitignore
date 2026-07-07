@@ -46,6 +46,11 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Live2D runtime files are downloaded by scripts/setup-live2d-cores.mjs.
+public/live2d-core/*.js
+public/live2d-core/*.js.map
+!public/live2d-core/README.md
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
@@ -284,3 +289,7 @@ fabric.properties
 .idea/**/azureSettings.xml
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,node,react,webstorm
+
+.pnpm-store/
+data/
+tests/

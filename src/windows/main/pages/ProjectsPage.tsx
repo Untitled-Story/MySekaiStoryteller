@@ -2,7 +2,6 @@ import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { invoke } from '@tauri-apps/api/core'
 import {
   FolderOpen, Plus, RefreshCw, Search, ArrowUpDown,
   Edit3, Play, FileEdit, Trash2, Clock
@@ -10,8 +9,10 @@ import {
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
-import { ProjectMetadata } from '@/types/ProjectMetadata'
+import type { ProjectMetadata } from '@/project/metadata'
+import { deleteProject, renameProject } from '@/project/api'
 import { timeAgo } from '@/windows/main/utils/time'
+import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -72,9 +73,17 @@ export default function ProjectsPage(): JSX.Element {
 
   const handleOpenEditor = async (title: string) => {
     try {
-      await invoke('open_editor', { projectName: title })
+      await openEditorWindow(title)
     } catch (error) {
       alert('打开编辑器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
+  const handleOpenPlayer = async (title: string) => {
+    try {
+      await openPlayerWindow(title)
+    } catch (error) {
+      alert('打开播放器失败: ' + (error instanceof Error ? error.message : '未知错误'))
     }
   }
 
@@ -82,7 +91,7 @@ export default function ProjectsPage(): JSX.Element {
     if (!deleteTarget) return
     setIsDeleting(true)
     try {
-      await invoke('delete_project', { projectName: deleteTarget })
+      await deleteProject(deleteTarget)
       spin(fetchProjects)
     } catch (error) {
       alert('删除失败: ' + (error instanceof Error ? error.message : '未知错误'))
@@ -100,7 +109,7 @@ export default function ProjectsPage(): JSX.Element {
     }
     setIsRenaming(true)
     try {
-      await invoke('rename_project', { oldName: renameTarget, newName: newName.trim() })
+      await renameProject(renameTarget, newName.trim())
       spin(fetchProjects)
     } catch (error) {
       alert('重命名失败: ' + (error instanceof Error ? error.message : '未知错误'))
@@ -158,7 +167,7 @@ export default function ProjectsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="flex-1 px-8 overflow-auto scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+      <div className="flex-1 px-8 overflow-auto overscroll-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
         {filtered.length > 0 ? (
           <div className="divide-y divide-border">
             {filtered.map((metadata) => (
@@ -187,6 +196,7 @@ export default function ProjectsPage(): JSX.Element {
                         size="icon"
                         className="h-8 w-8"
                         aria-label="播放"
+                        onClick={() => handleOpenPlayer(metadata.title)}
                       >
                         <Play className="w-3.5 h-3.5" />
                       </Button>

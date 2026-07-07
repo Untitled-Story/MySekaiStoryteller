@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  my_sekai_storyteller_lib::run();
+    my_sekai_storyteller_lib::run();
 }

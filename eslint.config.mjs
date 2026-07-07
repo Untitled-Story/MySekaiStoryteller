@@ -5,7 +5,17 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default tseslint.config(
-  { ignores: ['**/node_modules', '**/dist', '**/out', '**/src-tauri'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      '**/src-tauri',
+      'public/live2d-core/*.js',
+      'public/live2d-core/*.js.map',
+      'tests'
+    ]
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
@@ -14,6 +24,17 @@ export default tseslint.config(
     settings: {
       react: {
         version: 'detect'
+      }
+    }
+  },
+  {
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        process: 'readonly'
       }
     }
   },

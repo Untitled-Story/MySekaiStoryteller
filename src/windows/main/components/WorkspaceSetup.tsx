@@ -1,8 +1,8 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/Button'
+import { getDefaultWorkspaceDir } from '@/workspace/api'
 import { FolderOpen } from 'lucide-react'
 import logo from '@/assets/logo.png'
 
@@ -15,7 +15,7 @@ export function WorkspaceSetup({ onConfirm }: WorkspaceSetupProps): JSX.Element 
   const [defaultDir, setDefaultDir] = useState<string | null>(null)
 
   useEffect(() => {
-    invoke<string>('get_default_workspace_dir')
+    getDefaultWorkspaceDir()
       .then(setDefaultDir)
       .catch(() => {})
   }, [])

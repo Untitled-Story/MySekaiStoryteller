@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { createProject } from '@/project/api'
 import {
   Dialog,
   DialogContent,
@@ -35,7 +35,7 @@ export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreatePro
     setIsCreating(true)
     setError('')
     try {
-      await invoke('create_project', { projectName: projectName.trim() })
+      await createProject(projectName.trim())
       setProjectName('')
       setError('')
       onOpenChange(false)

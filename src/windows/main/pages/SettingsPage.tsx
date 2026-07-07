@@ -1,8 +1,9 @@
 import type { JSX } from 'react'
+import { useEffect, useState } from 'react'
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
 import { Button } from '@/components/ui/Button'
-import { useSettings } from '@/hooks/useSettings'
+import { useSettings } from '@/settings/useSettings'
 import { SettingRow } from '@/windows/main/components/SettingRow'
 import { open } from '@tauri-apps/plugin-dialog'
 import { FolderOpen } from 'lucide-react'
@@ -18,6 +19,13 @@ export default function SettingsPage(): JSX.Element {
     setRenderPrecision,
     setWorkspaceDir
   } = useSettings()
+  const [renderPrecisionText, setRenderPrecisionText] = useState(() =>
+    renderPrecisionToText(playback.renderPrecision)
+  )
+
+  useEffect(() => {
+    setRenderPrecisionText(renderPrecisionToText(playback.renderPrecision))
+  }, [playback.renderPrecision])
 
   const handleChangeWorkspace = async () => {
     const selected = await open({
@@ -32,7 +40,7 @@ export default function SettingsPage(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-y-auto px-8 py-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+    <div className="flex flex-col h-screen overflow-y-auto overscroll-none px-8 py-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
       <div className="w-full max-w-2xl space-y-1 mb-2">
         <h2 className="text-2xl font-semibold leading-tight">数据存储</h2>
         <p className="text-sm text-muted-foreground">管理项目数据的保存位置。</p>
@@ -98,12 +106,21 @@ export default function SettingsPage(): JSX.Element {
 
         <SettingRow title="渲染精度" description="放映时的分辨率，数值越大越清晰，资源消耗越大。推荐 0.5 ~ 2.0。">
           <Input
-            type="number"
-            step={0.1}
-            value={playback.renderPrecision.toString()}
+            type="text"
+            inputMode="decimal"
+            placeholder="Auto"
+            value={renderPrecisionText}
             onChange={(event) => {
-              const nextValue = Number(event.target.value)
-              if (!Number.isNaN(nextValue)) {
+              const nextText = event.target.value.trim()
+              setRenderPrecisionText(nextText)
+
+              if (!nextText) {
+                setRenderPrecision('Auto')
+                return
+              }
+
+              const nextValue = Number(nextText)
+              if (Number.isFinite(nextValue) && nextValue > 0) {
                 setRenderPrecision(nextValue)
               }
             }}
@@ -113,4 +130,8 @@ export default function SettingsPage(): JSX.Element {
       </div>
     </div>
   )
+}
+
+function renderPrecisionToText(value: number | 'Auto'): string {
+  return value === 'Auto' ? '' : value.toString()
 }

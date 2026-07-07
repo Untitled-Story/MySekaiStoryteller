@@ -1,36 +1,20 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
-import { ProjectMetadata } from '@/types/ProjectMetadata'
+import { useWindowProjectName } from '@/windows/useWindowProjectName'
+import { getProjectMetadata, getProjectPath } from '@/project/api'
+import type { ProjectMetadata } from '@/project/metadata'
 
 export default function App(): JSX.Element {
-  const [projectName, setProjectName] = useState<string | null>(null)
+  const projectName = useWindowProjectName()
   const [metadata, setMetadata] = useState<ProjectMetadata | null>(null)
   const [projectPath, setProjectPath] = useState<string | null>(null)
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const name = params.get('project')
-    if (name) {
-      setProjectName(name)
-    }
-
-    const unlisten = listen<string>('project-changed', (event) => {
-      setProjectName(event.payload)
-    })
-
-    return () => {
-      unlisten.then((fn) => fn())
-    }
-  }, [])
 
   useEffect(() => {
     if (!projectName) return
 
     Promise.all([
-      invoke<ProjectMetadata | null>('get_project_metadata', { projectName }),
-      invoke<string>('get_project_path', { projectName })
+      getProjectMetadata(projectName),
+      getProjectPath(projectName)
     ])
       .then(([meta, path]) => {
         setMetadata(meta)
