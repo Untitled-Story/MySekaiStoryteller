@@ -1,1 +1,27 @@
-{"default":{"identifier":"default","description":"Capability for all windows","local":true,"windows":["main","editor","player"],"permissions":["core:default","core:window:allow-close","core:window:allow-set-focus","core:event:default","dialog:default","global-shortcut:allow-is-registered","global-shortcut:allow-register","global-shortcut:allow-unregister","global-shortcut:allow-unregister-all","opener:default"]},"player":{"identifier":"player","description":"Additional permissions for the borderless player window","local":true,"windows":["player"],"permissions":["core:window:allow-start-dragging"]}}
+{
+  "default": {
+    "identifier": "default",
+    "description": "Capability for all windows",
+    "local": true,
+    "windows": ["main", "editor", "player"],
+    "permissions": [
+      "core:default",
+      "core:window:allow-close",
+      "core:window:allow-set-focus",
+      "core:event:default",
+      "dialog:default",
+      "global-shortcut:allow-is-registered",
+      "global-shortcut:allow-register",
+      "global-shortcut:allow-unregister",
+      "global-shortcut:allow-unregister-all",
+      "opener:default"
+    ]
+  },
+  "player": {
+    "identifier": "player",
+    "description": "Additional permissions for the borderless player window",
+    "local": true,
+    "windows": ["player"],
+    "permissions": ["core:window:allow-start-dragging"]
+  }
+}

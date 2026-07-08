@@ -1,23 +1,44 @@
-import { AlphaFilter, Container, Ticker } from 'pixi.js'
-import type { Application } from 'pixi.js'
+import { AlphaFilter, Assets, Container, Graphics, Sprite, Text, Ticker } from 'pixi.js'
+import type { Application, Filter, Texture } from 'pixi.js'
 import type { BackgroundAsset, VoiceAsset } from '@/project/assets'
 import type {
   ResolvedAsset,
+  StoryDialogueOptions,
   StoryCreateLayerOptions,
   StoryDisposeCallback,
+  StoryFadeInOptions,
+  StoryFadeOutOptions,
   StoryLayerName,
   StoryLayers,
+  StoryModelAppearOptions,
+  StoryModelClearOptions,
   StoryModelInstance,
+  StoryModelMoveOptions,
+  StoryModelParameterAnimation,
+  StoryModelParameterOptions,
+  StoryMotionOptions,
   StoryPixiAccessApi,
-  StorySceneApi
+  StorySceneApi,
+  StoryTelopOptions
 } from './types'
-import { LayoutModes, MoveSpeed, type LayoutModeData, type PositionData } from './schema'
+import {
+  Curves,
+  LayoutModes,
+  MoveSpeed,
+  type CurveData,
+  type LayoutModeData,
+  type PositionData
+} from './schema'
 import type { SekaiLive2DModel } from '@/lib/live2d'
 import {
   createBuiltinVisualEffectRegistry,
   StoryVisualEffectManager,
   type StoryVisualEffectRegistry
 } from './vfx'
+import { DEFAULT_PLAYBACK_FONT_FAMILY } from '@/settings/fonts'
+import uiTelopUrl from '@/story/assets/ui/ui_telop.svg?url'
+import uiTextBackgroundUrl from '@/story/assets/ui/ui_text_background.svg?url'
+import uiTextUnderlineUrl from '@/story/assets/ui/ui_text_underline.svg?url'
 
 export type CreateStorySceneOptions = {
   app: Application
@@ -25,6 +46,7 @@ export type CreateStorySceneOptions = {
   resolveBackgroundUrl(backgroundKey: string): ResolvedAsset<BackgroundAsset>
   resolveVoiceUrl(voiceKey: string): ResolvedAsset<VoiceAsset>
   visualEffects?: StoryVisualEffectRegistry
+  fontFamily?: string
 }
 
 const LAYER_Z_INDEX: Record<StoryLayerName, number> = {
@@ -35,14 +57,52 @@ const LAYER_Z_INDEX: Record<StoryLayerName, number> = {
   overlay: 40
 }
 
-const MODEL_SHOW_TIME_MS = 200
-const MOTION_START_DELAY_MS = 10
-const MOTION_PRIORITY_FORCE = 3
+const MODEL_SHOW_TIME_MS: number = 200
+const MODEL_HIDE_TIME_MS: number = 50
+const MOTION_START_DELAY_MS: number = 10
+const MOTION_PRIORITY_FORCE: number = 3
+const DIALOGUE_SHOW_TIME_MS: number = 70
+const DIALOGUE_HIDE_TIME_MS: number = 100
+const DIALOGUE_CHAR_TIME_MS: number = 70
+const TELOP_SHOW_TIME_MS: number = 200
+const TELOP_HOLD_TIME_MS: number = 2000
+const TELOP_HIDE_TIME_MS: number = 200
+const VOICE_VOLUME: number = 0.5
 const MOTION_IGNORE_EYE_PARAMS = [
   'ParamEyeROpen',
   'ParamEyeLOpen',
   'ParamEyeballX',
   'ParamEyeballY'
+] as const
+const MOTION_IGNORE_FACE_PARAMS = [
+  ...MOTION_IGNORE_EYE_PARAMS,
+  'ParamBrowRX',
+  'ParamBrowRY',
+  'ParamBrowRAngle',
+  'ParamBrowRForm',
+  'ParamBrowLX',
+  'ParamBrowLY',
+  'ParamBrowLAngle',
+  'ParamBrowLForm',
+  'ParamEyeRSmile',
+  'ParamEyeRForm',
+  'ParamEyeLSmile',
+  'ParamEyeLForm',
+  'ParamEyeSize',
+  'ParamEyeTeary',
+  'ParamTear',
+  'ParamMouthForm',
+  'ParamMouthOpenY',
+  'ParamMouthForm2',
+  'ParamTeeth',
+  'ParamMouthScaleX',
+  'ParamMouthScaleY',
+  'ParamMouthPositionY',
+  'ParamCheek',
+  'ParamFaceShadow',
+  'ParamSweatOn',
+  'ParamSweatMove',
+  'ParamCheekAngry'
 ] as const
 
 type PositionRel = {
@@ -50,12 +110,27 @@ type PositionRel = {
   y: number
 }
 
+type DialogueUiState = {
+  root: Container
+  textBackgroundSprite: Sprite
+  textUnderlineSprite: Sprite
+  textSprite: Text
+  textSpeakerSprite: Text
+  telopContainer: Container
+  telopText: Text
+  talkShown: boolean
+  content: string
+}
+
 type ParallelMotionManagerLike = {
   startMotion(
     group: string,
     index: number,
     priority?: number,
-    ignoreParamIds?: readonly string[]
+    options?: {
+      ignoreParamIds?: readonly string[]
+      loop?: boolean
+    }
   ): Promise<boolean>
   playMotionLastFrame(group: string, index: number): Promise<boolean>
   isFinished(): boolean
@@ -71,6 +146,10 @@ type Live2DSettingsLike = {
   getEyeBlinkParameterId?: (index: number) => unknown
 }
 
+type Live2DEyeBlinkLike = {
+  setEyeParams?: (value: number) => void
+}
+
 type Live2DInternalModelLike = {
   readonly width: number
   readonly height: number
@@ -78,10 +157,19 @@ type Live2DInternalModelLike = {
   readonly parallelMotionManager?: ParallelMotionManagerLike[]
   readonly coreModel?: Live2DCoreModelLike
   readonly settings?: Live2DSettingsLike
-  readonly eyeBlink?: {
-    setEyeParams(value: number): void
-  }
+  readonly eyeBlink?: Live2DEyeBlinkLike
   extendParallelMotionManager?(managerCount: number): void
+}
+
+type SpeakableSekaiLive2DModel = SekaiLive2DModel & {
+  speak(
+    sound: string,
+    options?: {
+      volume?: number
+      onFinish?: () => void
+      onError?: (error: Error) => void
+    }
+  ): Promise<boolean>
 }
 
 export function createStoryScene({
@@ -89,7 +177,8 @@ export function createStoryScene({
   models,
   resolveBackgroundUrl,
   resolveVoiceUrl,
-  visualEffects = createBuiltinVisualEffectRegistry()
+  visualEffects = createBuiltinVisualEffectRegistry(),
+  fontFamily = DEFAULT_PLAYBACK_FONT_FAMILY
 }: CreateStorySceneOptions): StorySceneApi {
   app.stage.sortableChildren = true
 
@@ -103,6 +192,9 @@ export function createStoryScene({
   const customLayers = new Map<string, Container>()
   const visualEffectManagers = new Map<string, StoryVisualEffectManager>()
   const disposers = new Set<StoryDisposeCallback>()
+  let backgroundSprite: Sprite | null = null
+  let dialogueUiPromise: Promise<DialogueUiState> | null = null
+  let fadeOverlay: Graphics | null = null
   let destroyed = false
   let layoutMode: LayoutModeData = LayoutModes.Normal
 
@@ -123,13 +215,23 @@ export function createStoryScene({
   return {
     layers,
     pixi,
-    async setLayoutMode(mode) {
+    async setLayoutMode(mode: LayoutModeData): Promise<void> {
       layoutMode = mode
     },
-    async setBackground(backgroundKey) {
-      resolveBackgroundUrl(backgroundKey)
+    async setBackground(backgroundKey: string): Promise<void> {
+      const resolved: ResolvedAsset<BackgroundAsset> = resolveBackgroundUrl(backgroundKey)
+      const texture: Texture = await Assets.load<Texture>(resolved.url)
+
+      if (!backgroundSprite) {
+        backgroundSprite = new Sprite({ texture })
+        backgroundSprite.anchor.set(0.5)
+        layers.background.addChild(backgroundSprite)
+      }
+
+      backgroundSprite.texture = texture
+      layoutBackgroundSprite(backgroundSprite, texture, app)
     },
-    async showModel(options) {
+    async showModel(options: StoryModelAppearOptions): Promise<void> {
       const { model } = attachModel(options.modelKey)
 
       await playModelLastFrame(model, options.motion, options.facial)
@@ -147,7 +249,7 @@ export function createStoryScene({
       const moveTask =
         from.x === to.x && from.y === to.y
           ? null
-          : moveModel(model, getStageSize(app), from, to, moveSpeedToMs(options.moveSpeed))
+          : moveModelBetween(model, getStageSize(app), from, to, moveSpeedToMs(options.moveSpeed))
 
       if (!moveTask) {
         setModelPositionRel(model, getStageSize(app), to)
@@ -160,52 +262,108 @@ export function createStoryScene({
       await showTask
       if (moveTask) await moveTask
     },
-    async clearModel(options) {
+    async clearModel(options: StoryModelClearOptions): Promise<void> {
       const { model } = getModel(options.modelKey)
-      disableAllModelEffects(options.modelKey)
-      model.visible = false
+      const hideTask: Promise<void> = hideModelWithFade(model, MODEL_HIDE_TIME_MS).then(() => {
+        disableAllModelEffects(options.modelKey)
+        model.visible = false
+      })
+      const from: PositionRel = sideToPosition(options.from, layoutMode)
+      const to: PositionRel = sideToPosition(options.to, layoutMode)
+      const moveTask: Promise<void> | null =
+        from.x === to.x && from.y === to.y
+          ? null
+          : moveModelBetween(model, getStageSize(app), from, to, moveSpeedToMs(options.moveSpeed))
+
+      if (!moveTask) {
+        setModelPositionRel(model, getStageSize(app), to)
+      }
+
       model.removeFromParent()
-      void options.from
-      void options.to
-      void options.moveSpeed
+
+      await hideTask
+      if (moveTask) await moveTask
     },
-    async moveModel(options) {
-      getModel(options.modelKey)
-      void options.from
-      void options.to
-      void options.moveSpeed
-    },
-    async playMotion(options) {
-      getModel(options.modelKey)
-      void options.motion
-      void options.facial
-    },
-    async setModelParameters(options) {
-      getModel(options.modelKey)
-      void options.params
-    },
-    async showDialogue(options) {
-      if (options.modelKey) {
-        getModel(options.modelKey)
+    async moveModel(options: StoryModelMoveOptions): Promise<void> {
+      const { model } = getModel(options.modelKey)
+      const from: PositionRel = sideToPosition(options.from, layoutMode)
+      const to: PositionRel = sideToPosition(options.to, layoutMode)
+      const moveTask: Promise<void> | null =
+        (from.x === to.x && from.y === to.y) || options.moveSpeed === MoveSpeed.Immediate
+          ? null
+          : moveModelBetween(model, getStageSize(app), from, to, moveSpeedToMs(options.moveSpeed))
+
+      if (!moveTask) {
+        setModelPositionRel(model, getStageSize(app), to)
+        return
       }
-      if (options.voiceKey) {
-        resolveVoiceUrl(options.voiceKey)
+
+      await moveTask
+    },
+    async playMotion(options: StoryMotionOptions): Promise<void> {
+      const { model } = attachModel(options.modelKey)
+      await applyAndWaitModelMotion(model, options.motion, options.facial, true)
+    },
+    async setModelParameters(options: StoryModelParameterOptions): Promise<void> {
+      const { model } = getModel(options.modelKey)
+      const tasks: Promise<void>[] = options.params.map(
+        (param: StoryModelParameterAnimation): Promise<void> => animateModelParameter(model, param)
+      )
+
+      await Promise.all(tasks)
+    },
+    async showDialogue(options: StoryDialogueOptions): Promise<void> {
+      const ui: DialogueUiState = await getDialogueUi()
+
+      resetDialogueUi(ui)
+      setDialogueUiData(ui, options.speaker, options.content)
+
+      if (!ui.talkShown) {
+        await showDialogueBackground(ui)
       }
-      void options.speaker
-      void options.content
+
+      const waits: Promise<unknown>[] = []
+      const modelInstance: StoryModelInstance | null = options.modelKey
+        ? getModel(options.modelKey)
+        : null
+      if (modelInstance && options.voiceKey) {
+        const resolvedVoice: ResolvedAsset<VoiceAsset> = resolveVoiceUrl(options.voiceKey)
+        waits.push(speakModel(modelInstance.model, resolvedVoice.url))
+      }
+
+      waits.push(startDisplayDialogueContent(ui))
+
+      await Promise.all(waits)
     },
-    async hideDialogue() {
-      return Promise.resolve()
+    async hideDialogue(): Promise<void> {
+      const ui: DialogueUiState = await getDialogueUi()
+      await hideDialogueBackground(ui)
     },
-    async showTelop(options) {
-      void options.content
+    async showTelop(options: StoryTelopOptions): Promise<void> {
+      const ui: DialogueUiState = await getDialogueUi()
+      ui.telopText.text = options.content
+      await showTelop(ui)
+      await delayMs(TELOP_HOLD_TIME_MS)
+      await hideTelop(ui)
     },
-    async fadeOut(options) {
-      void options.color
-      void options.duration
+    async fadeOut(options: StoryFadeOutOptions): Promise<void> {
+      const overlay: Graphics = getFadeOverlay()
+
+      drawFadeOverlay(overlay, app, options.color)
+      overlay.visible = true
+      await animateLinear((progress: number): void => {
+        overlay.alpha = progress
+      }, secondsToMs(options.duration))
     },
-    async fadeIn(options) {
-      void options.duration
+    async fadeIn(options: StoryFadeInOptions): Promise<void> {
+      if (!fadeOverlay) return
+
+      const overlay: Graphics = fadeOverlay
+      const startAlpha: number = overlay.alpha
+      await animateLinear((progress: number): void => {
+        overlay.alpha = startAlpha * (1 - progress)
+      }, secondsToMs(options.duration))
+      overlay.visible = false
     },
     destroy
   }
@@ -248,6 +406,22 @@ export function createStoryScene({
     return () => {
       disposers.delete(dispose)
     }
+  }
+
+  function getDialogueUi(): Promise<DialogueUiState> {
+    dialogueUiPromise ??= createDialogueUi(app, layers.ui, fontFamily)
+    return dialogueUiPromise
+  }
+
+  function getFadeOverlay(): Graphics {
+    if (fadeOverlay) return fadeOverlay
+
+    fadeOverlay = new Graphics()
+    fadeOverlay.visible = false
+    fadeOverlay.alpha = 0
+    layers.overlay.addChild(fadeOverlay)
+
+    return fadeOverlay
   }
 
   function attachModel(modelKey: string): StoryModelInstance {
@@ -384,20 +558,17 @@ function setModelPositionRel(
   model.position.set(stageWidth * position.x, stageHeight * (position.y + 0.3))
 }
 
-function moveModel(
+function moveModelBetween(
   model: SekaiLive2DModel,
   stageSize: [number, number],
   from: PositionRel,
   to: PositionRel,
   timeMs: number
 ): Promise<void> {
-  const absFrom: [number, number] = [
-    stageSize[0] * from.x,
-    stageSize[1] * (from.y + 0.3)
-  ]
+  const absFrom: [number, number] = [stageSize[0] * from.x, stageSize[1] * (from.y + 0.3)]
   const absTo: [number, number] = [stageSize[0] * to.x, stageSize[1] * (to.y + 0.3)]
 
-  return animateLinear((progress) => {
+  return animateLinear((progress: number): void => {
     model.position.x = (absTo[0] - absFrom[0]) * progress + absFrom[0]
     model.position.y = (absTo[1] - absFrom[1]) * progress + absFrom[1]
   }, timeMs)
@@ -405,9 +576,281 @@ function moveModel(
 
 function showModelWithFade(model: SekaiLive2DModel, timeMs: number): Promise<void> {
   const alphaFilter = ensureAlphaFilter(model)
-  return animateLinear((progress) => {
+  model.visible = true
+  return animateLinear((progress: number): void => {
     alphaFilter.alpha = progress
   }, timeMs)
+}
+
+function hideModelWithFade(model: SekaiLive2DModel, timeMs: number): Promise<void> {
+  const alphaFilter: AlphaFilter = ensureAlphaFilter(model)
+  return animateLinear((progress: number): void => {
+    alphaFilter.alpha = 1 - progress
+  }, timeMs)
+}
+
+function layoutBackgroundSprite(sprite: Sprite, texture: Texture, app: Application): void {
+  sprite.x = app.screen.width / 2
+  sprite.y = app.screen.height / 2
+  sprite.scale.set(calcBackgroundScale(texture, app))
+}
+
+function calcBackgroundScale(texture: Texture, app: Application): number {
+  if (texture.width / texture.height > app.screen.width / app.screen.height) {
+    return app.screen.height / texture.height
+  }
+
+  return app.screen.width / texture.width
+}
+
+async function createDialogueUi(
+  app: Application,
+  layer: Container,
+  fontFamily: string
+): Promise<DialogueUiState> {
+  const [textBackgroundTexture, textUnderlineTexture, telopTexture]: [Texture, Texture, Texture] =
+    await Promise.all([
+      Assets.load<Texture>(uiTextBackgroundUrl),
+      Assets.load<Texture>(uiTextUnderlineUrl),
+      Assets.load<Texture>(uiTelopUrl)
+    ])
+  const screenWidth: number = app.screen.width
+  const screenHeight: number = app.screen.height
+  const root: Container = new Container()
+  const textBackgroundSprite: Sprite = createTextBackgroundSprite(
+    textBackgroundTexture,
+    screenWidth,
+    screenHeight
+  )
+  const textUnderlineSprite: Sprite = createTextUnderlineSprite(
+    textUnderlineTexture,
+    screenWidth,
+    screenHeight
+  )
+  const textSprite: Text = createDialogueText(screenWidth, screenHeight, fontFamily)
+  const textSpeakerSprite: Text = createSpeakerText(
+    screenWidth,
+    screenHeight,
+    textUnderlineSprite.y - screenWidth / 45,
+    fontFamily
+  )
+  const { container: telopContainer, text: telopText }: { container: Container; text: Text } =
+    createTelopContainer(telopTexture, screenWidth, screenHeight, fontFamily)
+
+  root.addChild(
+    textBackgroundSprite,
+    textUnderlineSprite,
+    textSprite,
+    textSpeakerSprite,
+    telopContainer
+  )
+  layer.addChild(root)
+
+  return {
+    root,
+    textBackgroundSprite,
+    textUnderlineSprite,
+    textSprite,
+    textSpeakerSprite,
+    telopContainer,
+    telopText,
+    talkShown: false,
+    content: ''
+  }
+}
+
+function createTextBackgroundSprite(
+  texture: Texture,
+  screenWidth: number,
+  screenHeight: number
+): Sprite {
+  const sprite: Sprite = new Sprite({ texture })
+  sprite.anchor.set(0.5)
+  sprite.width = screenWidth
+  sprite.height = screenHeight
+  sprite.x = screenWidth / 2
+  sprite.y = screenHeight / 2
+  sprite.visible = false
+  ensureDisplayAlphaFilter(sprite)
+  return sprite
+}
+
+function createTextUnderlineSprite(
+  texture: Texture,
+  screenWidth: number,
+  screenHeight: number
+): Sprite {
+  const sprite: Sprite = new Sprite({ texture })
+  sprite.width = screenWidth / 2
+  sprite.x = screenWidth / 10
+  sprite.y = screenHeight / 1.3
+  sprite.visible = false
+  ensureDisplayAlphaFilter(sprite)
+  return sprite
+}
+
+function createDialogueText(screenWidth: number, screenHeight: number, fontFamily: string): Text {
+  const x: number = screenWidth / 8
+  const text: Text = new Text({
+    text: '',
+    style: {
+      align: 'left',
+      fill: '#FFFFFFDC',
+      fontFamily,
+      fontSize: screenHeight / 26,
+      lineHeight: screenHeight / 19,
+      stroke: { color: '#4A49688D', width: screenHeight / 120, join: 'round' },
+      wordWrap: true,
+      wordWrapWidth: screenWidth - x * 2
+    }
+  })
+  text.x = x
+  text.y = screenHeight / 1.27
+  text.visible = false
+  ensureDisplayAlphaFilter(text)
+  return text
+}
+
+function createSpeakerText(
+  screenWidth: number,
+  screenHeight: number,
+  y: number,
+  fontFamily: string
+): Text {
+  const text: Text = new Text({
+    text: '',
+    style: {
+      align: 'left',
+      fill: '#FFFFFFF5',
+      fontFamily,
+      fontSize: screenHeight / 25,
+      stroke: { color: '#4A49688D', width: screenHeight / 120, join: 'round' }
+    }
+  })
+  text.x = screenWidth / 9
+  text.y = y
+  text.visible = false
+  ensureDisplayAlphaFilter(text)
+  return text
+}
+
+function createTelopContainer(
+  texture: Texture,
+  screenWidth: number,
+  screenHeight: number,
+  fontFamily: string
+): { container: Container; text: Text } {
+  const container: Container = new Container()
+  const telopSprite: Sprite = new Sprite({ texture })
+  const telopText: Text = new Text({
+    text: '',
+    style: {
+      align: 'center',
+      fill: '#FFFFFF',
+      fontFamily,
+      fontSize: screenHeight / 23,
+      textBaseline: 'bottom'
+    }
+  })
+
+  telopSprite.anchor.set(0.5)
+  telopSprite.x = screenWidth / 2
+  telopSprite.y = screenHeight / 2
+  telopSprite.scale.x = screenWidth / 1920
+  telopSprite.height = screenHeight / 8
+
+  telopText.anchor.set(0.5)
+  telopText.x = screenWidth / 2 - 11
+  telopText.y = screenHeight / 2 + screenHeight / 120
+
+  container.visible = false
+  ensureDisplayAlphaFilter(container)
+  container.addChild(telopSprite, telopText)
+
+  return { container, text: telopText }
+}
+
+function resetDialogueUi(ui: DialogueUiState): void {
+  ui.textSpeakerSprite.text = ''
+  ui.textSprite.text = ''
+  ui.content = ''
+}
+
+function setDialogueUiData(ui: DialogueUiState, speaker: string, content: string): void {
+  ui.textSpeakerSprite.text = speaker
+  ui.content = content
+}
+
+function showDialogueBackground(ui: DialogueUiState): Promise<void> {
+  ui.talkShown = true
+  return Promise.all([
+    showDisplayObject(ui.textBackgroundSprite, DIALOGUE_SHOW_TIME_MS),
+    showDisplayObject(ui.textUnderlineSprite, DIALOGUE_SHOW_TIME_MS),
+    showDisplayObject(ui.textSprite, DIALOGUE_SHOW_TIME_MS),
+    showDisplayObject(ui.textSpeakerSprite, DIALOGUE_SHOW_TIME_MS)
+  ]).then((): void => undefined)
+}
+
+function hideDialogueBackground(ui: DialogueUiState): Promise<void> {
+  ui.talkShown = false
+  return Promise.all([
+    hideDisplayObject(ui.textBackgroundSprite, DIALOGUE_HIDE_TIME_MS),
+    hideDisplayObject(ui.textUnderlineSprite, DIALOGUE_HIDE_TIME_MS),
+    hideDisplayObject(ui.textSprite, DIALOGUE_HIDE_TIME_MS),
+    hideDisplayObject(ui.textSpeakerSprite, DIALOGUE_HIDE_TIME_MS)
+  ]).then((): void => undefined)
+}
+
+function startDisplayDialogueContent(ui: DialogueUiState): Promise<void> {
+  const contentLength: number = ui.content.length
+  const timeMs: number = contentLength * DIALOGUE_CHAR_TIME_MS
+
+  return animateLinear((progress: number): void => {
+    const charsToShow: number = Math.min(Math.floor(progress * contentLength), contentLength)
+    ui.textSprite.text = ui.content.substring(0, charsToShow)
+  }, timeMs)
+}
+
+function showTelop(ui: DialogueUiState): Promise<void> {
+  const startX: number = ui.telopContainer.x - 10
+  const originalX: number = ui.telopContainer.x
+  const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(ui.telopContainer)
+
+  ui.telopContainer.visible = true
+  return animateLinear((progress: number): void => {
+    alphaFilter.alpha = progress
+    ui.telopContainer.x = startX + (originalX - startX) * progress
+  }, TELOP_SHOW_TIME_MS)
+}
+
+function hideTelop(ui: DialogueUiState): Promise<void> {
+  const startX: number = ui.telopContainer.x
+  const originalX: number = ui.telopContainer.x + 10
+  const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(ui.telopContainer)
+
+  return animateLinear((progress: number): void => {
+    alphaFilter.alpha = 1 - progress
+    ui.telopContainer.x = startX + (originalX - startX) * progress
+  }, TELOP_HIDE_TIME_MS).then((): void => {
+    ui.telopContainer.visible = false
+  })
+}
+
+function showDisplayObject(target: Sprite | Text, timeMs: number): Promise<void> {
+  const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(target)
+  target.visible = true
+  return animateLinear((progress: number): void => {
+    alphaFilter.alpha = progress
+  }, timeMs)
+}
+
+function hideDisplayObject(target: Sprite | Text, timeMs: number): Promise<void> {
+  const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(target)
+  return animateLinear((progress: number): void => {
+    alphaFilter.alpha = 1 - progress
+  }, timeMs).then((): void => {
+    target.visible = false
+  })
 }
 
 async function playModelLastFrame(
@@ -415,7 +858,8 @@ async function playModelLastFrame(
   motion?: string,
   facial?: string
 ): Promise<void> {
-  const managers = getParallelMotionManagers(model)
+  const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
+    getParallelMotionManagers(model)
   const waits: Promise<boolean>[] = []
 
   if (motion) {
@@ -425,9 +869,9 @@ async function playModelLastFrame(
     waits.push(managers[1].playMotionLastFrame(facial, 0))
   }
 
-  const results = await Promise.all(waits)
+  const results: boolean[] = await Promise.all(waits)
   if (results.includes(false)) {
-    await applyAndWaitModelMotion(model, motion, facial, false)
+    await applyAndWaitModelMotion(model, motion, facial, true)
   } else if (waits.length > 0) {
     await waitUntil(() => managers[0].isFinished() && managers[1].isFinished())
   }
@@ -439,21 +883,20 @@ async function applyAndWaitModelMotion(
   facial?: string,
   ignoreMotionEyeParams = false
 ): Promise<void> {
-  const managers = getParallelMotionManagers(model)
+  const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
+    getParallelMotionManagers(model)
   const waits: Promise<boolean>[] = []
 
   if (motion) {
     waits.push(
-      managers[0].startMotion(
-        motion,
-        0,
-        MOTION_PRIORITY_FORCE,
-        ignoreMotionEyeParams ? MOTION_IGNORE_EYE_PARAMS : []
-      )
+      managers[0].startMotion(motion, 0, MOTION_PRIORITY_FORCE, {
+        ignoreParamIds: resolveMotionIgnoreParamIds(facial, ignoreMotionEyeParams),
+        loop: false
+      })
     )
   }
   if (facial) {
-    waits.push(managers[1].startMotion(facial, 0, MOTION_PRIORITY_FORCE))
+    waits.push(managers[1].startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false }))
   }
 
   await Promise.all(waits)
@@ -462,20 +905,30 @@ async function applyAndWaitModelMotion(
   }
 }
 
+function resolveMotionIgnoreParamIds(
+  facial: string | undefined,
+  ignoreMotionEyeParams: boolean
+): readonly string[] {
+  if (facial) return MOTION_IGNORE_FACE_PARAMS
+  if (ignoreMotionEyeParams) return MOTION_IGNORE_EYE_PARAMS
+  return []
+}
+
 function closeModelEyes(model: SekaiLive2DModel, timeMs: number): Promise<void> {
-  return animateLinear((progress) => {
+  return animateLinear((progress: number): void => {
     setModelEyeOpen(model, 1 - progress)
   }, timeMs)
 }
 
 function setModelEyeOpen(model: SekaiLive2DModel, value: number): void {
-  const internalModel = getInternalModel(model)
-  if (internalModel.eyeBlink) {
-    internalModel.eyeBlink.setEyeParams(value)
+  const internalModel: Live2DInternalModelLike = getInternalModel(model)
+  const eyeBlink: Live2DEyeBlinkLike | undefined = internalModel.eyeBlink
+  if (typeof eyeBlink?.setEyeParams === 'function') {
+    eyeBlink.setEyeParams(value)
     return
   }
 
-  const coreModel = internalModel.coreModel
+  const coreModel: Live2DCoreModelLike | undefined = internalModel.coreModel
   if (!coreModel) return
 
   if (coreModel.setParamFloat) {
@@ -493,11 +946,11 @@ function setModelEyeOpen(model: SekaiLive2DModel, value: number): void {
 }
 
 function getEyeBlinkIds(internalModel: Live2DInternalModelLike): unknown[] {
-  const count = internalModel.settings?.getEyeBlinkParameterCount?.() ?? 0
+  const count: number = internalModel.settings?.getEyeBlinkParameterCount?.() ?? 0
   const ids: unknown[] = []
 
   for (let index = 0; index < count; index++) {
-    const id = internalModel.settings?.getEyeBlinkParameterId?.(index)
+    const id: unknown = internalModel.settings?.getEyeBlinkParameterId?.(index)
     if (id) {
       ids.push(id)
     }
@@ -510,15 +963,16 @@ function getInternalModel(model: SekaiLive2DModel): Live2DInternalModelLike {
   return model.internalModel as Live2DInternalModelLike
 }
 
-function getParallelMotionManagers(model: SekaiLive2DModel): [
-  ParallelMotionManagerLike,
-  ParallelMotionManagerLike
-] {
-  const internalModel = getInternalModel(model)
+function getParallelMotionManagers(
+  model: SekaiLive2DModel
+): [ParallelMotionManagerLike, ParallelMotionManagerLike] {
+  const internalModel: Live2DInternalModelLike = getInternalModel(model)
   internalModel.extendParallelMotionManager?.(2)
 
-  const motionManager = internalModel.parallelMotionManager?.[0]
-  const facialManager = internalModel.parallelMotionManager?.[1]
+  const motionManager: ParallelMotionManagerLike | undefined =
+    internalModel.parallelMotionManager?.[0]
+  const facialManager: ParallelMotionManagerLike | undefined =
+    internalModel.parallelMotionManager?.[1]
   if (!motionManager || !facialManager) {
     throw new Error('Live2D parallel motion manager 初始化失败')
   }
@@ -527,19 +981,119 @@ function getParallelMotionManagers(model: SekaiLive2DModel): [
 }
 
 function ensureAlphaFilter(model: SekaiLive2DModel): AlphaFilter {
-  const filters = model.filters ? [...model.filters] : []
-  const existing = filters.find((filter): filter is AlphaFilter => filter instanceof AlphaFilter)
+  const filters: Filter[] = model.filters ? [...model.filters] : []
+  const existing: AlphaFilter | undefined = filters.find(
+    (filter: Filter): filter is AlphaFilter => filter instanceof AlphaFilter
+  )
   if (existing) return existing
 
-  const alphaFilter = new AlphaFilter({ alpha: 0 })
+  const alphaFilter: AlphaFilter = new AlphaFilter({ alpha: 0 })
   alphaFilter.resolution = 2
   model.filters = [alphaFilter, ...filters]
 
   return alphaFilter
 }
 
+function ensureDisplayAlphaFilter(target: Container | Sprite | Text): AlphaFilter {
+  const currentFilters: readonly Filter[] | Filter | null | undefined = target.filters
+  const filters: Filter[] = Array.isArray(currentFilters)
+    ? [...currentFilters]
+    : currentFilters
+      ? [currentFilters]
+      : []
+  const existing: AlphaFilter | undefined = filters.find(
+    (filter: Filter): filter is AlphaFilter => filter instanceof AlphaFilter
+  )
+  if (existing) return existing
+
+  const alphaFilter: AlphaFilter = new AlphaFilter({ alpha: 0 })
+  alphaFilter.resolution = 2
+  target.filters = [alphaFilter, ...filters]
+
+  return alphaFilter
+}
+
+function animateModelParameter(
+  model: SekaiLive2DModel,
+  param: StoryModelParameterAnimation
+): Promise<void> {
+  const runner: (animation: (progress: number) => void, timeMs: number) => Promise<void> =
+    getCurveRunner(param.curve)
+
+  return runner((progress: number): void => {
+    const value: number = param.start + (param.end - param.start) * progress
+    setModelParameter(model, param.paramId, value)
+  }, secondsToMs(param.duration))
+}
+
+function getCurveRunner(
+  curve: CurveData
+): (animation: (progress: number) => void, timeMs: number) => Promise<void> {
+  if (curve === Curves.Sine) return animateSine
+  if (curve === Curves.Cosine) return animateCosine
+  return animateLinear
+}
+
+function setModelParameter(model: SekaiLive2DModel, paramId: string, value: number): void {
+  const coreModel: Live2DCoreModelLike | undefined = getInternalModel(model).coreModel
+  if (!coreModel) return
+
+  if (coreModel.setParameterValueById) {
+    coreModel.setParameterValueById(paramId, value)
+    return
+  }
+
+  coreModel.setParamFloat?.(paramId, value)
+}
+
+function speakModel(model: SekaiLive2DModel, voiceUrl: string): Promise<void> {
+  const speakableModel: SpeakableSekaiLive2DModel = model as SpeakableSekaiLive2DModel
+
+  return new Promise<void>((resolve: () => void, reject: (reason?: unknown) => void): void => {
+    void speakableModel
+      .speak(voiceUrl, {
+        volume: VOICE_VOLUME,
+        onFinish: resolve,
+        onError: reject
+      })
+      .then((started: boolean): void => {
+        if (!started) {
+          resolve()
+        }
+      })
+      .catch(reject)
+  })
+}
+
+function drawFadeOverlay(overlay: Graphics, app: Application, color: string): void {
+  overlay.clear()
+  overlay.rect(0, 0, app.screen.width, app.screen.height).fill({ color: hexColorToNumber(color) })
+}
+
+function hexColorToNumber(color: string): number {
+  return Number.parseInt(color.slice(1), 16)
+}
+
+function secondsToMs(seconds: number): number {
+  return seconds * 1000
+}
+
+function animateCosine(animation: (progress: number) => void, timeMs: number): Promise<void> {
+  return animateLinear((progress: number): void => {
+    const eased: number = (1 - Math.cos(progress * Math.PI)) / 2
+    animation(eased)
+  }, timeMs)
+}
+
+function animateSine(animation: (progress: number) => void, timeMs: number): Promise<void> {
+  return animateLinear((progress: number): void => {
+    const eased: number = Math.sin((progress * Math.PI) / 2)
+    animation(eased)
+  }, timeMs)
+}
+
 function animateLinear(animation: (progress: number) => void, timeMs: number): Promise<void> {
-  let progress = 0
+  let progress: number = 0
   animation(0)
 
   if (timeMs < 30) {
@@ -547,13 +1101,13 @@ function animateLinear(animation: (progress: number) => void, timeMs: number): P
     return Promise.resolve()
   }
 
-  return new Promise((resolve) => {
-    const ticker = new Ticker()
+  return new Promise<void>((resolve: () => void): void => {
+    const ticker: Ticker = new Ticker()
     ticker.maxFPS = 60
 
-    ticker.add(() => {
-      const rawDeltaTime = ticker.elapsedMS
-      let usedTime = rawDeltaTime
+    ticker.add((): void => {
+      const rawDeltaTime: number = ticker.elapsedMS
+      let usedTime: number = rawDeltaTime
 
       if (usedTime > 100) {
         usedTime = 20
@@ -574,11 +1128,11 @@ function animateLinear(animation: (progress: number) => void, timeMs: number): P
 }
 
 function waitUntil(whenFinish: () => boolean): Promise<void> {
-  return new Promise((resolve) => {
-    const ticker = new Ticker()
+  return new Promise<void>((resolve: () => void): void => {
+    const ticker: Ticker = new Ticker()
     ticker.maxFPS = 60
 
-    ticker.add(() => {
+    ticker.add((): void => {
       if (whenFinish()) {
         ticker.destroy()
         resolve()
@@ -589,7 +1143,7 @@ function waitUntil(whenFinish: () => boolean): Promise<void> {
 }
 
 function delayMs(timeMs: number): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve: () => void): void => {
     window.setTimeout(resolve, timeMs)
   })
 }

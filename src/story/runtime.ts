@@ -14,6 +14,7 @@ export type CreateStoryRuntimeOptions = {
   modelRegistry: ModelRegistry
   models?: Iterable<StoryModelInstance>
   visualEffects?: StoryVisualEffectRegistry
+  fontFamily?: string
 }
 
 export function createStoryRuntime({
@@ -23,7 +24,8 @@ export function createStoryRuntime({
   assets,
   modelRegistry,
   models = [],
-  visualEffects
+  visualEffects,
+  fontFamily
 }: CreateStoryRuntimeOptions): StoryRuntime {
   const modelMap = new Map<string, StoryModelInstance>()
   for (const model of models) {
@@ -41,7 +43,8 @@ export function createStoryRuntime({
     models: modelMap,
     resolveBackgroundUrl: resolveBackground,
     resolveVoiceUrl: resolveVoice,
-    visualEffects
+    visualEffects,
+    fontFamily
   })
 
   return {

@@ -81,10 +81,12 @@ export class StoryVisualEffectRegistry {
   }
 
   private registrations(): StoryVisualEffectRegistration[] {
-    const factories: StoryVisualEffectFactoryRegistration[] = this.entries().map(([name, factory]) => ({
+    const factories: StoryVisualEffectFactoryRegistration[] = this.entries().map(
+      ([name, factory]) => ({
         name,
         factory
-      }))
+      })
+    )
     const presets: StoryVisualEffectRegistration[] = [...this.presets.entries()].map(
       ([name, effects]) => ({
         name,

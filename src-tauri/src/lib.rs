@@ -15,6 +15,7 @@ pub fn run() {
             project::paths::get_default_workspace_dir,
             project::paths::get_workspace,
             project::paths::get_data_path,
+            project::paths::get_data_fonts,
             project::model_registry::get_model_registry,
             project::metadata::get_projects,
             project::metadata::get_project_metadata,

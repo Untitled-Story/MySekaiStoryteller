@@ -24,6 +24,7 @@
 - Styling via Tailwind utility classes and shared UI components (`src/components/ui`).
 - Keep files/components PascalCase; hooks camelCase; types/interfaces PascalCase.
 - Avoid `any`; keep explicit, safe types unless an exceptional boundary demands otherwise (document why).
+- All variables and function/method return values must have explicit type annotations; do not rely on inference at implementation boundaries. When touching legacy code, bring the touched scope into compliance.
 - Run `pnpm lint` and `pnpm format` before changes; Prettier (spaces, semicolons off) and ESLint configs are provided.
 - If a file only exports a single function, name the file in camelCase.
 - Frontend communicates with backend via `invoke()` from `@tauri-apps/api/core`.

@@ -13,9 +13,8 @@ export default function HomePage(): JSX.Element {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const navigate = useNavigate()
 
-  const latest: ProjectMetadata | null = projects.length > 0
-    ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0]
-    : null
+  const latest: ProjectMetadata | null =
+    projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
 
   const handleOpenEditor = async (title: string) => {
     try {
@@ -42,7 +41,9 @@ export default function HomePage(): JSX.Element {
       <div className="flex gap-8">
         {/* 左栏：最近项目 */}
         <div className="flex-1 min-w-0">
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">上次编辑</h3>
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
+            上次编辑
+          </h3>
           {latest ? (
             <div className="space-y-4">
               <div>
@@ -76,7 +77,9 @@ export default function HomePage(): JSX.Element {
 
         {/* 右栏：快捷操作 */}
         <div className="w-48 flex-shrink-0">
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">快捷操作</h3>
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
+            快捷操作
+          </h3>
           <nav className="space-y-1">
             <button
               onClick={() => setCreateDialogOpen(true)}

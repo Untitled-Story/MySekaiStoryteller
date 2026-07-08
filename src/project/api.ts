@@ -17,10 +17,7 @@ export async function getProjectMetadata(projectName: string): Promise<ProjectMe
   return raw ? ProjectMetadataSchema.parse(raw) : null
 }
 
-export function setProjectMetadata(
-  projectName: string,
-  metadata: ProjectMetadata
-): Promise<void> {
+export function setProjectMetadata(projectName: string, metadata: ProjectMetadata): Promise<void> {
   return invoke('set_project_metadata', { projectName, metadata })
 }
 

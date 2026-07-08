@@ -12,10 +12,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (!projectName) return
 
-    Promise.all([
-      getProjectMetadata(projectName),
-      getProjectPath(projectName)
-    ])
+    Promise.all([getProjectMetadata(projectName), getProjectPath(projectName)])
       .then(([meta, path]) => {
         setMetadata(meta)
         setProjectPath(path)

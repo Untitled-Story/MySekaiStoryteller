@@ -3,8 +3,16 @@ import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import {
-  FolderOpen, Plus, RefreshCw, Search, ArrowUpDown,
-  Edit3, Play, FileEdit, Trash2, Clock
+  FolderOpen,
+  Plus,
+  RefreshCw,
+  Search,
+  ArrowUpDown,
+  Edit3,
+  Play,
+  FileEdit,
+  Trash2,
+  Clock
 } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
@@ -217,7 +225,10 @@ export default function ProjectsPage(): JSX.Element {
                     <FileEdit className="w-4 h-4 mr-2" />
                     重命名
                   </ContextMenuItem>
-                  <ContextMenuItem variant="destructive" onClick={() => setDeleteTarget(metadata.title)}>
+                  <ContextMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteTarget(metadata.title)}
+                  >
                     <Trash2 className="w-4 h-4 mr-2" />
                     删除
                   </ContextMenuItem>

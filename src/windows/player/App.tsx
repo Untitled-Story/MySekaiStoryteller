@@ -23,6 +23,7 @@ import type { ModelRegistry } from '@/modelRegistry/schema'
 import { getModelRegistry } from '@/modelRegistry/api'
 import { getSettings } from '@/settings/api'
 import type { AppSettings, RenderPrecision } from '@/settings/types'
+import { loadPlaybackFontFamily } from '@/settings/fonts'
 import { getDataPath } from '@/workspace/api'
 
 export type PlayerStoryInput = {
@@ -104,6 +105,7 @@ export default function App(): JSX.Element {
     let dispatcher: StoryDispatcher | null = null
     let runtime: StoryRuntime | null = null
     let preloadedModels: StoryModelInstance[] = []
+    let fontFamily: string | null = null
     const stageElement = stageRef.current
     const currentStoryInput = storyInput
 
@@ -125,6 +127,13 @@ export default function App(): JSX.Element {
       if (cancelled) return
       stageElement.replaceChildren(app.canvas)
 
+      setModelLoadState({ status: 'loading', message: '加载字体资源' })
+      fontFamily = await loadPlaybackFontFamily(
+        currentStoryInput.settings,
+        currentStoryInput.dataPath
+      )
+      if (cancelled) return
+
       setModelLoadState({ status: 'loading', message: '加载模型资源' })
       preloadedModels = await preloadStoryModels({
         app,
@@ -140,7 +149,8 @@ export default function App(): JSX.Element {
         projectPath: currentStoryInput.projectPath,
         assets: currentStoryInput.assets,
         modelRegistry: currentStoryInput.modelRegistry,
-        models: preloadedModels
+        models: preloadedModels,
+        fontFamily
       })
       dispatcher = new StoryDispatcher(runtime, {
         onEvent: (event) => {

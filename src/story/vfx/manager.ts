@@ -31,12 +31,7 @@ export class StoryVisualEffectManager {
   private readonly registry: StoryVisualEffectRegistry
   private destroyed = false
 
-  constructor({
-    pixi,
-    model,
-    registry,
-    animateLinear
-  }: StoryVisualEffectManagerOptions) {
+  constructor({ pixi, model, registry, animateLinear }: StoryVisualEffectManagerOptions) {
     this.context = {
       app: pixi.app,
       pixi,

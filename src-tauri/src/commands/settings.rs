@@ -19,6 +19,8 @@ pub struct PlaybackSettings {
     pub memory_size_mb: u32,
     #[serde(default)]
     pub render_precision: RenderPrecision,
+    #[serde(default)]
+    pub font: PlaybackFontSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +33,14 @@ pub enum RenderPrecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RenderPrecisionAuto {
     Auto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "camelCase")]
+pub enum PlaybackFontSettings {
+    Default,
+    Data { family: String, path: String },
+    System { family: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +68,7 @@ impl Default for PlaybackSettings {
         Self {
             memory_size_mb: default_memory_size_mb(),
             render_precision: RenderPrecision::default(),
+            font: PlaybackFontSettings::default(),
         }
     }
 }
@@ -65,6 +76,12 @@ impl Default for PlaybackSettings {
 impl Default for RenderPrecision {
     fn default() -> Self {
         Self::Auto(RenderPrecisionAuto::Auto)
+    }
+}
+
+impl Default for PlaybackFontSettings {
+    fn default() -> Self {
+        Self::Default
     }
 }
 

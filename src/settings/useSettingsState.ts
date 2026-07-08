@@ -4,10 +4,12 @@ import { useSystemTheme } from './useSystemTheme'
 import type {
   AppSettings,
   AppearanceSettings,
+  PlaybackFontSettings,
   PlaybackSettings,
   RenderPrecision,
   SystemTheme
 } from './types'
+import { defaultPlaybackFont, normalizePlaybackFont } from './fonts'
 
 export type SettingsHook = {
   loaded: boolean
@@ -18,12 +20,14 @@ export type SettingsHook = {
   setManualTheme: (theme: SystemTheme) => void
   setMemorySizeMb: (value: number) => void
   setRenderPrecision: (value: RenderPrecision) => void
+  setPlaybackFont: (value: PlaybackFontSettings) => void
   setWorkspaceDir: (dir: string) => void
 }
 
 const DEFAULT_PLAYBACK: PlaybackSettings = {
   memorySizeMb: 128,
-  renderPrecision: 'Auto'
+  renderPrecision: 'Auto',
+  font: defaultPlaybackFont()
 }
 
 export function useSettingsState(): SettingsHook {
@@ -35,7 +39,8 @@ export function useSettingsState(): SettingsHook {
   }))
   const [playback, setPlayback] = useState<PlaybackSettings>(() => ({
     memorySizeMb: DEFAULT_PLAYBACK.memorySizeMb,
-    renderPrecision: DEFAULT_PLAYBACK.renderPrecision
+    renderPrecision: DEFAULT_PLAYBACK.renderPrecision,
+    font: DEFAULT_PLAYBACK.font
   }))
   const [workspaceDir, setWorkspaceDirState] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -61,7 +66,8 @@ export function useSettingsState(): SettingsHook {
         })
         setPlayback({
           memorySizeMb: stored.playback?.memorySizeMb ?? DEFAULT_PLAYBACK.memorySizeMb,
-          renderPrecision: normalizeRenderPrecision(stored.playback?.renderPrecision)
+          renderPrecision: normalizeRenderPrecision(stored.playback?.renderPrecision),
+          font: normalizePlaybackFont(stored.playback?.font)
         })
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setLoaded(true)
@@ -115,6 +121,11 @@ export function useSettingsState(): SettingsHook {
       setPlayback((prev) => ({
         ...prev,
         renderPrecision: value
+      })),
+    setPlaybackFont: (value) =>
+      setPlayback((prev) => ({
+        ...prev,
+        font: normalizePlaybackFont(value)
       })),
     setWorkspaceDir: (dir) => setWorkspaceDirState(dir)
   }

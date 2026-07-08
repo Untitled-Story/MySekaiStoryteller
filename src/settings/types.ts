@@ -8,9 +8,20 @@ export type AppearanceSettings = {
 export type PlaybackSettings = {
   memorySizeMb: number
   renderPrecision: RenderPrecision
+  font: PlaybackFontSettings
 }
 
 export type RenderPrecision = number | 'Auto'
+
+export type PlaybackFontSettings =
+  | {
+      source: 'default'
+    }
+  | {
+      source: 'data'
+      family: string
+      path: string
+    }
 
 export type AppSettings = {
   appearance: AppearanceSettings
