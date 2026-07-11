@@ -1,22 +1,17 @@
 import { StoryAbortError } from './types'
+import { timeManager } from './timeManager'
 
 export async function delaySeconds(seconds: number, signal: AbortSignal): Promise<void> {
   throwIfAborted(signal)
 
   if (seconds <= 0) return
 
-  await new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(resolve, seconds * 1000)
-
-    function abort(): void {
-      window.clearTimeout(timeout)
-      reject(new StoryAbortError())
+  return timeManager.delay(seconds, signal).catch((err) => {
+    if (err instanceof Error && err.message === 'Aborted') {
+      throw new StoryAbortError()
     }
-
-    signal.addEventListener('abort', abort, { once: true })
+    throw err
   })
-
-  throwIfAborted(signal)
 }
 
 export function throwIfAborted(signal: AbortSignal): void {

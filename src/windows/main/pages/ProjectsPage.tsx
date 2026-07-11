@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import {
@@ -12,7 +13,9 @@ import {
   Play,
   FileEdit,
   Trash2,
-  Clock
+  Clock,
+  Video,
+  FolderSearch
 } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
@@ -44,6 +47,9 @@ import {
   DialogTitle,
   DialogFooter
 } from '@/components/ui/Dialog'
+import type { RenderConfig } from '@/settings/types'
+import { getDataPath } from '@/workspace/api'
+import { save } from '@tauri-apps/plugin-dialog'
 
 type SortMode = 'recent' | 'name'
 
@@ -59,6 +65,37 @@ export default function ProjectsPage(): JSX.Element {
   const [renameTarget, setRenameTarget] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [isRenaming, setIsRenaming] = useState(false)
+  const [renderTarget, setRenderTarget] = useState<string | null>(null)
+  const [renderConfig, setRenderConfig] = useState<RenderConfig | null>(null)
+
+  useEffect(() => {
+    if (renderTarget) {
+      async function initRenderConfig() {
+        try {
+          const dataPath = await getDataPath()
+          const now = new Date()
+          const timestamp = now.getFullYear().toString() + 
+            (now.getMonth() + 1).toString().padStart(2, '0') + 
+            now.getDate().toString().padStart(2, '0') + '_' + 
+            now.getHours().toString().padStart(2, '0') + 
+            now.getMinutes().toString().padStart(2, '0') + 
+            now.getSeconds().toString().padStart(2, '0')
+          
+          const fileName = `${renderTarget}_${timestamp}_MySekaiStoryteller.mp4`
+          
+          setRenderConfig({
+            exportPath: `${dataPath}/outputs/${fileName}`,
+            width: 1920,
+            height: 1080,
+            fps: 60
+          })
+        } catch (error) {
+          console.error('Failed to initialize render config', error)
+        }
+      }
+      initRenderConfig()
+    }
+  }, [renderTarget])
 
   const filtered = useMemo(() => {
     let result: ProjectMetadata[] = [...projects]
@@ -87,9 +124,9 @@ export default function ProjectsPage(): JSX.Element {
     }
   }
 
-  const handleOpenPlayer = async (title: string) => {
+  const handleOpenPlayer = async (title: string, render: boolean = false, config?: RenderConfig) => {
     try {
-      await openPlayerWindow(title)
+      await openPlayerWindow(title, render, config)
     } catch (error) {
       alert('打开播放器失败: ' + (error instanceof Error ? error.message : '未知错误'))
     }
@@ -208,6 +245,15 @@ export default function ProjectsPage(): JSX.Element {
                       >
                         <Play className="w-3.5 h-3.5" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label="渲染"
+                        onClick={() => setRenderTarget(metadata.title)}
+                      >
+                        <Video className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </ContextMenuTrigger>
@@ -299,6 +345,91 @@ export default function ProjectsPage(): JSX.Element {
             </Button>
             <Button onClick={handleRename} disabled={isRenaming || !newName.trim()}>
               {isRenaming ? '重命名中...' : '确认'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!renderTarget} onOpenChange={(open) => !open && setRenderTarget(null)}>
+        <DialogContent className="select-none">
+          <DialogHeader>
+            <DialogTitle>渲染设置</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">导出路径</label>
+              <div className="flex gap-2">
+                <Input
+                  value={renderConfig?.exportPath ?? ''}
+                  onChange={(e) => setRenderConfig(prev => prev ? { ...prev, exportPath: e.target.value } : null)}
+                  placeholder="选择导出路径..."
+                  className="flex-1"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={async () => {
+                    const selected = await save({
+                      filters: [{
+                        name: 'MP4 Video',
+                        extensions: ['mp4']
+                      }],
+                      title: '选择导出文件'
+                    })
+                    if (selected && typeof selected === 'string') {
+                      setRenderConfig(prev => prev ? { 
+                        ...prev, 
+                        exportPath: selected 
+                      } : null)
+                    }
+                  }}
+                >
+                  <FolderSearch className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <label className="text-xs font-medium text-muted-foreground">宽度</label>
+                <Input
+                  type="number"
+                  value={renderConfig?.width ?? 0}
+                  onChange={(e) => setRenderConfig(prev => prev ? { ...prev, width: parseInt(e.target.value) || 0 } : null)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-xs font-medium text-muted-foreground">高度</label>
+                <Input
+                  type="number"
+                  value={renderConfig?.height ?? 0}
+                  onChange={(e) => setRenderConfig(prev => prev ? { ...prev, height: parseInt(e.target.value) || 0 } : null)}
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">帧率 (FPS)</label>
+              <Input
+                type="number"
+                value={renderConfig?.fps ?? 0}
+                onChange={(e) => setRenderConfig(prev => prev ? { ...prev, fps: parseInt(e.target.value) || 0 } : null)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenderTarget(null)}>
+              取消
+            </Button>
+            <Button 
+              onClick={async () => {
+                const title = renderTarget!
+                setRenderTarget(null)
+                if (renderConfig) {
+                  await handleOpenPlayer(title, true, renderConfig)
+                }
+              }}
+              disabled={!renderConfig?.exportPath}
+            >
+              开始渲染
             </Button>
           </DialogFooter>
         </DialogContent>

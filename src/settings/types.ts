@@ -23,6 +23,13 @@ export type PlaybackFontSettings =
       path: string
     }
 
+export type RenderConfig = {
+  exportPath: string
+  width: number
+  height: number
+  fps: number
+}
+
 export type AppSettings = {
   appearance: AppearanceSettings
   playback: PlaybackSettings

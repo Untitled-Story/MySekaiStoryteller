@@ -1,11 +1,13 @@
 mod commands;
 mod protocol;
 
-use commands::{project, settings, window};
+use commands::{project, settings, window, render};
+use render::RenderManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
+        .manage(RenderManager::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -30,6 +32,9 @@ pub fn run() {
             project::story::set_project_story,
             window::open_editor,
             window::open_player,
+            render::start_render_session,
+            render::stream_frame,
+            render::stop_render_session,
         ]);
 
     builder = protocol::register_story_protocol(builder);
