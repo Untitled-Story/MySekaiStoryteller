@@ -25,6 +25,7 @@ import { getSettings } from '@/settings/api'
 import type { AppSettings, RenderPrecision } from '@/settings/types'
 import { loadPlaybackFontFamily } from '@/settings/fonts'
 import { getDataPath } from '@/workspace/api'
+import { describeError, logger } from '@/lib/logger'
 
 export type PlayerStoryInput = {
   projectName: string
@@ -75,17 +76,30 @@ export default function App(): JSX.Element {
     if (!projectName) return
 
     let cancelled = false
+    const startedAt: number = performance.now()
     setLoadState({ status: 'loading' })
     setStoryInput(null)
+    logger.info('player.project_load_started', { projectName })
 
     loadPlayerStoryInput(projectName)
-      .then((input) => {
+      .then((input: PlayerStoryInput): void => {
         if (cancelled) return
         setStoryInput(input)
         setLoadState({ status: 'ready' })
+        logger.info('player.project_load_completed', {
+          projectName,
+          durationMs: Math.round(performance.now() - startedAt),
+          snippetCount: input.story.snippets.length,
+          modelCount: Object.keys(input.assets.models).length
+        })
       })
       .catch((error: unknown) => {
         if (cancelled) return
+        logger.error('player.project_load_failed', {
+          projectName,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: describeError(error)
+        })
         setLoadState({
           status: 'error',
           error: error instanceof Error ? error.message : '加载 story.json 失败'
@@ -108,12 +122,18 @@ export default function App(): JSX.Element {
     let fontFamily: string | null = null
     const stageElement = stageRef.current
     const currentStoryInput = storyInput
+    const startedAt: number = performance.now()
 
     setModelLoadState({ status: 'loading', message: '初始化播放器' })
+    logger.info('player.runtime_started', {
+      projectName: currentStoryInput.projectName,
+      snippetCount: currentStoryInput.story.snippets.length
+    })
 
     async function startStory(): Promise<void> {
       await ensureSekaiLive2DReady()
       if (cancelled) return
+      logger.debug('player.live2d_ready', { projectName: currentStoryInput.projectName })
 
       app = new Application()
       await app.init({
@@ -126,6 +146,10 @@ export default function App(): JSX.Element {
 
       if (cancelled) return
       stageElement.replaceChildren(app.canvas)
+      logger.info('player.pixi_ready', {
+        projectName: currentStoryInput.projectName,
+        resolution: resolveRenderPrecision(currentStoryInput.settings)
+      })
 
       setModelLoadState({ status: 'loading', message: '加载字体资源' })
       fontFamily = await loadPlaybackFontFamily(
@@ -142,6 +166,10 @@ export default function App(): JSX.Element {
         modelRegistry: currentStoryInput.modelRegistry
       })
       if (cancelled) return
+      logger.info('player.models_loaded', {
+        projectName: currentStoryInput.projectName,
+        modelCount: preloadedModels.length
+      })
 
       runtime = createStoryRuntime({
         app,
@@ -165,11 +193,22 @@ export default function App(): JSX.Element {
         message: `已加载 ${preloadedModels.length} 个模型`
       })
       await dispatcher.run(currentStoryInput.story)
+      if (!cancelled) {
+        logger.info('player.story_completed', {
+          projectName: currentStoryInput.projectName,
+          durationMs: Math.round(performance.now() - startedAt)
+        })
+      }
     }
 
     startStory().catch((error: unknown) => {
       if (cancelled) return
       console.error('Story playback failed', error)
+      logger.error('player.runtime_failed', {
+        projectName: currentStoryInput.projectName,
+        durationMs: Math.round(performance.now() - startedAt),
+        error: describeError(error)
+      })
       setModelLoadState({
         status: 'error',
         error: describeStoryPlaybackError(error)

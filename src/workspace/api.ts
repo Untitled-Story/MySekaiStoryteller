@@ -13,6 +13,10 @@ export function getDataPath(): Promise<string> {
   return invoke<string>('get_data_path')
 }
 
+export function getLogPath(): Promise<string> {
+  return invoke<string>('get_log_path')
+}
+
 export function getDataFonts(): Promise<DataFontInfo[]> {
   return invoke<DataFontInfo[]>('get_data_fonts')
 }

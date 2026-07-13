@@ -4,6 +4,7 @@ import { Application } from 'pixi.js'
 import { CircleDot, LoaderCircle, Pause, Play, RotateCcw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/style'
+import { describeError as describeLogError, logger } from '@/lib/logger'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { ProjectAssets } from '@/project/assets'
@@ -73,6 +74,7 @@ export function EditorPreview({
     let runtime: StoryRuntime | null = null
     let preloadedModels: StoryModelInstance[] = []
     let started = false
+    const startedAt: number = performance.now()
     const requestedFromToolbar: boolean = previousPreviewRequestRef.current !== previewRequest
     const useImmediateStart: boolean = initialLoadRef.current || requestedFromToolbar
     previousPreviewRequestRef.current = previewRequest
@@ -81,6 +83,10 @@ export function EditorPreview({
     function dispose(): void {
       if (disposed) return
       disposed = true
+      logger.debug('editor.preview_disposed', {
+        projectName: input.projectName,
+        durationMs: Math.round(performance.now() - startedAt)
+      })
       dispatcher?.cancel()
       if (runtime) {
         destroyStoryRuntime(runtime)
@@ -105,10 +111,16 @@ export function EditorPreview({
       setStatus('loading')
       setMessage('初始化 Pixi 预览')
       setActiveNodeId(null)
+      logger.info('editor.preview_started', {
+        projectName: input.projectName,
+        snippetCount: story.snippets.length,
+        targetNodeId: previewTargetNodeId
+      })
 
       try {
         await ensureSekaiLive2DReady()
         if (disposed) return
+        logger.debug('editor.preview_live2d_ready', { projectName: input.projectName })
 
         app = new Application()
         await app.init({
@@ -120,6 +132,10 @@ export function EditorPreview({
         })
         if (disposed) return
         stageElement.replaceChildren(app.canvas)
+        logger.info('editor.preview_pixi_ready', {
+          projectName: input.projectName,
+          resolution: resolveRenderPrecision(input.settings)
+        })
 
         setMessage('加载字体和模型')
         const fontFamily: string = await loadPlaybackFontFamily(input.settings, input.dataPath)
@@ -131,6 +147,10 @@ export function EditorPreview({
           modelRegistry: input.modelRegistry
         })
         if (disposed) return
+        logger.info('editor.preview_models_loaded', {
+          projectName: input.projectName,
+          modelCount: preloadedModels.length
+        })
 
         runtime = createStoryRuntime({
           app,
@@ -161,10 +181,19 @@ export function EditorPreview({
         if (!disposed) {
           setStatus('completed')
           setMessage('预览完成')
+          logger.info('editor.preview_completed', {
+            projectName: input.projectName,
+            durationMs: Math.round(performance.now() - startedAt)
+          })
         }
       } catch (error: unknown) {
         if (disposed) return
         console.error('Editor preview failed', error)
+        logger.error('editor.preview_failed', {
+          projectName: input.projectName,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: describeLogError(error)
+        })
         setStatus('error')
         setMessage(describePreviewError(error))
       }

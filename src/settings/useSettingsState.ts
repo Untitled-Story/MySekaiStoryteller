@@ -10,6 +10,7 @@ import type {
   SystemTheme
 } from './types'
 import { defaultPlaybackFont, normalizePlaybackFont } from './fonts'
+import { describeError, logger } from '@/lib/logger'
 
 export type SettingsHook = {
   loaded: boolean
@@ -53,10 +54,18 @@ export function useSettingsState(): SettingsHook {
   // Load settings from backend on mount
   useEffect(() => {
     let cancelled = false
+    const startedAt: number = performance.now()
+    logger.info('settings.load_started')
 
     getSettings()
-      .then((stored) => {
+      .then((stored: AppSettings | null): void => {
         if (cancelled || !stored) {
+          if (!cancelled) {
+            logger.info('settings.load_completed', {
+              durationMs: Math.round(performance.now() - startedAt),
+              found: false
+            })
+          }
           setLoaded(true)
           return
         }
@@ -71,8 +80,17 @@ export function useSettingsState(): SettingsHook {
         })
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setLoaded(true)
+        logger.info('settings.load_completed', {
+          durationMs: Math.round(performance.now() - startedAt),
+          found: true,
+          hasWorkspace: Boolean(stored.workspaceDir)
+        })
       })
-      .catch(() => {
+      .catch((error: unknown): void => {
+        logger.error('settings.load_failed', {
+          durationMs: Math.round(performance.now() - startedAt),
+          error: describeError(error)
+        })
         setLoaded(true)
       })
 
@@ -94,7 +112,9 @@ export function useSettingsState(): SettingsHook {
       workspaceDir: workspaceDir ?? undefined
     }
 
-    saveSettings(payload).catch(console.error)
+    saveSettings(payload).catch((error: unknown): void => {
+      logger.error('settings.save_failed', { error: describeError(error) })
+    })
   }, [appearance.followSystem, appearance.manualTheme, playback, workspaceDir, loaded])
 
   return {

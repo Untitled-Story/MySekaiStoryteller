@@ -1,4 +1,5 @@
 use std::fs;
+use std::time::Instant;
 use tauri::AppHandle;
 
 use super::{
@@ -8,12 +9,17 @@ use super::{
 
 #[tauri::command]
 pub fn get_projects(app: AppHandle) -> Result<Vec<String>, String> {
+    let started_at = Instant::now();
     let dir = projects_dir(&app)?;
     if !dir.exists() {
+        log::info!(target: "backend::project", "projects.load completed count=0");
         return Ok(vec![]);
     }
 
-    let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
+    let entries = fs::read_dir(&dir).map_err(|error| {
+        log::error!(target: "backend::project", "projects.load read_dir_failed error={error}");
+        error.to_string()
+    })?;
     let projects: Vec<String> = entries
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
@@ -21,6 +27,12 @@ pub fn get_projects(app: AppHandle) -> Result<Vec<String>, String> {
         .filter_map(|e| e.file_name().into_string().ok())
         .collect();
 
+    log::info!(
+        target: "backend::project",
+        "projects.load completed count={} duration_ms={}",
+        projects.len(),
+        started_at.elapsed().as_millis()
+    );
     Ok(projects)
 }
 
