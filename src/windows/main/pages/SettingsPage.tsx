@@ -11,9 +11,11 @@ import {
   type DataFontInfo
 } from '@/settings/fonts'
 import { SettingRow } from '@/windows/main/components/SettingRow'
-import { getDataFonts } from '@/workspace/api'
+import { getDataFonts, getLogPath } from '@/workspace/api'
 import { open } from '@tauri-apps/plugin-dialog'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FolderOpen } from 'lucide-react'
+import { describeError, logger } from '@/lib/logger'
 
 export default function SettingsPage(): JSX.Element {
   const {
@@ -31,6 +33,7 @@ export default function SettingsPage(): JSX.Element {
     renderPrecisionToText(playback.renderPrecision)
   )
   const [dataFonts, setDataFonts] = useState<DataFontInfo[]>([])
+  const [logPath, setLogPath] = useState<string>('系统应用日志目录')
 
   useEffect(() => {
     setRenderPrecisionText(renderPrecisionToText(playback.renderPrecision))
@@ -59,6 +62,14 @@ export default function SettingsPage(): JSX.Element {
     }
   }, [workspaceDir])
 
+  useEffect((): void => {
+    void getLogPath()
+      .then((path: string): void => setLogPath(path))
+      .catch((error: unknown): void => {
+        logger.warn('settings.log_path_failed', { error: describeError(error) })
+      })
+  }, [])
+
   const handleChangeWorkspace = async (): Promise<void> => {
     const selected: string | string[] | null = await open({
       title: '选择数据保存路径',
@@ -73,6 +84,16 @@ export default function SettingsPage(): JSX.Element {
 
   const handleFontChange = (event: ChangeEvent<HTMLSelectElement>): void => {
     setPlaybackFont(selectValueToPlaybackFont(event.target.value, dataFonts, playback.font))
+  }
+
+  const handleOpenLogDirectory = async (): Promise<void> => {
+    try {
+      const path: string = await getLogPath()
+      await revealItemInDir(path)
+      logger.info('settings.log_directory_opened')
+    } catch (error: unknown) {
+      logger.error('settings.log_directory_open_failed', { error: describeError(error) })
+    }
   }
 
   const fontValue: string = playbackFontToSelectValue(playback.font)
@@ -91,6 +112,20 @@ export default function SettingsPage(): JSX.Element {
           <Button variant="outline" size="sm" onClick={handleChangeWorkspace}>
             <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
             修改
+          </Button>
+        </SettingRow>
+      </div>
+
+      <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+        <h2 className="text-2xl font-semibold leading-tight">诊断日志</h2>
+        <p className="text-sm text-muted-foreground">查看后端和各窗口写入的运行日志。</p>
+      </div>
+
+      <div className="w-full max-w-2xl divide-y divide-border">
+        <SettingRow title="日志目录" description={logPath}>
+          <Button variant="outline" size="sm" onClick={handleOpenLogDirectory}>
+            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+            打开
           </Button>
         </SettingRow>
       </div>

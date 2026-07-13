@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/style'
+import { describeError as describeLogError, logger } from '@/lib/logger'
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import { getModelRegistry, importGlobalModel } from '@/modelRegistry/api'
 import {
@@ -189,9 +190,11 @@ export default function App(): JSX.Element {
     if (!activeProjectName) return undefined
 
     let cancelled = false
+    const startedAt: number = performance.now()
     setLoadState({ status: 'loading' })
     setLoadedProject(null)
     setActionError(null)
+    logger.info('editor.project_load_started', { projectName: activeProjectName })
 
     void loadEditorProject(activeProjectName)
       .then((project: LoadedEditorProject): void => {
@@ -206,9 +209,22 @@ export default function App(): JSX.Element {
         setSearchQuery('')
         setActivePanel('story')
         setLoadState({ status: 'ready' })
+        logger.info('editor.project_load_completed', {
+          projectName: activeProjectName,
+          durationMs: Math.round(performance.now() - startedAt),
+          snippetCount: nextHistory.present.snippets.length,
+          modelCount: Object.keys(project.previewInput.assets.models).length,
+          backgroundCount: Object.keys(project.previewInput.assets.backgrounds).length,
+          voiceCount: Object.keys(project.previewInput.assets.voices).length
+        })
       })
       .catch((error: unknown): void => {
         if (cancelled) return
+        logger.error('editor.project_load_failed', {
+          projectName: activeProjectName,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: describeLogError(error)
+        })
         setLoadState({ status: 'error', error: describeError(error, '加载项目失败') })
       })
 

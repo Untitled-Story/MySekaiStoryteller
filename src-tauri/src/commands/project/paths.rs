@@ -35,6 +35,15 @@ pub fn get_data_path(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn get_log_path(app: AppHandle) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn get_data_fonts(app: AppHandle) -> Result<Vec<DataFontInfo>, String> {
     let root = data_dir(&app)?;
     let mut fonts: Vec<DataFontInfo> = Vec::new();

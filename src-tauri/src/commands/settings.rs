@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,18 +116,52 @@ fn ensure_parent(path: &PathBuf) {
 
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Option<AppSettings> {
+    let started_at = Instant::now();
     let path = config_path(&app);
     if !path.exists() {
+        log::info!(target: "backend::settings", "settings.load not_found");
         return None;
     }
-    let raw = fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&raw).ok()
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            log::error!(target: "backend::settings", "settings.load read_failed error={error}");
+            return None;
+        }
+    };
+    match serde_json::from_str(&raw) {
+        Ok(settings) => {
+            log::debug!(
+                target: "backend::settings",
+                "settings.load completed duration_ms={}",
+                started_at.elapsed().as_millis()
+            );
+            Some(settings)
+        }
+        Err(error) => {
+            log::error!(target: "backend::settings", "settings.load parse_failed error={error}");
+            None
+        }
+    }
 }
 
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    let started_at = Instant::now();
     let path = config_path(&app);
     ensure_parent(&path);
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    let json = serde_json::to_string_pretty(&settings).map_err(|error| {
+        log::error!(target: "backend::settings", "settings.save serialize_failed error={error}");
+        error.to_string()
+    })?;
+    fs::write(&path, json).map_err(|error| {
+        log::error!(target: "backend::settings", "settings.save write_failed error={error}");
+        error.to_string()
+    })?;
+    log::debug!(
+        target: "backend::settings",
+        "settings.save completed duration_ms={}",
+        started_at.elapsed().as_millis()
+    );
+    Ok(())
 }
