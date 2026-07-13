@@ -4,6 +4,7 @@ import { Route, Routes } from 'react-router'
 import HomePage from '@/windows/main/pages/HomePage'
 import ProjectsPage from '@/windows/main/pages/ProjectsPage'
 import SettingsPage from '@/windows/main/pages/SettingsPage'
+import AboutPage from '@/windows/main/pages/AboutPage'
 import { SettingsProvider } from '@/settings/SettingsProvider'
 import { useSettings } from '@/settings/useSettings'
 import { WorkspaceSetup } from '@/windows/main/components/WorkspaceSetup'
@@ -48,6 +49,7 @@ function AppContent(): React.JSX.Element {
           <Route path="/" element={<HomePage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/about" element={<AboutPage />} />
         </Routes>
       </main>
     </>
