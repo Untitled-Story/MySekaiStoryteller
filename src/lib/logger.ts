@@ -55,12 +55,25 @@ export function initializeFrontendLogging(windowName: FrontendWindowName): void 
 }
 
 export function describeError(error: unknown): LogDetails {
+  return describeErrorValue(error, new Set<Error>())
+}
+
+function describeErrorValue(error: unknown, seen: Set<Error>): LogDetails {
   if (error instanceof Error) {
-    return {
+    if (seen.has(error)) {
+      return { name: error.name, message: error.message, circular: true }
+    }
+    seen.add(error)
+
+    const details: Record<string, unknown> = {
       name: error.name,
       message: error.message,
       stack: error.stack
     }
+    if ('cause' in error && error.cause !== undefined) {
+      details.cause = describeErrorValue(error.cause, seen)
+    }
+    return details
   }
   return { value: stringifyUnknown(error) }
 }
