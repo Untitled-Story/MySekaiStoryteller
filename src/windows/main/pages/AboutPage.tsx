@@ -21,7 +21,7 @@ const SPECIAL_THANKS: readonly Acknowledgement[] = [
   },
   {
     nickname: 'WhiteMist',
-    description: '',
+    description: '支持日野森志步喵',
     avatar: whiteMistAvatar
   },
   {
@@ -113,7 +113,7 @@ export default function AboutPage(): JSX.Element {
                   还有使用这个程序的你
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  谢谢你让每一个故事真正发生。
+                  谢谢你让每一个故事正在发生。
                 </p>
               </div>
             </article>
