@@ -1,6 +1,7 @@
 export function localAssetUrl(rootPath: string, relativePath: string): string {
-  const root = rootPath.replace(/\/$/, '')
+  const root: string = encodePath(rootPath)
   const child = relativePath
+    .replaceAll('\\', '/')
     .split('/')
     .filter(Boolean)
     .map((part) => {
@@ -11,9 +12,18 @@ export function localAssetUrl(rootPath: string, relativePath: string): string {
     })
     .join('/')
 
-  return `mss://load-file${encodeURI(root)}/${child}`
+  return `mss://load-file/${root}/${child}`
 }
 
 export function projectAssetUrl(projectPath: string, relativePath: string): string {
   return localAssetUrl(projectPath, relativePath)
+}
+
+function encodePath(path: string): string {
+  return path
+    .replaceAll('\\', '/')
+    .split('/')
+    .filter(Boolean)
+    .map((part: string): string => encodeURIComponent(part))
+    .join('/')
 }
