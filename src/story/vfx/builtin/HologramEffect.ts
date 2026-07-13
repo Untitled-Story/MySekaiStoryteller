@@ -16,7 +16,6 @@ export class HologramEffect extends VisualEffectBase {
   private readonly adjustFilter: AdjustmentFilter
   private readonly animateLinear: StoryVisualEffectContext['animateLinear']
   private animating = false
-  private animationFrame: number | null = null
   private effectDestroyed = false
   private patternReady = false
 
@@ -39,7 +38,6 @@ export class HologramEffect extends VisualEffectBase {
       new AdjustmentFilter({ alpha: 0.85, brightness: 1.25, red: 0.75 })
     ]
     this.filters = [this.crtFilter, this.adjustFilter, new BloomFilter({ strength: 15 })]
-    this.animateCRT()
   }
 
   update(delta: number): void {
@@ -50,6 +48,7 @@ export class HologramEffect extends VisualEffectBase {
     const offset = 1.2
     this.adjustFilter.brightness = offset + amp * Math.sin(this.elapsed * 0.05)
     this.crtFilter.time += delta * 0.01
+    this.crtFilter.seed = Math.random()
 
     if (this.patternReady && !this.animating) {
       this.animating = true
@@ -71,28 +70,28 @@ export class HologramEffect extends VisualEffectBase {
 
         this.graphicSmall.alpha = fadeIn * normalize
         this.graphicLarge.alpha = fadeOut * normalize
-      }, 5000).then(() => {
-        if (this.effectDestroyed) return
+      }, 5000)
+        .then((): void => {
+          if (this.effectDestroyed) return
 
-        const temp = this.graphicLarge
-        this.graphicLarge = this.graphicSmall
-        this.graphicSmall = temp
+          const temp = this.graphicLarge
+          this.graphicLarge = this.graphicSmall
+          this.graphicSmall = temp
 
-        this.graphicSmall.scale.set(this.scaleSmall)
-        this.graphicSmall.alpha = 0
-        this.graphicLarge.alpha = this.maxAlpha
+          this.graphicSmall.scale.set(this.scaleSmall)
+          this.graphicSmall.alpha = 0
+          this.graphicLarge.alpha = this.maxAlpha
 
-        this.animating = false
-      })
+          this.animating = false
+        })
+        .catch((): void => {
+          this.animating = false
+        })
     }
   }
 
   destroyEffect(): void {
     this.effectDestroyed = true
-    if (this.animationFrame !== null) {
-      cancelAnimationFrame(this.animationFrame)
-      this.animationFrame = null
-    }
     this.filters = []
     this.removeChildren()
     this.destroy({ children: true })
@@ -128,14 +127,6 @@ export class HologramEffect extends VisualEffectBase {
     } catch (error: unknown) {
       console.error('Failed to load hologram pattern', error)
     }
-  }
-
-  private animateCRT(): void {
-    if (this.effectDestroyed) return
-
-    this.crtFilter.time += 0.03
-    this.crtFilter.seed = Math.random()
-    this.animationFrame = requestAnimationFrame(() => this.animateCRT())
   }
 }
 

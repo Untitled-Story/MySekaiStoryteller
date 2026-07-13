@@ -13,6 +13,7 @@ import type {
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { SekaiLive2DModel } from '@/lib/live2d'
 import type { StoryVisualEffectRegistry } from './vfx'
+import type { StoryPlaybackClock } from './playbackClock'
 
 export type { LeafSnippetData, SnippetData, StoryData } from './schema'
 
@@ -114,6 +115,8 @@ export type StoryFadeInOptions = {
 export type StorySceneApi = {
   readonly layers: StoryLayers
   readonly pixi: StoryPixiAccessApi
+  readonly fastForwarding: boolean
+  setFastForwarding(enabled: boolean): void
   setLayoutMode(mode: LayoutModeData): Promise<void>
   setBackground(backgroundKey: string): Promise<void>
   showModel(options: StoryModelAppearOptions): Promise<void>
@@ -131,6 +134,7 @@ export type StorySceneApi = {
 
 export type StoryRuntime = {
   app: Application
+  clock: StoryPlaybackClock
   dataPath: string
   projectPath: string
   assets: ProjectAssets
@@ -143,12 +147,20 @@ export type StoryRuntime = {
   resolveVoiceUrl(voiceKey: string): ResolvedAsset<VoiceAsset>
 }
 
-export type StoryDispatcherStatus = 'idle' | 'running' | 'completed' | 'cancelled' | 'failed'
+export type StoryDispatcherStatus =
+  | 'idle'
+  | 'running'
+  | 'paused'
+  | 'completed'
+  | 'cancelled'
+  | 'failed'
 
 export type StoryDispatcherEvent =
   | { type: 'story:start'; story: StoryData }
   | { type: 'story:complete'; story: StoryData }
   | { type: 'story:cancel'; story: StoryData }
+  | { type: 'story:pause'; story: StoryData }
+  | { type: 'story:resume'; story: StoryData }
   | { type: 'story:error'; story: StoryData; error: unknown }
   | { type: 'snippet:start'; snippet: SnippetData; path: readonly number[] }
   | { type: 'snippet:complete'; snippet: SnippetData; path: readonly number[] }

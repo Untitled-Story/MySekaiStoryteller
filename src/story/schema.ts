@@ -33,8 +33,11 @@ export const SecondsSchema = FiniteNumberSchema.nonnegative()
 export const AssetKeySchema = z.string().min(1)
 export const OptionalAssetKeySchema = AssetKeySchema.optional()
 export const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
+export const SnippetIdSchema = z.string().uuid().optional()
 
 export const SnippetBaseSchema = z.object({
+  // `id` is editor-only metadata. The runtime intentionally has no behavior attached to it.
+  id: SnippetIdSchema,
   delay: SecondsSchema.default(0)
 })
 

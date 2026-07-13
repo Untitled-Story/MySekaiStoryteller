@@ -26,6 +26,7 @@ export {
   SecondsSchema,
   SideSchema,
   Sides,
+  SnippetIdSchema,
   SnippetBaseSchema,
   SnippetSchema,
   StorySchema,
@@ -49,6 +50,12 @@ export {
   type StoryInput
 } from './schema'
 export {
+  createStorySnippetId,
+  normalizeStoryIds,
+  type IdentifiedSnippetData,
+  type IdentifiedStoryData
+} from './document'
+export {
   createStoryRuntime,
   destroyStoryRuntime,
   resolveBackgroundUrl,
@@ -56,6 +63,7 @@ export {
   resolveVoiceUrl,
   type CreateStoryRuntimeOptions
 } from './runtime'
+export { StoryPlaybackClock } from './playbackClock'
 export {
   preloadStoryModels,
   StoryModelPreloadError,
@@ -69,6 +77,17 @@ export {
   type StorySnippetRegistration,
   type StorySnippetType
 } from './snippets/registry'
+export {
+  builtinSnippetDefinitions,
+  defaultParameterAnimation,
+  defaultPosition,
+  getBuiltinSnippetDefinition,
+  storyFieldOptions,
+  type BuiltinSnippetDefinition,
+  type StoryAssetKind,
+  type StorySnippetFieldDefinition,
+  type StorySnippetFieldOption
+} from './snippets/definitions'
 export {
   StoryAbortError,
   StorySnippetError,

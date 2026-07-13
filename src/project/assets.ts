@@ -24,7 +24,23 @@ export const ProjectAssetsSchema = z.object({
   voices: z.record(z.string(), VoiceAssetSchema).default({})
 })
 
+export const ProjectAssetKindSchema = z.enum(['models', 'backgrounds', 'voices'])
+
+export const ProjectAssetMutationResultSchema = z.object({
+  key: z.string().min(1),
+  assets: ProjectAssetsSchema
+})
+
+export const ProjectAssetReferenceSchema = z.object({
+  snippetId: z.string().uuid().nullable(),
+  snippetType: z.string().min(1),
+  path: z.string().min(1)
+})
+
 export type ModelAsset = z.infer<typeof ModelAssetSchema>
 export type BackgroundAsset = z.infer<typeof BackgroundAssetSchema>
 export type VoiceAsset = z.infer<typeof VoiceAssetSchema>
 export type ProjectAssets = z.infer<typeof ProjectAssetsSchema>
+export type ProjectAssetKind = z.infer<typeof ProjectAssetKindSchema>
+export type ProjectAssetMutationResult = z.infer<typeof ProjectAssetMutationResultSchema>
+export type ProjectAssetReference = z.infer<typeof ProjectAssetReferenceSchema>

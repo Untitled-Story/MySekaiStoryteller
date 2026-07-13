@@ -52,6 +52,7 @@ class ParticleTriangle extends Graphics {
 
 export default class TriangleParticleEffect extends VisualEffectBase {
   private readonly particles: ParticleTriangle[] = []
+  private elapsedMs = 0
   private lastSpawnTime = 0
 
   private readonly maxParticles = 15
@@ -104,10 +105,10 @@ export default class TriangleParticleEffect extends VisualEffectBase {
 
   update(delta: number): void {
     if (!this.enabled) return
-    const now = performance.now()
-    if (now - this.lastSpawnTime > this.spawnInterval) {
+    this.elapsedMs += delta * (1000 / 60)
+    if (this.elapsedMs - this.lastSpawnTime > this.spawnInterval) {
       this.spawnParticle()
-      this.lastSpawnTime = now
+      this.lastSpawnTime = this.elapsedMs
     }
 
     for (let index = this.particles.length - 1; index >= 0; index--) {

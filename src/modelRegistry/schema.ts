@@ -10,5 +10,11 @@ export const ModelRegistrySchema = z.object({
   models: z.record(z.string(), ModelRegistryEntrySchema).default({})
 })
 
+export const ImportedModelResultSchema = z.object({
+  modelId: z.string().min(1),
+  registry: ModelRegistrySchema
+})
+
 export type ModelRegistryEntry = z.infer<typeof ModelRegistryEntrySchema>
 export type ModelRegistry = z.infer<typeof ModelRegistrySchema>
+export type ImportedModelResult = z.infer<typeof ImportedModelResultSchema>

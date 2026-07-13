@@ -1,0 +1,495 @@
+import type { StorySnippetRegistration } from '@/story'
+import type { CurveData, MoveSpeedData, PositionData, SnippetData } from '@/story/schema'
+import type { ProjectAssets } from '@/project/assets'
+import { Curves, LayoutModes, MoveSpeed, Sides } from '@/story/schema'
+import ChangeBackgroundImageSnippet from './builtin/ChangeBackgroundImageSnippet'
+import ChangeLayoutModeSnippet from './builtin/ChangeLayoutModeSnippet'
+import DoParamSnippet from './builtin/DoParamSnippet'
+import HideTalkSnippet from './builtin/HideTalkSnippet'
+import LayoutAppearSnippet from './builtin/LayoutAppearSnippet'
+import LayoutClearSnippet from './builtin/LayoutClearSnippet'
+import MotionSnippet from './builtin/MotionSnippet'
+import MoveSnippet from './builtin/MoveSnippet'
+import ScreenFadeInSnippet from './builtin/ScreenFadeInSnippet'
+import ScreenFadeOutSnippet from './builtin/ScreenFadeOutSnippet'
+import TalkSnippet from './builtin/TalkSnippet'
+import TelopSnippet from './builtin/TelopSnippet'
+
+export type StoryAssetKind = 'models' | 'backgrounds' | 'voices'
+
+export type StorySnippetFieldOption = {
+  value: string
+  label: string
+}
+
+export type StorySnippetFieldDefinition =
+  | {
+      kind: 'text' | 'textarea'
+      path: readonly string[]
+      label: string
+      optional?: boolean
+      placeholder?: string
+    }
+  | {
+      kind: 'number'
+      path: readonly string[]
+      label: string
+      min?: number
+      step?: number
+      suffix?: string
+    }
+  | {
+      kind: 'select'
+      path: readonly string[]
+      label: string
+      options: readonly StorySnippetFieldOption[]
+    }
+  | {
+      kind: 'asset'
+      path: readonly string[]
+      label: string
+      assetKind: StoryAssetKind
+      optional?: boolean
+    }
+  | {
+      kind: 'position'
+      path: readonly string[]
+      label: string
+    }
+  | {
+      kind: 'boolean'
+      path: readonly string[]
+      label: string
+    }
+  | {
+      kind: 'color'
+      path: readonly string[]
+      label: string
+    }
+  | {
+      kind: 'params'
+      path: readonly string[]
+      label: string
+    }
+
+export type BuiltinSnippetDefinition = {
+  type: SnippetData['type']
+  label: string
+  category: '场景' | '模型' | '文本' | '控制'
+  description: string
+  fields: readonly StorySnippetFieldDefinition[]
+  create(id: string, assets: ProjectAssets): SnippetData
+  summary(snippet: SnippetData): string
+  runtime?: StorySnippetRegistration
+}
+
+const LAYOUT_MODE_OPTIONS: readonly StorySnippetFieldOption[] = [
+  { value: 'Normal', label: '普通布局' },
+  { value: 'Three', label: '三人布局' }
+]
+
+const MOVE_SPEED_OPTIONS: readonly StorySnippetFieldOption[] = [
+  { value: 'Slow', label: '慢' },
+  { value: 'Normal', label: '普通' },
+  { value: 'Fast', label: '快' },
+  { value: 'Immediate', label: '立即' }
+]
+
+const SIDE_OPTIONS: readonly StorySnippetFieldOption[] = [
+  { value: 'Left', label: '左' },
+  { value: 'Center', label: '中' },
+  { value: 'Right', label: '右' }
+]
+
+const CURVE_OPTIONS: readonly StorySnippetFieldOption[] = [
+  { value: 'Linear', label: '线性' },
+  { value: 'Sine', label: '正弦' },
+  { value: 'Cosine', label: '余弦' }
+]
+
+export const builtinSnippetDefinitions = [
+  {
+    type: 'ChangeLayoutMode',
+    label: 'ChangeLayoutMode',
+    category: '场景',
+    description: '切换角色布局方式',
+    fields: [
+      {
+        kind: 'select',
+        path: ['data', 'mode'],
+        label: '布局模式',
+        options: LAYOUT_MODE_OPTIONS
+      }
+    ],
+    create: (id: string): SnippetData => ({
+      id,
+      type: 'ChangeLayoutMode',
+      delay: 0,
+      data: { mode: LayoutModes.Normal }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'ChangeLayoutMode' ? snippet.data.mode : '',
+    runtime: { type: 'ChangeLayoutMode', constructor: ChangeLayoutModeSnippet }
+  },
+  {
+    type: 'ChangeBackgroundImage',
+    label: 'ChangeBackgroundImage',
+    category: '场景',
+    description: '切换当前背景图像',
+    fields: [
+      {
+        kind: 'asset',
+        path: ['data', 'background'],
+        label: '背景图像',
+        assetKind: 'backgrounds'
+      }
+    ],
+    create: (id: string, assets: ProjectAssets): SnippetData => ({
+      id,
+      type: 'ChangeBackgroundImage',
+      delay: 0,
+      data: { background: requireAssetKey(assets, 'backgrounds') }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'ChangeBackgroundImage' ? snippet.data.background || '未选择背景' : '',
+    runtime: { type: 'ChangeBackgroundImage', constructor: ChangeBackgroundImageSnippet }
+  },
+  {
+    type: 'Parallel',
+    label: 'Parallel',
+    category: '控制',
+    description: '同时启动一组子片段',
+    fields: [],
+    create: (id: string): SnippetData => ({
+      id,
+      type: 'Parallel',
+      delay: 0,
+      snippets: []
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'Parallel' ? `${snippet.snippets.length} 个并行子片段` : ''
+  },
+  {
+    type: 'LayoutAppear',
+    label: 'LayoutAppear',
+    category: '模型',
+    description: '让模型进入画面并播放初始动作',
+    fields: modelPositionFields(true),
+    create: (id: string, assets: ProjectAssets): SnippetData => ({
+      id,
+      type: 'LayoutAppear',
+      delay: 0,
+      data: {
+        model: requireAssetKey(assets, 'models'),
+        from: defaultPosition(),
+        to: defaultPosition(),
+        motion: undefined,
+        facial: undefined,
+        moveSpeed: MoveSpeed.Immediate,
+        hologram: false
+      }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'LayoutAppear'
+        ? `${snippet.data.model || '未选择模型'} -> ${snippet.data.to.side}`
+        : '',
+    runtime: { type: 'LayoutAppear', constructor: LayoutAppearSnippet }
+  },
+  {
+    type: 'LayoutClear',
+    label: 'LayoutClear',
+    category: '模型',
+    description: '让模型离开画面',
+    fields: modelPositionFields(false),
+    create: (id: string, assets: ProjectAssets): SnippetData => ({
+      id,
+      type: 'LayoutClear',
+      delay: 0,
+      data: {
+        model: requireAssetKey(assets, 'models'),
+        from: defaultPosition(),
+        to: defaultPosition(),
+        moveSpeed: MoveSpeed.Immediate
+      }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'LayoutClear'
+        ? `${snippet.data.model || '未选择模型'} -> ${snippet.data.to.side}`
+        : '',
+    runtime: { type: 'LayoutClear', constructor: LayoutClearSnippet }
+  },
+  {
+    type: 'Talk',
+    label: 'Talk',
+    category: '文本',
+    description: '显示角色台词，可附带语音',
+    fields: [
+      { kind: 'text', path: ['data', 'speaker'], label: '说话人', placeholder: '未命名' },
+      { kind: 'textarea', path: ['data', 'content'], label: '文本', placeholder: '输入台词' },
+      {
+        kind: 'asset',
+        path: ['data', 'model'],
+        label: '关联模型',
+        assetKind: 'models',
+        optional: true
+      },
+      { kind: 'asset', path: ['data', 'voice'], label: '语音', assetKind: 'voices', optional: true }
+    ],
+    create: (id: string): SnippetData => ({
+      id,
+      type: 'Talk',
+      delay: 0,
+      data: { speaker: '', content: '', model: undefined, voice: undefined }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'Talk'
+        ? `${snippet.data.speaker || '未命名'}: ${truncate(snippet.data.content, 26)}`
+        : '',
+    runtime: { type: 'Talk', constructor: TalkSnippet }
+  },
+  {
+    type: 'HideTalk',
+    label: 'HideTalk',
+    category: '文本',
+    description: '隐藏当前台词框',
+    fields: [],
+    create: (id: string): SnippetData => ({ id, type: 'HideTalk', delay: 0 }),
+    summary: (): string => '隐藏台词框',
+    runtime: { type: 'HideTalk', constructor: HideTalkSnippet }
+  },
+  {
+    type: 'Move',
+    label: 'Move',
+    category: '模型',
+    description: '移动已显示的模型',
+    fields: modelPositionFields(false),
+    create: (id: string, assets: ProjectAssets): SnippetData => ({
+      id,
+      type: 'Move',
+      delay: 0,
+      data: {
+        model: requireAssetKey(assets, 'models'),
+        from: defaultPosition(),
+        to: defaultPosition(),
+        moveSpeed: MoveSpeed.Normal
+      }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'Move'
+        ? `${snippet.data.model || '未选择模型'} -> ${snippet.data.to.side}`
+        : '',
+    runtime: { type: 'Move', constructor: MoveSnippet }
+  },
+  {
+    type: 'Motion',
+    label: 'Motion',
+    category: '模型',
+    description: '播放模型动作或表情',
+    fields: [
+      { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
+      {
+        kind: 'text',
+        path: ['data', 'motion'],
+        label: '动作',
+        optional: true,
+        placeholder: 'motion 名称'
+      },
+      {
+        kind: 'text',
+        path: ['data', 'facial'],
+        label: '表情',
+        optional: true,
+        placeholder: 'facial 名称'
+      }
+    ],
+    create: (id: string, assets: ProjectAssets): SnippetData => ({
+      id,
+      type: 'Motion',
+      delay: 0,
+      data: { model: requireAssetKey(assets, 'models'), motion: undefined, facial: undefined }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'Motion'
+        ? `${snippet.data.model || '未选择模型'} · ${snippet.data.motion ?? snippet.data.facial ?? '无动作'}`
+        : '',
+    runtime: { type: 'Motion', constructor: MotionSnippet }
+  },
+  {
+    type: 'Telop',
+    label: 'Telop',
+    category: '文本',
+    description: '显示居中标题文本',
+    fields: [
+      { kind: 'textarea', path: ['data', 'content'], label: '文本', placeholder: '输入标题' }
+    ],
+    create: (id: string): SnippetData => ({ id, type: 'Telop', delay: 0, data: { content: '' } }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'Telop' ? truncate(snippet.data.content, 26) : '',
+    runtime: { type: 'Telop', constructor: TelopSnippet }
+  },
+  {
+    type: 'DoParam',
+    label: 'DoParam',
+    category: '模型',
+    description: '动画化 Live2D 参数',
+    fields: [
+      { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
+      { kind: 'params', path: ['data', 'params'], label: '参数动画' }
+    ],
+    create: (id: string, assets: ProjectAssets): SnippetData => ({
+      id,
+      type: 'DoParam',
+      delay: 0,
+      data: {
+        model: requireAssetKey(assets, 'models'),
+        params: [defaultParameterAnimation()]
+      }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'DoParam'
+        ? `${snippet.data.model || '未选择模型'} · ${snippet.data.params.length} 个参数`
+        : '',
+    runtime: { type: 'DoParam', constructor: DoParamSnippet }
+  },
+  {
+    type: 'ScreenFadeOut',
+    label: 'ScreenFadeOut',
+    category: '场景',
+    description: '将画面淡出到指定颜色',
+    fields: [
+      { kind: 'color', path: ['data', 'color'], label: '颜色' },
+      { kind: 'number', path: ['data', 'duration'], label: '时长', min: 0, step: 0.1, suffix: 's' }
+    ],
+    create: (id: string): SnippetData => ({
+      id,
+      type: 'ScreenFadeOut',
+      delay: 0,
+      data: { color: '#000000', duration: 0.5 }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'ScreenFadeOut' ? `${snippet.data.color} · ${snippet.data.duration}s` : '',
+    runtime: { type: 'ScreenFadeOut', constructor: ScreenFadeOutSnippet }
+  },
+  {
+    type: 'ScreenFadeIn',
+    label: 'ScreenFadeIn',
+    category: '场景',
+    description: '恢复淡出后的画面',
+    fields: [
+      { kind: 'number', path: ['data', 'duration'], label: '时长', min: 0, step: 0.1, suffix: 's' }
+    ],
+    create: (id: string): SnippetData => ({
+      id,
+      type: 'ScreenFadeIn',
+      delay: 0,
+      data: { duration: 0.5 }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'ScreenFadeIn' ? `${snippet.data.duration}s` : '',
+    runtime: { type: 'ScreenFadeIn', constructor: ScreenFadeInSnippet }
+  }
+] as const satisfies readonly BuiltinSnippetDefinition[]
+
+export function getBuiltinSnippetDefinition(type: SnippetData['type']): BuiltinSnippetDefinition {
+  const definition: BuiltinSnippetDefinition | undefined = builtinSnippetDefinitions.find(
+    (candidate: BuiltinSnippetDefinition): boolean => candidate.type === type
+  )
+  if (!definition) {
+    throw new Error(`未定义 Story snippet: ${type}`)
+  }
+
+  return definition
+}
+
+export function getBuiltinSnippetRegistrations(): StorySnippetRegistration[] {
+  return builtinSnippetDefinitions.flatMap(
+    (definition: BuiltinSnippetDefinition): StorySnippetRegistration[] =>
+      definition.runtime ? [definition.runtime] : []
+  )
+}
+
+function modelPositionFields(
+  includeAppearanceFields: boolean
+): readonly StorySnippetFieldDefinition[] {
+  const fields: StorySnippetFieldDefinition[] = [
+    { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
+    { kind: 'position', path: ['data', 'from'], label: '起点' },
+    { kind: 'position', path: ['data', 'to'], label: '终点' },
+    {
+      kind: 'select',
+      path: ['data', 'moveSpeed'],
+      label: '移动速度',
+      options: MOVE_SPEED_OPTIONS
+    }
+  ]
+
+  if (!includeAppearanceFields) return fields
+
+  return [
+    fields[0],
+    {
+      kind: 'text',
+      path: ['data', 'motion'],
+      label: '动作',
+      optional: true,
+      placeholder: 'motion 名称'
+    },
+    {
+      kind: 'text',
+      path: ['data', 'facial'],
+      label: '表情',
+      optional: true,
+      placeholder: 'facial 名称'
+    },
+    fields[1],
+    fields[2],
+    fields[3],
+    { kind: 'boolean', path: ['data', 'hologram'], label: '全息效果' }
+  ]
+}
+
+export function defaultPosition(): PositionData {
+  return { side: Sides.Center, offset: 0 }
+}
+
+export function defaultParameterAnimation(): {
+  paramId: string
+  start: number
+  end: number
+  curve: CurveData
+  duration: number
+} {
+  return {
+    paramId: 'ParamAngleX',
+    start: 0,
+    end: 0,
+    curve: Curves.Linear,
+    duration: 0.3
+  }
+}
+
+export const storyFieldOptions = {
+  sides: SIDE_OPTIONS,
+  moveSpeeds: MOVE_SPEED_OPTIONS,
+  curves: CURVE_OPTIONS
+} as const
+
+export function isMoveSpeed(value: string): value is MoveSpeedData {
+  return MOVE_SPEED_OPTIONS.some(
+    (option: StorySnippetFieldOption): boolean => option.value === value
+  )
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value
+}
+
+function requireAssetKey(assets: ProjectAssets, kind: StoryAssetKind): string {
+  const key: string | undefined = Object.keys(assets[kind])[0]
+  if (!key) {
+    throw new Error(
+      `添加该片段前需要先添加${kind === 'models' ? '模型' : kind === 'backgrounds' ? '背景' : '语音'}资源`
+    )
+  }
+  return key
+}

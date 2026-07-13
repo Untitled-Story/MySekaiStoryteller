@@ -1,4 +1,4 @@
-import { AlphaFilter, Assets, Container, Graphics, Sprite, Text, Ticker } from 'pixi.js'
+import { AlphaFilter, Assets, Container, Graphics, Sprite, Text } from 'pixi.js'
 import type { Application, Filter, Texture } from 'pixi.js'
 import type { BackgroundAsset, VoiceAsset } from '@/project/assets'
 import type {
@@ -30,6 +30,7 @@ import {
   type PositionData
 } from './schema'
 import type { SekaiLive2DModel } from '@/lib/live2d'
+import type { StoryPlaybackClock } from './playbackClock'
 import {
   createBuiltinVisualEffectRegistry,
   StoryVisualEffectManager,
@@ -42,6 +43,7 @@ import uiTextUnderlineUrl from '@/story/assets/ui/ui_text_underline.svg?url'
 
 export type CreateStorySceneOptions = {
   app: Application
+  clock: StoryPlaybackClock
   models: Map<string, StoryModelInstance>
   resolveBackgroundUrl(backgroundKey: string): ResolvedAsset<BackgroundAsset>
   resolveVoiceUrl(voiceKey: string): ResolvedAsset<VoiceAsset>
@@ -61,8 +63,8 @@ const MODEL_SHOW_TIME_MS: number = 200
 const MODEL_HIDE_TIME_MS: number = 50
 const MOTION_START_DELAY_MS: number = 10
 const MOTION_PRIORITY_FORCE: number = 3
-const DIALOGUE_SHOW_TIME_MS: number = 70
-const DIALOGUE_HIDE_TIME_MS: number = 100
+const DIALOGUE_SHOW_TIME_MS: number = 200
+const DIALOGUE_HIDE_TIME_MS: number = 200
 const DIALOGUE_CHAR_TIME_MS: number = 70
 const TELOP_SHOW_TIME_MS: number = 200
 const TELOP_HOLD_TIME_MS: number = 2000
@@ -112,6 +114,8 @@ type PositionRel = {
 
 type DialogueUiState = {
   root: Container
+  layoutWidth: number
+  layoutHeight: number
   textBackgroundSprite: Sprite
   textUnderlineSprite: Sprite
   textSprite: Text
@@ -174,6 +178,7 @@ type SpeakableSekaiLive2DModel = SekaiLive2DModel & {
 
 export function createStoryScene({
   app,
+  clock,
   models,
   resolveBackgroundUrl,
   resolveVoiceUrl,
@@ -194,13 +199,32 @@ export function createStoryScene({
   const disposers = new Set<StoryDisposeCallback>()
   let backgroundSprite: Sprite | null = null
   let dialogueUiPromise: Promise<DialogueUiState> | null = null
+  let dialogueUi: DialogueUiState | null = null
   let fadeOverlay: Graphics | null = null
+  let fadeColor: string | null = null
   let destroyed = false
+  let fastForwarding = false
   let layoutMode: LayoutModeData = LayoutModes.Normal
+  let previousStageSize: [number, number] = getStageSize(app)
+  const animateLinear = (animation: (progress: number) => void, timeMs: number): Promise<void> => {
+    if (fastForwarding) {
+      animation(1)
+      return Promise.resolve()
+    }
+    return clock.animate(animation, timeMs)
+  }
+  const delayMs = (timeMs: number): Promise<void> =>
+    fastForwarding ? Promise.resolve() : clock.delay(timeMs)
+  const waitUntil = (whenFinish: () => boolean): Promise<void> => clock.waitUntil(whenFinish)
 
   for (const layer of Object.values(layers)) {
     app.stage.addChild(layer)
   }
+
+  const resizeObserver = new ResizeObserver((): void => {
+    relayoutScene()
+  })
+  resizeObserver.observe(app.canvas)
 
   const pixi: StoryPixiAccessApi = {
     app,
@@ -215,6 +239,12 @@ export function createStoryScene({
   return {
     layers,
     pixi,
+    get fastForwarding(): boolean {
+      return fastForwarding
+    },
+    setFastForwarding(enabled: boolean): void {
+      fastForwarding = enabled
+    },
     async setLayoutMode(mode: LayoutModeData): Promise<void> {
       layoutMode = mode
     },
@@ -234,14 +264,23 @@ export function createStoryScene({
     async showModel(options: StoryModelAppearOptions): Promise<void> {
       const { model } = attachModel(options.modelKey)
 
-      await playModelLastFrame(model, options.motion, options.facial)
+      if (fastForwarding) {
+        await applyModelLastFrame(model, options.motion, options.facial)
+        if (options.hologram) applyModelEffects(options.modelKey, ['hologram'])
+        else disableAllModelEffects(options.modelKey)
+        ensureAlphaFilter(model).alpha = 1
+        setModelPositionRel(model, getStageSize(app), sideToPosition(options.to, layoutMode))
+        return
+      }
+
+      await playModelLastFrame(model, waitUntil, options.motion, options.facial)
 
       if (options.hologram) {
         applyModelEffects(options.modelKey, ['hologram'])
       }
-      const showTask = showModelWithFade(model, MODEL_SHOW_TIME_MS)
+      const showTask = showModelWithFade(model, MODEL_SHOW_TIME_MS, animateLinear)
       if (options.motion) {
-        await closeModelEyes(model, 0)
+        await closeModelEyes(model, 0, animateLinear)
       }
 
       const from = sideToPosition(options.from, layoutMode)
@@ -249,22 +288,49 @@ export function createStoryScene({
       const moveTask =
         from.x === to.x && from.y === to.y
           ? null
-          : moveModelBetween(model, getStageSize(app), from, to, moveSpeedToMs(options.moveSpeed))
+          : moveModelBetween(
+              model,
+              getStageSize(app),
+              from,
+              to,
+              moveSpeedToMs(options.moveSpeed),
+              animateLinear
+            )
 
       if (!moveTask) {
         setModelPositionRel(model, getStageSize(app), to)
       }
 
-      void delayMs(MOTION_START_DELAY_MS).then(() => {
-        void applyAndWaitModelMotion(model, options.motion, options.facial, true)
-      })
+      void delayMs(MOTION_START_DELAY_MS)
+        .then((): void => {
+          void applyAndWaitModelMotion(
+            model,
+            waitUntil,
+            options.motion,
+            options.facial,
+            true
+          ).catch((): void => undefined)
+        })
+        .catch((): void => undefined)
 
       await showTask
       if (moveTask) await moveTask
     },
     async clearModel(options: StoryModelClearOptions): Promise<void> {
       const { model } = getModel(options.modelKey)
-      const hideTask: Promise<void> = hideModelWithFade(model, MODEL_HIDE_TIME_MS).then(() => {
+      if (fastForwarding) {
+        setModelPositionRel(model, getStageSize(app), sideToPosition(options.to, layoutMode))
+        ensureAlphaFilter(model).alpha = 0
+        disableAllModelEffects(options.modelKey)
+        model.visible = false
+        model.removeFromParent()
+        return
+      }
+      const hideTask: Promise<void> = hideModelWithFade(
+        model,
+        MODEL_HIDE_TIME_MS,
+        animateLinear
+      ).then(() => {
         disableAllModelEffects(options.modelKey)
         model.visible = false
       })
@@ -273,7 +339,14 @@ export function createStoryScene({
       const moveTask: Promise<void> | null =
         from.x === to.x && from.y === to.y
           ? null
-          : moveModelBetween(model, getStageSize(app), from, to, moveSpeedToMs(options.moveSpeed))
+          : moveModelBetween(
+              model,
+              getStageSize(app),
+              from,
+              to,
+              moveSpeedToMs(options.moveSpeed),
+              animateLinear
+            )
 
       if (!moveTask) {
         setModelPositionRel(model, getStageSize(app), to)
@@ -288,10 +361,21 @@ export function createStoryScene({
       const { model } = getModel(options.modelKey)
       const from: PositionRel = sideToPosition(options.from, layoutMode)
       const to: PositionRel = sideToPosition(options.to, layoutMode)
+      if (fastForwarding) {
+        setModelPositionRel(model, getStageSize(app), to)
+        return
+      }
       const moveTask: Promise<void> | null =
         (from.x === to.x && from.y === to.y) || options.moveSpeed === MoveSpeed.Immediate
           ? null
-          : moveModelBetween(model, getStageSize(app), from, to, moveSpeedToMs(options.moveSpeed))
+          : moveModelBetween(
+              model,
+              getStageSize(app),
+              from,
+              to,
+              moveSpeedToMs(options.moveSpeed),
+              animateLinear
+            )
 
       if (!moveTask) {
         setModelPositionRel(model, getStageSize(app), to)
@@ -302,12 +386,23 @@ export function createStoryScene({
     },
     async playMotion(options: StoryMotionOptions): Promise<void> {
       const { model } = attachModel(options.modelKey)
-      await applyAndWaitModelMotion(model, options.motion, options.facial, true)
+      if (fastForwarding) {
+        await applyModelLastFrame(model, options.motion, options.facial)
+        return
+      }
+      await applyAndWaitModelMotion(model, waitUntil, options.motion, options.facial, true)
     },
     async setModelParameters(options: StoryModelParameterOptions): Promise<void> {
       const { model } = getModel(options.modelKey)
+      if (fastForwarding) {
+        for (const param of options.params) {
+          setModelParameter(model, param.paramId, param.end)
+        }
+        return
+      }
       const tasks: Promise<void>[] = options.params.map(
-        (param: StoryModelParameterAnimation): Promise<void> => animateModelParameter(model, param)
+        (param: StoryModelParameterAnimation): Promise<void> =>
+          animateModelParameter(model, param, animateLinear)
       )
 
       await Promise.all(tasks)
@@ -318,8 +413,14 @@ export function createStoryScene({
       resetDialogueUi(ui)
       setDialogueUiData(ui, options.speaker, options.content)
 
+      if (fastForwarding) {
+        await showDialogueBackground(ui, animateLinear)
+        ui.textSprite.text = ui.content
+        return
+      }
+
       if (!ui.talkShown) {
-        await showDialogueBackground(ui)
+        await showDialogueBackground(ui, animateLinear)
       }
 
       const waits: Promise<unknown>[] = []
@@ -331,26 +432,32 @@ export function createStoryScene({
         waits.push(speakModel(modelInstance.model, resolvedVoice.url))
       }
 
-      waits.push(startDisplayDialogueContent(ui))
+      waits.push(startDisplayDialogueContent(ui, animateLinear))
 
       await Promise.all(waits)
     },
     async hideDialogue(): Promise<void> {
       const ui: DialogueUiState = await getDialogueUi()
-      await hideDialogueBackground(ui)
+      await hideDialogueBackground(ui, animateLinear)
     },
     async showTelop(options: StoryTelopOptions): Promise<void> {
+      if (fastForwarding) return
       const ui: DialogueUiState = await getDialogueUi()
       ui.telopText.text = options.content
-      await showTelop(ui)
+      await showTelop(ui, animateLinear)
       await delayMs(TELOP_HOLD_TIME_MS)
-      await hideTelop(ui)
+      await hideTelop(ui, animateLinear)
     },
     async fadeOut(options: StoryFadeOutOptions): Promise<void> {
       const overlay: Graphics = getFadeOverlay()
 
+      fadeColor = options.color
       drawFadeOverlay(overlay, app, options.color)
       overlay.visible = true
+      if (fastForwarding) {
+        overlay.alpha = 1
+        return
+      }
       await animateLinear((progress: number): void => {
         overlay.alpha = progress
       }, secondsToMs(options.duration))
@@ -359,6 +466,11 @@ export function createStoryScene({
       if (!fadeOverlay) return
 
       const overlay: Graphics = fadeOverlay
+      if (fastForwarding) {
+        overlay.alpha = 0
+        overlay.visible = false
+        return
+      }
       const startAlpha: number = overlay.alpha
       await animateLinear((progress: number): void => {
         overlay.alpha = startAlpha * (1 - progress)
@@ -409,7 +521,13 @@ export function createStoryScene({
   }
 
   function getDialogueUi(): Promise<DialogueUiState> {
-    dialogueUiPromise ??= createDialogueUi(app, layers.ui, fontFamily)
+    dialogueUiPromise ??= createDialogueUi(app, layers.ui, fontFamily).then(
+      (createdUi: DialogueUiState): DialogueUiState => {
+        dialogueUi = createdUi
+        layoutDialogueUi(createdUi, app)
+        return createdUi
+      }
+    )
     return dialogueUiPromise
   }
 
@@ -440,17 +558,51 @@ export function createStoryScene({
   }
 
   function prepareModel(instance: StoryModelInstance): void {
-    const { asset, model } = instance
-    const internalModel = getInternalModel(model)
+    const { model } = instance
+    const internalModel: Live2DInternalModelLike = getInternalModel(model)
     internalModel.extendParallelMotionManager?.(2)
 
-    model.anchor.set(0.5, asset.anchor)
+    layoutModel(instance)
     ensureAlphaFilter(model)
     getVisualEffectManager(instance)
+  }
+
+  function layoutModel(instance: StoryModelInstance): void {
+    const { asset, model } = instance
+    const internalModel: Live2DInternalModelLike = getInternalModel(model)
+    model.anchor.set(0.5, asset.anchor)
     model.scale.set(
       (app.screen.height / internalModel.originalHeight) *
         (layoutMode === LayoutModes.Normal ? asset.normalScale : asset.smallScale)
     )
+  }
+
+  function relayoutScene(): void {
+    if (destroyed) return
+
+    const [previousWidth, previousHeight]: [number, number] = previousStageSize
+    const nextStageSize: [number, number] = getStageSize(app)
+    const [nextWidth, nextHeight]: [number, number] = nextStageSize
+    if (nextWidth <= 0 || nextHeight <= 0) return
+
+    if (backgroundSprite) {
+      layoutBackgroundSprite(backgroundSprite, backgroundSprite.texture, app)
+    }
+
+    for (const instance of models.values()) {
+      const { model } = instance
+      if (model.parent !== layers.models) continue
+
+      const relativeX: number = previousWidth > 0 ? model.position.x / previousWidth : 0.5
+      const relativeY: number = previousHeight > 0 ? model.position.y / previousHeight - 0.3 : 0.5
+      layoutModel(instance)
+      model.position.set(nextWidth * relativeX, nextHeight * (relativeY + 0.3))
+    }
+
+    if (dialogueUi) layoutDialogueUi(dialogueUi, app)
+    if (fadeOverlay && fadeColor) drawFadeOverlay(fadeOverlay, app, fadeColor)
+
+    previousStageSize = nextStageSize
   }
 
   function getVisualEffectManager(instance: StoryModelInstance): StoryVisualEffectManager {
@@ -489,6 +641,7 @@ export function createStoryScene({
   function destroy(): void {
     if (destroyed) return
     destroyed = true
+    resizeObserver.disconnect()
 
     for (const dispose of disposers) {
       dispose()
@@ -563,7 +716,8 @@ function moveModelBetween(
   stageSize: [number, number],
   from: PositionRel,
   to: PositionRel,
-  timeMs: number
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
   const absFrom: [number, number] = [stageSize[0] * from.x, stageSize[1] * (from.y + 0.3)]
   const absTo: [number, number] = [stageSize[0] * to.x, stageSize[1] * (to.y + 0.3)]
@@ -574,7 +728,11 @@ function moveModelBetween(
   }, timeMs)
 }
 
-function showModelWithFade(model: SekaiLive2DModel, timeMs: number): Promise<void> {
+function showModelWithFade(
+  model: SekaiLive2DModel,
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   const alphaFilter = ensureAlphaFilter(model)
   model.visible = true
   return animateLinear((progress: number): void => {
@@ -582,7 +740,11 @@ function showModelWithFade(model: SekaiLive2DModel, timeMs: number): Promise<voi
   }, timeMs)
 }
 
-function hideModelWithFade(model: SekaiLive2DModel, timeMs: number): Promise<void> {
+function hideModelWithFade(
+  model: SekaiLive2DModel,
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   const alphaFilter: AlphaFilter = ensureAlphaFilter(model)
   return animateLinear((progress: number): void => {
     alphaFilter.alpha = 1 - progress
@@ -648,6 +810,8 @@ async function createDialogueUi(
 
   return {
     root,
+    layoutWidth: screenWidth,
+    layoutHeight: screenHeight,
     textBackgroundSprite,
     textUnderlineSprite,
     textSprite,
@@ -657,6 +821,12 @@ async function createDialogueUi(
     talkShown: false,
     content: ''
   }
+}
+
+function layoutDialogueUi(ui: DialogueUiState, app: Application): void {
+  const scaleX: number = app.screen.width / ui.layoutWidth
+  const scaleY: number = app.screen.height / ui.layoutHeight
+  ui.root.scale.set(scaleX, scaleY)
 }
 
 function createTextBackgroundSprite(
@@ -748,8 +918,7 @@ function createTelopContainer(
       align: 'center',
       fill: '#FFFFFF',
       fontFamily,
-      fontSize: screenHeight / 23,
-      textBaseline: 'bottom'
+      fontSize: screenHeight / 23
     }
   })
 
@@ -760,8 +929,8 @@ function createTelopContainer(
   telopSprite.height = screenHeight / 8
 
   telopText.anchor.set(0.5)
-  telopText.x = screenWidth / 2 - 11
-  telopText.y = screenHeight / 2 + screenHeight / 120
+  telopText.x = screenWidth / 2 - 10
+  telopText.y = screenHeight / 2 + screenHeight / 300
 
   container.visible = false
   ensureDisplayAlphaFilter(container)
@@ -781,27 +950,36 @@ function setDialogueUiData(ui: DialogueUiState, speaker: string, content: string
   ui.content = content
 }
 
-function showDialogueBackground(ui: DialogueUiState): Promise<void> {
+function showDialogueBackground(
+  ui: DialogueUiState,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   ui.talkShown = true
   return Promise.all([
-    showDisplayObject(ui.textBackgroundSprite, DIALOGUE_SHOW_TIME_MS),
-    showDisplayObject(ui.textUnderlineSprite, DIALOGUE_SHOW_TIME_MS),
-    showDisplayObject(ui.textSprite, DIALOGUE_SHOW_TIME_MS),
-    showDisplayObject(ui.textSpeakerSprite, DIALOGUE_SHOW_TIME_MS)
+    showDisplayObject(ui.textBackgroundSprite, DIALOGUE_SHOW_TIME_MS, animateLinear),
+    showDisplayObject(ui.textUnderlineSprite, DIALOGUE_SHOW_TIME_MS, animateLinear),
+    showDisplayObject(ui.textSprite, DIALOGUE_SHOW_TIME_MS, animateLinear),
+    showDisplayObject(ui.textSpeakerSprite, DIALOGUE_SHOW_TIME_MS, animateLinear)
   ]).then((): void => undefined)
 }
 
-function hideDialogueBackground(ui: DialogueUiState): Promise<void> {
+function hideDialogueBackground(
+  ui: DialogueUiState,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   ui.talkShown = false
   return Promise.all([
-    hideDisplayObject(ui.textBackgroundSprite, DIALOGUE_HIDE_TIME_MS),
-    hideDisplayObject(ui.textUnderlineSprite, DIALOGUE_HIDE_TIME_MS),
-    hideDisplayObject(ui.textSprite, DIALOGUE_HIDE_TIME_MS),
-    hideDisplayObject(ui.textSpeakerSprite, DIALOGUE_HIDE_TIME_MS)
+    hideDisplayObject(ui.textBackgroundSprite, DIALOGUE_HIDE_TIME_MS, animateLinear),
+    hideDisplayObject(ui.textUnderlineSprite, DIALOGUE_HIDE_TIME_MS, animateLinear),
+    hideDisplayObject(ui.textSprite, DIALOGUE_HIDE_TIME_MS, animateLinear),
+    hideDisplayObject(ui.textSpeakerSprite, DIALOGUE_HIDE_TIME_MS, animateLinear)
   ]).then((): void => undefined)
 }
 
-function startDisplayDialogueContent(ui: DialogueUiState): Promise<void> {
+function startDisplayDialogueContent(
+  ui: DialogueUiState,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   const contentLength: number = ui.content.length
   const timeMs: number = contentLength * DIALOGUE_CHAR_TIME_MS
 
@@ -811,7 +989,10 @@ function startDisplayDialogueContent(ui: DialogueUiState): Promise<void> {
   }, timeMs)
 }
 
-function showTelop(ui: DialogueUiState): Promise<void> {
+function showTelop(
+  ui: DialogueUiState,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   const startX: number = ui.telopContainer.x - 10
   const originalX: number = ui.telopContainer.x
   const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(ui.telopContainer)
@@ -823,7 +1004,10 @@ function showTelop(ui: DialogueUiState): Promise<void> {
   }, TELOP_SHOW_TIME_MS)
 }
 
-function hideTelop(ui: DialogueUiState): Promise<void> {
+function hideTelop(
+  ui: DialogueUiState,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   const startX: number = ui.telopContainer.x
   const originalX: number = ui.telopContainer.x + 10
   const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(ui.telopContainer)
@@ -836,7 +1020,11 @@ function hideTelop(ui: DialogueUiState): Promise<void> {
   })
 }
 
-function showDisplayObject(target: Sprite | Text, timeMs: number): Promise<void> {
+function showDisplayObject(
+  target: Sprite | Text,
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(target)
   target.visible = true
   return animateLinear((progress: number): void => {
@@ -844,7 +1032,11 @@ function showDisplayObject(target: Sprite | Text, timeMs: number): Promise<void>
   }, timeMs)
 }
 
-function hideDisplayObject(target: Sprite | Text, timeMs: number): Promise<void> {
+function hideDisplayObject(
+  target: Sprite | Text,
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(target)
   return animateLinear((progress: number): void => {
     alphaFilter.alpha = 1 - progress
@@ -855,6 +1047,7 @@ function hideDisplayObject(target: Sprite | Text, timeMs: number): Promise<void>
 
 async function playModelLastFrame(
   model: SekaiLive2DModel,
+  waitUntil: (whenFinish: () => boolean) => Promise<void>,
   motion?: string,
   facial?: string
 ): Promise<void> {
@@ -871,14 +1064,30 @@ async function playModelLastFrame(
 
   const results: boolean[] = await Promise.all(waits)
   if (results.includes(false)) {
-    await applyAndWaitModelMotion(model, motion, facial, true)
+    await applyAndWaitModelMotion(model, waitUntil, motion, facial, true)
   } else if (waits.length > 0) {
-    await waitUntil(() => managers[0].isFinished() && managers[1].isFinished())
+    await waitForModelMotion(managers, waitUntil)
   }
+}
+
+async function applyModelLastFrame(
+  model: SekaiLive2DModel,
+  motion?: string,
+  facial?: string
+): Promise<void> {
+  const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
+    getParallelMotionManagers(model)
+  const tasks: Promise<boolean>[] = []
+
+  if (motion) tasks.push(managers[0].playMotionLastFrame(motion, 0))
+  if (facial) tasks.push(managers[1].playMotionLastFrame(facial, 0))
+
+  await Promise.all(tasks)
 }
 
 async function applyAndWaitModelMotion(
   model: SekaiLive2DModel,
+  waitUntil: (whenFinish: () => boolean) => Promise<void>,
   motion?: string,
   facial?: string,
   ignoreMotionEyeParams = false
@@ -901,7 +1110,7 @@ async function applyAndWaitModelMotion(
 
   await Promise.all(waits)
   if (waits.length > 0) {
-    await waitUntil(() => managers[0].isFinished() && managers[1].isFinished())
+    await waitForModelMotion(managers, waitUntil)
   }
 }
 
@@ -914,7 +1123,11 @@ function resolveMotionIgnoreParamIds(
   return []
 }
 
-function closeModelEyes(model: SekaiLive2DModel, timeMs: number): Promise<void> {
+function closeModelEyes(
+  model: SekaiLive2DModel,
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   return animateLinear((progress: number): void => {
     setModelEyeOpen(model, 1 - progress)
   }, timeMs)
@@ -980,6 +1193,13 @@ function getParallelMotionManagers(
   return [motionManager, facialManager]
 }
 
+function waitForModelMotion(
+  managers: [ParallelMotionManagerLike, ParallelMotionManagerLike],
+  waitUntil: (whenFinish: () => boolean) => Promise<void>
+): Promise<void> {
+  return waitUntil(() => managers[0].isFinished() && managers[1].isFinished())
+}
+
 function ensureAlphaFilter(model: SekaiLive2DModel): AlphaFilter {
   const filters: Filter[] = model.filters ? [...model.filters] : []
   const existing: AlphaFilter | undefined = filters.find(
@@ -1015,10 +1235,11 @@ function ensureDisplayAlphaFilter(target: Container | Sprite | Text): AlphaFilte
 
 function animateModelParameter(
   model: SekaiLive2DModel,
-  param: StoryModelParameterAnimation
+  param: StoryModelParameterAnimation,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
   const runner: (animation: (progress: number) => void, timeMs: number) => Promise<void> =
-    getCurveRunner(param.curve)
+    getCurveRunner(param.curve, animateLinear)
 
   return runner((progress: number): void => {
     const value: number = param.start + (param.end - param.start) * progress
@@ -1027,10 +1248,17 @@ function animateModelParameter(
 }
 
 function getCurveRunner(
-  curve: CurveData
+  curve: CurveData,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): (animation: (progress: number) => void, timeMs: number) => Promise<void> {
-  if (curve === Curves.Sine) return animateSine
-  if (curve === Curves.Cosine) return animateCosine
+  if (curve === Curves.Sine) {
+    return (animation: (progress: number) => void, timeMs: number): Promise<void> =>
+      animateSine(animation, timeMs, animateLinear)
+  }
+  if (curve === Curves.Cosine) {
+    return (animation: (progress: number) => void, timeMs: number): Promise<void> =>
+      animateCosine(animation, timeMs, animateLinear)
+  }
   return animateLinear
 }
 
@@ -1078,72 +1306,24 @@ function secondsToMs(seconds: number): number {
   return seconds * 1000
 }
 
-function animateCosine(animation: (progress: number) => void, timeMs: number): Promise<void> {
+function animateCosine(
+  animation: (progress: number) => void,
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   return animateLinear((progress: number): void => {
     const eased: number = (1 - Math.cos(progress * Math.PI)) / 2
     animation(eased)
   }, timeMs)
 }
 
-function animateSine(animation: (progress: number) => void, timeMs: number): Promise<void> {
+function animateSine(
+  animation: (progress: number) => void,
+  timeMs: number,
+  animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
+): Promise<void> {
   return animateLinear((progress: number): void => {
     const eased: number = Math.sin((progress * Math.PI) / 2)
     animation(eased)
   }, timeMs)
-}
-
-function animateLinear(animation: (progress: number) => void, timeMs: number): Promise<void> {
-  let progress: number = 0
-  animation(0)
-
-  if (timeMs < 30) {
-    animation(1)
-    return Promise.resolve()
-  }
-
-  return new Promise<void>((resolve: () => void): void => {
-    const ticker: Ticker = new Ticker()
-    ticker.maxFPS = 60
-
-    ticker.add((): void => {
-      const rawDeltaTime: number = ticker.elapsedMS
-      let usedTime: number = rawDeltaTime
-
-      if (usedTime > 100) {
-        usedTime = 20
-      }
-
-      progress += usedTime / timeMs
-      progress = Math.min(progress, 1)
-      animation(progress)
-
-      if (progress >= 1) {
-        animation(1)
-        ticker.destroy()
-        resolve()
-      }
-    })
-    ticker.start()
-  })
-}
-
-function waitUntil(whenFinish: () => boolean): Promise<void> {
-  return new Promise<void>((resolve: () => void): void => {
-    const ticker: Ticker = new Ticker()
-    ticker.maxFPS = 60
-
-    ticker.add((): void => {
-      if (whenFinish()) {
-        ticker.destroy()
-        resolve()
-      }
-    })
-    ticker.start()
-  })
-}
-
-function delayMs(timeMs: number): Promise<void> {
-  return new Promise<void>((resolve: () => void): void => {
-    window.setTimeout(resolve, timeMs)
-  })
 }

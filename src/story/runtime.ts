@@ -3,6 +3,7 @@ import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { BackgroundAsset, ModelAsset, ProjectAssets, VoiceAsset } from '@/project/assets'
 import { localAssetUrl, projectAssetUrl } from '@/lib/projectAssetUrl'
 import { createStoryScene } from './scene'
+import { StoryPlaybackClock } from './playbackClock'
 import type { ResolvedAsset, StoryModelInstance, StoryRuntime } from './types'
 import type { StoryVisualEffectRegistry } from './vfx'
 
@@ -38,8 +39,10 @@ export function createStoryRuntime({
     resolveBackgroundUrl(projectPath, assets, backgroundKey)
   const resolveVoice = (voiceKey: string): ResolvedAsset<VoiceAsset> =>
     resolveVoiceUrl(projectPath, assets, voiceKey)
+  const clock = new StoryPlaybackClock(app)
   const scene = createStoryScene({
     app,
+    clock,
     models: modelMap,
     resolveBackgroundUrl: resolveBackground,
     resolveVoiceUrl: resolveVoice,
@@ -49,6 +52,7 @@ export function createStoryRuntime({
 
   return {
     app,
+    clock,
     dataPath,
     projectPath,
     assets,
@@ -120,6 +124,7 @@ export function resolveVoiceUrl(
 }
 
 export function destroyStoryRuntime(runtime: StoryRuntime): void {
+  runtime.clock.cancel()
   for (const { model } of runtime.models.values()) {
     model.destroy({ children: true })
   }

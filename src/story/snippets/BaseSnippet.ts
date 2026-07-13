@@ -15,7 +15,9 @@ export default abstract class BaseSnippet<TSnippet extends LeafSnippetData> impl
   }
 
   async run(): Promise<void> {
-    await delaySeconds(this.snippet.delay, this.signal)
+    if (!this.runtime.scene.fastForwarding) {
+      await delaySeconds(this.snippet.delay, this.signal, this.runtime.clock)
+    }
     throwIfAborted(this.signal)
     await this.handle()
     throwIfAborted(this.signal)

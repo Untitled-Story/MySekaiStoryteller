@@ -19,6 +19,9 @@ export default class StoryDispatcher {
   private readonly externalSignal?: AbortSignal
   private readonly onEvent?: (event: StoryDispatcherEvent) => void
   private status: StoryDispatcherStatus = 'idle'
+  private activeStory: StoryData | null = null
+  private targetReachedPromise: Promise<void> | null = null
+  private resolveTargetReached: (() => void) | null = null
 
   constructor(
     runtime: StoryRuntime,
@@ -35,25 +38,66 @@ export default class StoryDispatcher {
     return this.status
   }
 
+  pause(): void {
+    if (this.status !== 'running') return
+
+    this.runtime.clock.pause()
+    this.status = 'paused'
+    if (this.activeStory) this.emit({ type: 'story:pause', story: this.activeStory })
+  }
+
+  resume(): void {
+    if (this.status !== 'paused') return
+
+    this.runtime.clock.resume()
+    this.status = 'running'
+    if (this.activeStory) this.emit({ type: 'story:resume', story: this.activeStory })
+  }
+
   cancel(): void {
-    if (this.status === 'completed' || this.status === 'cancelled') return
+    if (this.status === 'completed' || this.status === 'cancelled' || this.status === 'failed')
+      return
     this.abortController.abort()
+    this.runtime.clock.cancel()
   }
 
   async run(story: StoryData): Promise<void> {
-    if (this.status === 'running') {
+    await this.runInternal(story, null)
+  }
+
+  async runFrom(story: StoryData, snippetId: string): Promise<void> {
+    if (!findSnippetById(story.snippets, snippetId)) {
+      throw new Error(`Story snippet 不存在: ${snippetId}`)
+    }
+
+    await this.runInternal(story, snippetId)
+  }
+
+  private async runInternal(story: StoryData, targetSnippetId: string | null): Promise<void> {
+    if (this.status === 'running' || this.status === 'paused') {
       throw new Error('StoryDispatcher is already running')
     }
 
+    this.runtime.scene.setFastForwarding(targetSnippetId !== null)
+    this.targetReachedPromise = targetSnippetId
+      ? new Promise<void>((resolve: () => void): void => {
+          this.resolveTargetReached = resolve
+        })
+      : null
     this.status = 'running'
+    this.activeStory = story
     this.emit({ type: 'story:start', story })
 
-    const externalAbort = (): void => this.abortController.abort()
+    const externalAbort = (): void => {
+      this.abortController.abort()
+      this.runtime.clock.cancel()
+    }
     this.externalSignal?.addEventListener('abort', externalAbort, { once: true })
 
     try {
       throwIfAborted(this.signal)
-      await this.runSequence(story.snippets, [])
+      await this.waitForPlayback()
+      await this.runSequence(story.snippets, [], targetSnippetId)
       this.status = 'completed'
       this.emit({ type: 'story:complete', story })
     } catch (error: unknown) {
@@ -67,34 +111,53 @@ export default class StoryDispatcher {
       this.emit({ type: 'story:error', story, error })
       throw error
     } finally {
+      this.runtime.scene.setFastForwarding(false)
+      this.targetReachedPromise = null
+      this.resolveTargetReached = null
       this.externalSignal?.removeEventListener('abort', externalAbort)
+      this.activeStory = null
     }
   }
 
   private async runSequence(
     snippets: readonly SnippetData[],
-    path: readonly number[]
+    path: readonly number[],
+    targetSnippetId: string | null
   ): Promise<void> {
     for (let index = 0; index < snippets.length; index += 1) {
       throwIfAborted(this.signal)
-      await this.runSnippet(snippets[index], [...path, index])
+      await this.waitForPlayback()
+      await this.runSnippet(snippets[index], [...path, index], targetSnippetId)
     }
   }
 
-  private async runSnippet(snippet: SnippetData, path: readonly number[]): Promise<void> {
-    this.emit({ type: 'snippet:start', snippet, path })
+  private async runSnippet(
+    snippet: SnippetData,
+    path: readonly number[],
+    targetSnippetId: string | null
+  ): Promise<void> {
+    await this.waitForPlayback()
+
+    if (targetSnippetId !== null && snippet.id === targetSnippetId) {
+      this.runtime.scene.setFastForwarding(false)
+      this.resolveTargetReached?.()
+      this.resolveTargetReached = null
+    }
+
+    const fastForwarding: boolean = this.runtime.scene.fastForwarding
+    if (!fastForwarding) this.emit({ type: 'snippet:start', snippet, path })
 
     try {
       if (snippet.type === 'Parallel') {
-        await delaySeconds(snippet.delay, this.signal)
-        await Promise.all(
-          snippet.snippets.map((child, index) => this.runSnippet(child, [...path, index]))
-        )
+        if (!fastForwarding) {
+          await delaySeconds(snippet.delay, this.signal, this.runtime.clock)
+        }
+        await this.runParallel(snippet.snippets, path, targetSnippetId)
       } else {
         await this.runLeafSnippet(snippet, path)
       }
 
-      this.emit({ type: 'snippet:complete', snippet, path })
+      if (!fastForwarding) this.emit({ type: 'snippet:complete', snippet, path })
     } catch (error: unknown) {
       if (isStoryAbortError(error) || this.signal.aborted) {
         throw new StoryAbortError()
@@ -103,6 +166,51 @@ export default class StoryDispatcher {
       this.emit({ type: 'snippet:error', snippet, path, error })
       throw error instanceof StorySnippetError ? error : new StorySnippetError(snippet, path, error)
     }
+  }
+
+  private async runParallel(
+    snippets: readonly SnippetData[],
+    path: readonly number[],
+    targetSnippetId: string | null
+  ): Promise<void> {
+    if (!this.runtime.scene.fastForwarding) {
+      await Promise.all(
+        snippets.map(
+          (child: SnippetData, index: number): Promise<void> =>
+            this.runSnippet(child, [...path, index], targetSnippetId)
+        )
+      )
+      return
+    }
+
+    const targetBranchIndex: number = snippets.findIndex((child: SnippetData): boolean =>
+      findSnippetById([child], targetSnippetId)
+    )
+    if (targetBranchIndex < 0) {
+      for (let index = 0; index < snippets.length; index += 1) {
+        await this.runSnippet(snippets[index], [...path, index], targetSnippetId)
+      }
+      return
+    }
+
+    for (let index = 0; index < targetBranchIndex; index += 1) {
+      await this.runSnippet(snippets[index], [...path, index], targetSnippetId)
+    }
+    const targetTask: Promise<void> = this.runSnippet(
+      snippets[targetBranchIndex],
+      [...path, targetBranchIndex],
+      targetSnippetId
+    )
+    if (this.targetReachedPromise) {
+      await Promise.race([this.targetReachedPromise, targetTask])
+    }
+    const remainingTasks: Promise<void>[] = snippets
+      .slice(targetBranchIndex + 1)
+      .map(
+        (child: SnippetData, offset: number): Promise<void> =>
+          this.runSnippet(child, [...path, targetBranchIndex + offset + 1], targetSnippetId)
+      )
+    await Promise.all([targetTask, ...remainingTasks])
   }
 
   private async runLeafSnippet(snippet: LeafSnippetData, path: readonly number[]): Promise<void> {
@@ -127,7 +235,21 @@ export default class StoryDispatcher {
     return this.abortController.signal
   }
 
+  private async waitForPlayback(): Promise<void> {
+    if (this.status !== 'paused') return
+    await this.runtime.clock.waitForResume(this.signal)
+  }
+
   private emit(event: StoryDispatcherEvent): void {
     this.onEvent?.(event)
   }
+}
+
+function findSnippetById(snippets: readonly SnippetData[], snippetId: string | null): boolean {
+  if (!snippetId) return false
+
+  return snippets.some((snippet: SnippetData): boolean => {
+    if (snippet.id === snippetId) return true
+    return snippet.type === 'Parallel' && findSnippetById(snippet.snippets, snippetId)
+  })
 }

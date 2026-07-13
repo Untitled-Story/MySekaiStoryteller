@@ -95,6 +95,11 @@ export default function ProjectsPage(): JSX.Element {
     }
   }
 
+  const handleProjectCreated = (projectName: string): void => {
+    spin(fetchProjects)
+    void handleOpenEditor(projectName)
+  }
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     setIsDeleting(true)
@@ -255,7 +260,7 @@ export default function ProjectsPage(): JSX.Element {
       <CreateProjectDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        onSuccess={() => spin(fetchProjects)}
+        onSuccess={handleProjectCreated}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

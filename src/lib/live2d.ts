@@ -5,7 +5,10 @@ type Live2DEngine = typeof import('untitled-pixi-live2d-engine')
 
 let live2DCoreReady: Promise<void> | null = null
 let live2DEnginePromise: Promise<Live2DEngine> | null = null
+let live2DEngine: Live2DEngine | null = null
 let cubismConfigured = false
+const pausedSoundOwners: Set<object> = new Set()
+const pausedSounds: Set<ManagedLive2DSound> = new Set()
 
 export type SekaiLive2DModel = Live2DModel
 
@@ -35,6 +38,7 @@ export async function ensureSekaiLive2DReady(cubismMemorySizeMB = 32): Promise<L
 
   live2DEnginePromise ??= import('untitled-pixi-live2d-engine').then(async (engine) => {
     extensions.add(engine.Live2DPlugin)
+    live2DEngine = engine
     return engine
   })
 
@@ -46,6 +50,62 @@ export async function ensureSekaiLive2DReady(cubismMemorySizeMB = 32): Promise<L
   }
 
   return engine
+}
+
+type ManagedLive2DSound = {
+  isPlaying: boolean
+  pause(): unknown
+  resume(): unknown
+}
+
+type Live2DSoundManager = {
+  audios: ManagedLive2DSound[]
+}
+
+/** Coordinates the engine's global SoundManager across active story runtimes. */
+export function pauseSekaiLive2DSounds(owner: object): void {
+  if (pausedSoundOwners.has(owner)) return
+
+  if (pausedSoundOwners.size === 0) {
+    const manager: Live2DSoundManager | null = getLive2DSoundManager()
+    for (const audio of manager?.audios ?? []) {
+      if (!audio.isPlaying) continue
+      pausedSounds.add(audio)
+      audio.pause()
+    }
+  }
+  pausedSoundOwners.add(owner)
+}
+
+export function resumeSekaiLive2DSounds(owner: object): void {
+  if (!pausedSoundOwners.delete(owner) || pausedSoundOwners.size > 0) return
+
+  for (const audio of pausedSounds) {
+    audio.resume()
+  }
+  pausedSounds.clear()
+}
+
+function getLive2DSoundManager(): Live2DSoundManager | null {
+  if (!live2DEngine) return null
+  const candidate: unknown = live2DEngine.SoundManager
+  if (!candidate || typeof candidate !== 'object') return null
+
+  const audios: unknown = (candidate as Record<string, unknown>).audios
+  if (!Array.isArray(audios)) return null
+  return {
+    audios: audios.filter(isManagedLive2DSound)
+  }
+}
+
+function isManagedLive2DSound(value: unknown): value is ManagedLive2DSound {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.isPlaying === 'boolean' &&
+    typeof candidate.pause === 'function' &&
+    typeof candidate.resume === 'function'
+  )
 }
 
 async function ensureLive2DCoreScripts(): Promise<void> {

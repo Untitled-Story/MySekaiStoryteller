@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import type { ChangeEvent, FormEvent, JSX } from 'react'
+import { useEffect, useState } from 'react'
 import { createProject } from '@/project/api'
 import {
   Dialog,
@@ -14,33 +15,38 @@ import { Button } from '@/components/ui/Button'
 interface CreateProjectDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSuccess: () => void
+  onSuccess: (projectName: string) => void
 }
 
-export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreateProjectDialogProps) {
-  const [projectName, setProjectName] = useState('')
-  const [error, setError] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
-  const [mounted, setMounted] = useState(false)
+export function CreateProjectDialog({
+  open,
+  onOpenChange,
+  onSuccess
+}: CreateProjectDialogProps): JSX.Element | null {
+  const [projectName, setProjectName] = useState<string>('')
+  const [error, setError] = useState<string>('')
+  const [isCreating, setIsCreating] = useState<boolean>(false)
+  const [mounted, setMounted] = useState<boolean>(false)
 
-  useEffect(() => {
+  useEffect((): void => {
     setMounted(true)
   }, [])
 
-  const handleCreate = async () => {
-    if (!projectName.trim()) {
+  const handleCreate = async (): Promise<void> => {
+    const normalizedProjectName: string = projectName.trim()
+    if (!normalizedProjectName) {
       setError('请输入项目名称')
       return
     }
     setIsCreating(true)
     setError('')
     try {
-      await createProject(projectName.trim())
+      await createProject(normalizedProjectName)
       setProjectName('')
       setError('')
       onOpenChange(false)
-      onSuccess()
-    } catch (err) {
+      onSuccess(normalizedProjectName)
+    } catch (err: unknown) {
       setError('创建项目时发生错误')
       console.error('Failed to create project:', err)
     } finally {
@@ -48,7 +54,7 @@ export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreatePro
     }
   }
 
-  const handleOpenChange = (newOpen: boolean) => {
+  const handleOpenChange = (newOpen: boolean): void => {
     if (!isCreating) {
       if (!newOpen) {
         setProjectName('')
@@ -69,9 +75,9 @@ export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreatePro
         </DialogHeader>
 
         <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (!isCreating) setTimeout(() => handleCreate())
+          onSubmit={(event: FormEvent<HTMLFormElement>): void => {
+            event.preventDefault()
+            if (!isCreating) window.setTimeout((): void => void handleCreate())
           }}
         >
           <div className="space-y-4 py-4">
@@ -79,8 +85,8 @@ export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreatePro
               <Input
                 placeholder="项目名称"
                 value={projectName}
-                onChange={(e) => {
-                  setProjectName(e.target.value)
+                onChange={(event: ChangeEvent<HTMLInputElement>): void => {
+                  setProjectName(event.currentTarget.value)
                   setError('')
                 }}
                 disabled={isCreating}

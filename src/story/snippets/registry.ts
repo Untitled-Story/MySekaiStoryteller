@@ -1,6 +1,6 @@
 import type { LeafSnippetData } from '@/story/schema'
 import type { SnippetByType, SnippetConstructor, SnippetRegistry } from '@/story/types'
-import { builtinSnippetRegistrations } from './builtin'
+import { getBuiltinSnippetRegistrations } from './definitions'
 
 export type StorySnippetType = LeafSnippetData['type']
 
@@ -56,7 +56,7 @@ export class StorySnippetRegistry {
 }
 
 export function createBuiltinSnippetRegistry(): StorySnippetRegistry {
-  return new StorySnippetRegistry(builtinSnippetRegistrations)
+  return new StorySnippetRegistry(getBuiltinSnippetRegistrations())
 }
 
 export const snippetRegistry = createBuiltinSnippetRegistry()

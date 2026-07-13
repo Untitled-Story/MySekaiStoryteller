@@ -1,5 +1,5 @@
-import { Ticker } from 'pixi.js'
 import type { Filter } from 'pixi.js'
+import type { Ticker } from 'pixi.js'
 import type { StoryModelInstance, StoryPixiAccessApi } from '@/story/types'
 import type {
   StoryVisualEffect,
@@ -14,24 +14,16 @@ export type StoryVisualEffectManagerOptions = {
   animateLinear(animation: (progress: number) => void, timeMs: number): Promise<void>
 }
 
-class StoryVisualEffectTicker {
-  private static instance: Ticker | null = null
-
-  static getInstance(): Ticker {
-    StoryVisualEffectTicker.instance ??= createStartedTicker()
-    return StoryVisualEffectTicker.instance
-  }
-}
-
 export class StoryVisualEffectManager {
   private readonly effects = new Map<string, StoryVisualEffect>()
-  private readonly ticker = StoryVisualEffectTicker.getInstance()
+  private readonly ticker: Ticker
   private readonly update = (ticker: Ticker): void => this.updateAll(ticker.deltaTime)
   private readonly context: StoryVisualEffectContext
   private readonly registry: StoryVisualEffectRegistry
   private destroyed = false
 
   constructor({ pixi, model, registry, animateLinear }: StoryVisualEffectManagerOptions) {
+    this.ticker = pixi.app.ticker
     this.context = {
       app: pixi.app,
       pixi,
@@ -113,12 +105,6 @@ export class StoryVisualEffectManager {
       effect.update(delta)
     }
   }
-}
-
-function createStartedTicker(): Ticker {
-  const ticker = new Ticker()
-  ticker.start()
-  return ticker
 }
 
 function appendFilters(

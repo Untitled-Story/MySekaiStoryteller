@@ -32,6 +32,11 @@ export default function HomePage(): JSX.Element {
     }
   }
 
+  const handleProjectCreated = (projectName: string): void => {
+    void fetchProjects()
+    void handleOpenEditor(projectName)
+  }
+
   return (
     <div className="flex flex-col h-screen select-none px-8 py-8">
       <div className="mb-8">
@@ -109,7 +114,7 @@ export default function HomePage(): JSX.Element {
       <CreateProjectDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        onSuccess={() => fetchProjects()}
+        onSuccess={handleProjectCreated}
       />
     </div>
   )
