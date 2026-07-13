@@ -1,4 +1,4 @@
-name: Build
+name: Continuous Integration
 
 on:
   push:
@@ -13,8 +13,48 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check frontend
+        run: |
+          pnpm typecheck
+          pnpm lint
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test --locked
+
   build:
     name: Build (${{ matrix.platform }})
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
@@ -72,15 +112,6 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check frontend
-        run: |
-          pnpm typecheck
-          pnpm lint
-
-      - name: Check Rust
-        working-directory: src-tauri
-        run: cargo check --locked
-
       - name: Build Tauri bundles
         run: pnpm tauri build --verbose
 
@@ -88,6 +119,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MySekaiStoryteller-${{ matrix.platform }}
-          path: src-tauri/target/release/bundle/**/*
+          path: |
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.rpm
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
