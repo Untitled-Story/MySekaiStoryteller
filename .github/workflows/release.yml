@@ -113,7 +113,7 @@ jobs:
         id: release_meta
         shell: bash
         run: |
-          if [[ "${RELEASE_TAG}" == *-* ]]; then
+          if [[ "${RELEASE_TAG}" =~ -(alpha|beta|rc)([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
