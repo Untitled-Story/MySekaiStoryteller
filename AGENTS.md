@@ -18,6 +18,11 @@
 - Lint/format/typecheck: `pnpm lint`, `pnpm format`, `pnpm typecheck`.
 - Rust check: `cd src-tauri && cargo check`.
 
+## Release Versioning
+
+- For prereleases, update `package.json`, `src-tauri/Cargo.toml`, and the root package entry in `src-tauri/Cargo.lock`, then publish the matching `v*` tag.
+- Do not add `alpha`, `beta`, or `rc` identifiers to `src-tauri/tauri.conf.json`. Windows MSI packaging only accepts a numeric prerelease identifier and rejects versions such as `1.0.0-beta.2`. Keep the Tauri bundle version at the corresponding stable core version (for example, `1.0.0`) and express prerelease status through the package/Cargo versions and Git tag.
+
 ## Coding Style & Naming Conventions
 
 - TypeScript + React with functional components. Prefer hooks over classes.
