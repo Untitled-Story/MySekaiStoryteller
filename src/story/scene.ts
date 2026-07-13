@@ -851,7 +851,8 @@ function createTextUnderlineSprite(
   screenHeight: number
 ): Sprite {
   const sprite: Sprite = new Sprite({ texture })
-  sprite.width = screenWidth / 2
+  const scale: number = screenWidth / 2 / texture.width
+  sprite.scale.set(scale)
   sprite.x = screenWidth / 10
   sprite.y = screenHeight / 1.3
   sprite.visible = false
