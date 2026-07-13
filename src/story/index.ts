@@ -116,6 +116,7 @@ export {
   type StoryMotionOptions,
   type StoryPixiAccessApi,
   type StoryRuntime,
+  type StoryRunOptions,
   type StorySceneApi,
   type StoryTelopOptions
 } from './types'

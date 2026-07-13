@@ -35,7 +35,7 @@ const SPECIAL_THANKS: readonly Acknowledgement[] = [
     avatar: xiaocaooooAvatar
   },
   {
-    nickname: 'Beautyeggs',
+    nickname: 'BeautyEggs',
     description: '我会一直看着你们',
     avatar: beautyEggsAvatar
   }

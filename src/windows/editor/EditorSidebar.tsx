@@ -1,4 +1,5 @@
-import type { ChangeEvent, JSX } from 'react'
+import type { ChangeEvent, JSX, PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   ChevronDown,
@@ -35,6 +36,7 @@ import {
 } from './editorCatalog'
 import { formatNodeSummary } from './editorCatalog'
 import type { AddableSnippetType, EditorNode } from './editorDocument'
+import type { SnippetDropPlacement } from './editorTree'
 
 export type EditorSidebarTab = 'story' | 'assets'
 
@@ -43,6 +45,7 @@ export function EditorSidebar({
   searchQuery,
   treeNodes,
   selectedNodeId,
+  activeSnippetIds,
   expandedParallelIds,
   assets,
   selectedAsset,
@@ -51,6 +54,7 @@ export function EditorSidebar({
   onSearchQueryChange,
   onSelectNode,
   onToggleParallel,
+  onMoveSnippet,
   onSelectAsset,
   onAddDialogOpenChange,
   onAddSnippet,
@@ -61,6 +65,7 @@ export function EditorSidebar({
   searchQuery: string
   treeNodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
+  activeSnippetIds: ReadonlySet<string>
   expandedParallelIds: ReadonlySet<string>
   assets: ProjectAssets
   selectedAsset: EditorAssetSelection | null
@@ -69,6 +74,7 @@ export function EditorSidebar({
   onSearchQueryChange: (query: string) => void
   onSelectNode: (nodeId: string) => void
   onToggleParallel: (nodeId: string) => void
+  onMoveSnippet: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   onSelectAsset: (selection: EditorAssetSelection) => void
   onAddDialogOpenChange: (open: boolean) => void
   onAddSnippet: (type: AddableSnippetType) => void
@@ -128,9 +134,12 @@ export function EditorSidebar({
         <StoryTree
           nodes={treeNodes}
           selectedNodeId={selectedNodeId}
+          activeSnippetIds={activeSnippetIds}
           expandedParallelIds={expandedParallelIds}
           onSelect={onSelectNode}
           onToggleParallel={onToggleParallel}
+          onMove={onMoveSnippet}
+          dragEnabled={!searchQuery.trim()}
           onAdd={(): void => onAddDialogOpenChange(true)}
         />
       ) : (
@@ -182,20 +191,134 @@ function TabButton({
 function StoryTree({
   nodes,
   selectedNodeId,
+  activeSnippetIds,
   expandedParallelIds,
   onSelect,
   onToggleParallel,
+  onMove,
+  dragEnabled,
   onAdd
 }: {
   nodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
+  activeSnippetIds: ReadonlySet<string>
   expandedParallelIds: ReadonlySet<string>
   onSelect: (nodeId: string) => void
   onToggleParallel: (nodeId: string) => void
+  onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
+  dragEnabled: boolean
   onAdd: () => void
 }): JSX.Element {
+  const treeRef = useRef<HTMLDivElement | null>(null)
+  const pointerRef = useRef<{
+    pointerId: number
+    sourceId: string
+    startX: number
+    startY: number
+    active: boolean
+  } | null>(null)
+  const dropTargetRef = useRef<{
+    nodeId: string
+    placement: SnippetDropPlacement
+  } | null>(null)
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{
+    nodeId: string
+    placement: SnippetDropPlacement
+  } | null>(null)
+
+  function updateDropTarget(
+    nextTarget: { nodeId: string; placement: SnippetDropPlacement } | null
+  ): void {
+    dropTargetRef.current = nextTarget
+    setDropTarget(nextTarget)
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (!dragEnabled || event.button !== 0) return
+    if (!(event.target instanceof Element)) return
+    if (!event.target.closest('[data-drag-handle]')) return
+    if (event.target.closest('[data-no-drag]')) return
+
+    const row: HTMLElement | null = event.target.closest<HTMLElement>('[data-snippet-id]')
+    const sourceId: string | undefined = row?.dataset.snippetId
+    if (!sourceId) return
+
+    event.currentTarget.setPointerCapture(event.pointerId)
+    pointerRef.current = {
+      pointerId: event.pointerId,
+      sourceId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false
+    }
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    const pointer: typeof pointerRef.current = pointerRef.current
+    if (!pointer || pointer.pointerId !== event.pointerId) return
+
+    const distance: number = Math.hypot(
+      event.clientX - pointer.startX,
+      event.clientY - pointer.startY
+    )
+    if (!pointer.active) {
+      if (distance < 6) return
+      pointer.active = true
+      setDraggedNodeId(pointer.sourceId)
+    }
+
+    event.preventDefault()
+    const element: Element | null = document.elementFromPoint(event.clientX, event.clientY)
+    const row: HTMLElement | null = element?.closest<HTMLElement>('[data-snippet-id]') ?? null
+    const targetId: string | undefined = row?.dataset.snippetId
+    const source: FlatTreeNode | undefined = nodes.find(
+      (candidate: FlatTreeNode): boolean => candidate.node.id === pointer.sourceId
+    )
+    const target: FlatTreeNode | undefined = nodes.find(
+      (candidate: FlatTreeNode): boolean => candidate.node.id === targetId
+    )
+    if (
+      !source ||
+      !target ||
+      target.node.id === pointer.sourceId ||
+      isPathDescendant(target.path, source.path)
+    ) {
+      updateDropTarget(null)
+      return
+    }
+
+    updateDropTarget({
+      nodeId: target.node.id,
+      placement: resolveDropPlacement(event.clientY, row?.getBoundingClientRect(), target)
+    })
+  }
+
+  function finishPointerDrag(event?: ReactPointerEvent<HTMLDivElement>): void {
+    const pointer: typeof pointerRef.current = pointerRef.current
+    if (!pointer || (event && pointer.pointerId !== event.pointerId)) return
+
+    if (pointer.active && dropTargetRef.current) {
+      onMove(pointer.sourceId, dropTargetRef.current.nodeId, dropTargetRef.current.placement)
+      event?.preventDefault()
+    }
+    if (event && treeRef.current?.hasPointerCapture(event.pointerId)) {
+      treeRef.current.releasePointerCapture(event.pointerId)
+    }
+    pointerRef.current = null
+    setDraggedNodeId(null)
+    updateDropTarget(null)
+  }
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
+    <div
+      ref={treeRef}
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishPointerDrag}
+      onPointerCancel={finishPointerDrag}
+    >
       <div className="space-y-0.5">
         {nodes.map(
           (flatNode: FlatTreeNode): JSX.Element => (
@@ -203,7 +326,12 @@ function StoryTree({
               key={flatNode.node.id}
               flatNode={flatNode}
               selected={flatNode.node.id === selectedNodeId}
+              active={activeSnippetIds.has(flatNode.node.id)}
+              hasActiveSnippets={activeSnippetIds.size > 0}
               expanded={expandedParallelIds.has(flatNode.node.id)}
+              dragEnabled={dragEnabled}
+              dragging={draggedNodeId === flatNode.node.id}
+              dropPlacement={dropTarget?.nodeId === flatNode.node.id ? dropTarget.placement : null}
               onSelect={onSelect}
               onToggleParallel={onToggleParallel}
             />
@@ -228,13 +356,23 @@ function StoryTree({
 function StoryNodeRow({
   flatNode,
   selected,
+  active,
+  hasActiveSnippets,
   expanded,
+  dragEnabled,
+  dragging,
+  dropPlacement,
   onSelect,
   onToggleParallel
 }: {
   flatNode: FlatTreeNode
   selected: boolean
+  active: boolean
+  hasActiveSnippets: boolean
   expanded: boolean
+  dragEnabled: boolean
+  dragging: boolean
+  dropPlacement: SnippetDropPlacement | null
   onSelect: (nodeId: string) => void
   onToggleParallel: (nodeId: string) => void
 }): JSX.Element {
@@ -244,20 +382,41 @@ function StoryNodeRow({
   const isParallel: boolean = node.type === 'Parallel'
 
   return (
-    <div className="relative" style={{ paddingLeft: `${flatNode.depth * 18}px` }}>
+    <div
+      className={cn('relative transition-opacity', dragging && 'opacity-35')}
+      style={{ paddingLeft: `${flatNode.depth * 18}px` }}
+      data-snippet-id={node.id}
+    >
+      {dropPlacement === 'before' && (
+        <span className="pointer-events-none absolute inset-x-2 top-0 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary" />
+      )}
+      {dropPlacement === 'after' && (
+        <span className="pointer-events-none absolute inset-x-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary" />
+      )}
       {flatNode.depth > 0 && (
         <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
       )}
       <button
         type="button"
+        title={dragEnabled ? '拖拽以调整片段顺序或层级' : '清除搜索后可拖拽片段'}
         className={cn(
           'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
           selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
-          isParallel && !selected && 'bg-violet-500/[0.035]'
+          isParallel && !selected && 'bg-violet-500/[0.035]',
+          dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60'
         )}
         onClick={(): void => onSelect(node.id)}
       >
-        <GripVertical className="size-3 shrink-0 text-muted-foreground/45" />
+        <span
+          data-drag-handle
+          className={cn(
+            'flex shrink-0',
+            dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+          )}
+          title={dragEnabled ? '拖拽调整片段' : undefined}
+        >
+          <GripVertical className="size-3 text-muted-foreground/45" />
+        </span>
         <span
           className={cn(
             'flex size-6 shrink-0 items-center justify-center rounded-sm',
@@ -272,7 +431,9 @@ function StoryNodeRow({
             {formatNodeSummary(node)}
           </span>
         </span>
-        {selected && <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />}
+        {(active || (!hasActiveSnippets && selected)) && (
+          <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+        )}
       </button>
       {isParallel && (
         <button
@@ -280,6 +441,7 @@ function StoryNodeRow({
           className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label={expanded ? '收起 Parallel' : '展开 Parallel'}
           title={expanded ? '收起 Parallel' : '展开 Parallel'}
+          data-no-drag
           onClick={(): void => onToggleParallel(node.id)}
         >
           {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
@@ -291,6 +453,27 @@ function StoryNodeRow({
         </span>
       )}
     </div>
+  )
+}
+
+function resolveDropPlacement(
+  clientY: number,
+  bounds: DOMRect | undefined,
+  target: FlatTreeNode
+): SnippetDropPlacement {
+  if (!bounds || bounds.height <= 0) return 'after'
+  const relativeY: number = (clientY - bounds.top) / bounds.height
+
+  if (target.node.type !== 'Parallel') return relativeY < 0.5 ? 'before' : 'after'
+  if (relativeY < 0.28) return 'before'
+  if (relativeY > 0.72) return 'after'
+  return 'inside'
+}
+
+function isPathDescendant(path: readonly number[], ancestorPath: readonly number[]): boolean {
+  return (
+    path.length > ancestorPath.length &&
+    ancestorPath.every((index: number, depth: number): boolean => path[depth] === index)
   )
 }
 

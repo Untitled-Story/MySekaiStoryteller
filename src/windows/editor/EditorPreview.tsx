@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Application } from 'pixi.js'
-import { CircleDot, LoaderCircle, Pause, Play, RotateCcw, Square } from 'lucide-react'
+import { LoaderCircle, Pause, Play, RotateCcw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/style'
 import { describeError as describeLogError, logger } from '@/lib/logger'
@@ -43,24 +43,23 @@ type PreviewSession = {
 export function EditorPreview({
   input,
   story,
-  selectedNodeId,
   previewRequest,
   previewTargetNodeId,
-  onPreviewFromBeginning
+  onPreviewFromBeginning,
+  onActiveSnippetIdsChange
 }: {
   input: EditorPreviewInput
   story: EditorStory
-  selectedNodeId: string | null
   previewRequest: number
   previewTargetNodeId: string | null
   onPreviewFromBeginning: () => void
+  onActiveSnippetIdsChange: (ids: ReadonlySet<string>) => void
 }): JSX.Element {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const sessionRef = useRef<PreviewSession | null>(null)
   const previousPreviewRequestRef = useRef<number>(previewRequest)
   const initialLoadRef = useRef<boolean>(true)
   const [status, setStatus] = useState<PreviewStatus>('idle')
-  const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
   const [message, setMessage] = useState<string>('等待预览')
 
   useEffect((): (() => void) | undefined => {
@@ -74,6 +73,8 @@ export function EditorPreview({
     let runtime: StoryRuntime | null = null
     let preloadedModels: StoryModelInstance[] = []
     let started = false
+    const activeSnippetIdsRef: Set<string> = new Set()
+    const targetPausedRef: { current: boolean } = { current: false }
     const startedAt: number = performance.now()
     const requestedFromToolbar: boolean = previousPreviewRequestRef.current !== previewRequest
     const useImmediateStart: boolean = initialLoadRef.current || requestedFromToolbar
@@ -83,6 +84,8 @@ export function EditorPreview({
     function dispose(): void {
       if (disposed) return
       disposed = true
+      activeSnippetIdsRef.clear()
+      onActiveSnippetIdsChange(new Set())
       logger.debug('editor.preview_disposed', {
         projectName: input.projectName,
         durationMs: Math.round(performance.now() - startedAt)
@@ -108,9 +111,10 @@ export function EditorPreview({
     async function start(): Promise<void> {
       if (disposed) return
       started = true
+      activeSnippetIdsRef.clear()
+      onActiveSnippetIdsChange(new Set())
       setStatus('loading')
       setMessage('初始化 Pixi 预览')
-      setActiveNodeId(null)
       logger.info('editor.preview_started', {
         projectName: input.projectName,
         snippetCount: story.snippets.length,
@@ -174,7 +178,9 @@ export function EditorPreview({
               : '播放中'
         )
         if (previewTargetNodeId) {
-          await dispatcher.runFrom(story as StoryData, previewTargetNodeId)
+          await dispatcher.runFrom(story as StoryData, previewTargetNodeId, {
+            pauseAfterSnippetId: previewTargetNodeId
+          })
         } else {
           await dispatcher.run(story as StoryData)
         }
@@ -202,16 +208,47 @@ export function EditorPreview({
     function handleStoryEvent(event: StoryDispatcherEvent): void {
       if (disposed) return
       if (event.type === 'snippet:start') {
-        setActiveNodeId(event.snippet.id ?? null)
+        const snippetId: string | undefined = event.snippet.id
+        if (snippetId) {
+          activeSnippetIdsRef.add(snippetId)
+          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
+        }
         setMessage('播放中')
+      }
+      if (event.type === 'snippet:complete' || event.type === 'snippet:error') {
+        const snippetId: string | undefined = event.snippet.id
+        if (snippetId) {
+          activeSnippetIdsRef.delete(snippetId)
+          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
+        }
+        if (event.type === 'snippet:complete' && event.snippet.id === previewTargetNodeId) {
+          targetPausedRef.current = true
+        }
       }
       if (event.type === 'story:pause') {
         setStatus('paused')
         setMessage('已暂停')
+        if (targetPausedRef.current && previewTargetNodeId) {
+          activeSnippetIdsRef.add(previewTargetNodeId)
+          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
+        }
       }
       if (event.type === 'story:resume') {
         setStatus('running')
         setMessage('继续播放')
+        if (targetPausedRef.current && previewTargetNodeId) {
+          targetPausedRef.current = false
+          activeSnippetIdsRef.delete(previewTargetNodeId)
+          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
+        }
+      }
+      if (
+        event.type === 'story:complete' ||
+        event.type === 'story:cancel' ||
+        event.type === 'story:error'
+      ) {
+        activeSnippetIdsRef.clear()
+        onActiveSnippetIdsChange(new Set())
       }
     }
 
@@ -225,7 +262,7 @@ export function EditorPreview({
       if (started || app || dispatcher || runtime) dispose()
       else disposed = true
     }
-  }, [input, previewRequest, previewTargetNodeId, story])
+  }, [input, onActiveSnippetIdsChange, previewRequest, previewTargetNodeId, story])
 
   function restart(): void {
     sessionRef.current?.dispose()
@@ -248,12 +285,10 @@ export function EditorPreview({
     sessionRef.current?.dispose()
     setStatus('stopped')
     setMessage('预览已停止')
-    setActiveNodeId(null)
   }
 
   const playing: boolean = status === 'running'
   const paused: boolean = status === 'paused'
-  const isSelectedActive: boolean = Boolean(selectedNodeId && selectedNodeId === activeNodeId)
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-muted/15">
@@ -284,26 +319,6 @@ export function EditorPreview({
               <div className="absolute inset-y-0 left-1/3 border-l border-white/10" />
               <div className="absolute inset-y-0 left-2/3 border-l border-white/10" />
             </div>
-            <div className="pointer-events-none absolute top-3 left-3 flex items-center gap-2 rounded-sm bg-black/55 px-2 py-1 text-[10px] text-white/85">
-              <CircleDot className={cn('size-3', playing ? 'text-emerald-300' : 'text-white/50')} />
-              <span>
-                {activeNodeId
-                  ? `运行节点 ${activeNodeId.slice(0, 8)}`
-                  : previewTargetNodeId
-                    ? '正在定位选中片段'
-                    : '从头实时预览'}
-              </span>
-            </div>
-            {selectedNodeId && (
-              <div
-                className={cn(
-                  'pointer-events-none absolute right-3 top-3 rounded-sm px-2 py-1 font-mono text-[10px] transition-colors',
-                  isSelectedActive ? 'bg-emerald-500 text-white' : 'bg-black/50 text-white/65'
-                )}
-              >
-                {isSelectedActive ? '已到达选中片段' : '等待选中片段'}
-              </div>
-            )}
             {status === 'error' && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/65 px-8 text-center text-sm leading-6 text-white/80">
                 {message}

@@ -171,6 +171,10 @@ export type StoryDispatcherOptions = {
   onEvent?: (event: StoryDispatcherEvent) => void
 }
 
+export type StoryRunOptions = {
+  pauseAfterSnippetId?: string
+}
+
 export type SnippetContext<TSnippet extends LeafSnippetData = LeafSnippetData> = {
   snippet: TSnippet
   runtime: StoryRuntime

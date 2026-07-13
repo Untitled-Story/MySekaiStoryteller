@@ -87,6 +87,7 @@ import {
   type AddableSnippetType,
   type EditorStory
 } from './editorDocument'
+import { moveSnippetSubtree, type SnippetDropPlacement } from './editorTree'
 
 type LoadedEditorProject = {
   metadata: ProjectMetadata
@@ -134,6 +135,9 @@ export default function App(): JSX.Element {
   const [pendingProjectName, setPendingProjectName] = useState<string | null>(null)
   const [previewRequest, setPreviewRequest] = useState<number>(0)
   const [previewTargetNodeId, setPreviewTargetNodeId] = useState<string | null>(null)
+  const [activeSnippetIds, setActiveSnippetIds] = useState<ReadonlySet<string>>(
+    (): ReadonlySet<string> => new Set()
+  )
   const [savingStory, setSavingStory] = useState<boolean>(false)
   const [registerModelOpen, setRegisterModelOpen] = useState<boolean>(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -203,6 +207,7 @@ export default function App(): JSX.Element {
         dispatchHistory({ type: 'load', story: nextHistory.present })
         setLoadedProject(project)
         setSelectedNodeId(nextHistory.present.snippets[0]?.id ?? null)
+        setActiveSnippetIds(new Set())
         setPreviewTargetNodeId(null)
         setSelectedAsset(firstAssetSelection(project.previewInput.assets))
         setExpandedParallelIds(collectParallelIds(nextHistory.present))
@@ -267,6 +272,7 @@ export default function App(): JSX.Element {
   }
 
   function requestPreview(targetNodeId: string | null): void {
+    setActiveSnippetIds(new Set())
     setPreviewTargetNodeId(targetNodeId)
     setPreviewRequest((current: number): number => current + 1)
   }
@@ -337,6 +343,22 @@ export default function App(): JSX.Element {
     commitStory(nextStory)
     setSelectedNodeId(nextStory.snippets[0]?.id ?? null)
     setDeleteSnippetId(null)
+  }
+
+  function moveSnippet(sourceId: string, targetId: string, placement: SnippetDropPlacement): void {
+    const nextStory: EditorStory | null = moveSnippetSubtree(story, sourceId, targetId, placement)
+    if (!nextStory) return
+
+    commitStory(nextStory)
+    setSelectedNodeId(sourceId)
+    requestPreview(sourceId)
+    if (placement === 'inside') {
+      setExpandedParallelIds((current: ReadonlySet<string>): ReadonlySet<string> => {
+        const next: Set<string> = new Set(current)
+        next.add(targetId)
+        return next
+      })
+    }
   }
 
   function toggleParallel(nodeId: string): void {
@@ -640,6 +662,7 @@ export default function App(): JSX.Element {
           searchQuery={searchQuery}
           treeNodes={treeNodes}
           selectedNodeId={selectedNode?.id ?? null}
+          activeSnippetIds={activeSnippetIds}
           expandedParallelIds={expandedParallelIds}
           assets={previewInput.assets}
           selectedAsset={selectedAsset}
@@ -652,6 +675,7 @@ export default function App(): JSX.Element {
             requestPreview(nodeId)
           }}
           onToggleParallel={toggleParallel}
+          onMoveSnippet={moveSnippet}
           onSelectAsset={(selection: EditorAssetSelection): void => {
             setSelectedAsset(selection)
             setActivePanel('assets')
@@ -667,9 +691,9 @@ export default function App(): JSX.Element {
         <EditorPreview
           input={previewInput}
           story={story}
-          selectedNodeId={selectedNode?.id ?? null}
           previewRequest={previewRequest}
           previewTargetNodeId={previewTargetNode?.id ?? null}
+          onActiveSnippetIdsChange={setActiveSnippetIds}
           onPreviewFromBeginning={(): void => requestPreview(null)}
         />
 

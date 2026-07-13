@@ -793,7 +793,7 @@ async function createDialogueUi(
   const textSpeakerSprite: Text = createSpeakerText(
     screenWidth,
     screenHeight,
-    textUnderlineSprite.y - screenWidth / 45,
+    textUnderlineSprite.y - screenWidth / 42,
     fontFamily
   )
   const { container: telopContainer, text: telopText }: { container: Container; text: Text } =
