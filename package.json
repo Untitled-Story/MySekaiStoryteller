@@ -9,6 +9,7 @@
   "scripts": {
     "setup:live2d": "node scripts/setup-live2d-cores.mjs",
     "reset:settings": "node scripts/reset-settings.mjs",
+    "prepare": "simple-git-hooks",
     "predev": "pnpm setup:live2d",
     "dev": "vite",
     "prebuild": "pnpm setup:live2d",
@@ -56,9 +57,11 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "jszip": "^3.10.1",
+    "lint-staged": "^17.0.8",
     "lucide-react": "^0.544.0",
     "postcss": "^8.5.10",
     "prettier": "^3.6.2",
+    "simple-git-hooks": "^2.13.1",
     "tailwind-merge": "^3.3.1",
     "tailwind-scrollbar": "^4.0.2",
     "tailwindcss": "^4.1.13",
@@ -72,5 +75,11 @@
       "@tailwindcss/oxide",
       "esbuild"
     ]
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec lint-staged"
+  },
+  "lint-staged": {
+    "*": "prettier --write --ignore-unknown"
   }
 }
