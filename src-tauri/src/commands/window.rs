@@ -263,7 +263,7 @@ async fn open_player_desktop(
         // warm/capture may stall — retest multi-worker export after restart.
         builder = builder
             .skip_taskbar(true)
-            .visible(true)
+            .visible(false)
             .focused(false)
             .always_on_bottom(true);
     }
