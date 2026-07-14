@@ -1,29 +1,22 @@
+import { convertFileSrc } from '@tauri-apps/api/core'
+
 export function localAssetUrl(rootPath: string, relativePath: string): string {
-  const root: string = encodePath(rootPath)
-  const child = relativePath
+  const root: string = rootPath.replaceAll('\\', '/').replace(/\/+$/, '')
+  const child: string = relativePath
     .replaceAll('\\', '/')
     .split('/')
-    .filter(Boolean)
-    .map((part) => {
+    .filter((part: string): boolean => Boolean(part))
+    .map((part: string): string => {
       if (part === '..') {
         throw new Error(`资源路径不能包含上级目录: ${relativePath}`)
       }
-      return encodeURIComponent(part)
+      return part
     })
     .join('/')
 
-  return `mss://load-file/${root}/${child}`
+  return convertFileSrc(`${root}/${child}`, 'mss')
 }
 
 export function projectAssetUrl(projectPath: string, relativePath: string): string {
   return localAssetUrl(projectPath, relativePath)
-}
-
-function encodePath(path: string): string {
-  return path
-    .replaceAll('\\', '/')
-    .split('/')
-    .filter(Boolean)
-    .map((part: string): string => encodeURIComponent(part))
-    .join('/')
 }

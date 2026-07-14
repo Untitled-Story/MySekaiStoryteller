@@ -15,7 +15,7 @@ fn decode_request_path(request: &Request<Vec<u8>>) -> Option<PathBuf> {
 }
 
 fn decode_uri_path(host: Option<&str>, raw_path: &str) -> Option<PathBuf> {
-    if matches!(host, Some(host) if host != "load-file") {
+    if matches!(host, Some(host) if host != "load-file" && host != "localhost") {
         return None;
     }
     if raw_path.is_empty() || raw_path == "/" {
