@@ -45,6 +45,7 @@ export function EditorPreview({
   story,
   previewRequest,
   previewTargetNodeId,
+  pauseAfterPreviewTarget,
   onPreviewFromBeginning,
   onActiveSnippetIdsChange
 }: {
@@ -52,6 +53,7 @@ export function EditorPreview({
   story: EditorStory
   previewRequest: number
   previewTargetNodeId: string | null
+  pauseAfterPreviewTarget: boolean
   onPreviewFromBeginning: () => void
   onActiveSnippetIdsChange: (ids: ReadonlySet<string>) => void
 }): JSX.Element {
@@ -139,7 +141,8 @@ export function EditorPreview({
       logger.info('editor.preview_started', {
         projectName: input.projectName,
         snippetCount: story.snippets.length,
-        targetNodeId: previewTargetNodeId
+        targetNodeId: previewTargetNodeId,
+        pauseAfterTarget: pauseAfterPreviewTarget
       })
 
       try {
@@ -209,9 +212,11 @@ export function EditorPreview({
               : '播放中'
         )
         if (previewTargetNodeId) {
-          await dispatcher.runFrom(story as StoryData, previewTargetNodeId, {
-            pauseAfterSnippetId: previewTargetNodeId
-          })
+          await dispatcher.runFrom(
+            story as StoryData,
+            previewTargetNodeId,
+            pauseAfterPreviewTarget ? { pauseAfterSnippetId: previewTargetNodeId } : {}
+          )
         } else {
           await dispatcher.run(story as StoryData)
         }
@@ -252,7 +257,11 @@ export function EditorPreview({
           activeSnippetIdsRef.delete(snippetId)
           onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
         }
-        if (event.type === 'snippet:complete' && event.snippet.id === previewTargetNodeId) {
+        if (
+          pauseAfterPreviewTarget &&
+          event.type === 'snippet:complete' &&
+          event.snippet.id === previewTargetNodeId
+        ) {
           targetPausedRef.current = true
         }
       }
@@ -293,7 +302,14 @@ export function EditorPreview({
       if (started || app || dispatcher || runtime) dispose()
       else disposed = true
     }
-  }, [input, onActiveSnippetIdsChange, previewRequest, previewTargetNodeId, story])
+  }, [
+    input,
+    onActiveSnippetIdsChange,
+    pauseAfterPreviewTarget,
+    previewRequest,
+    previewTargetNodeId,
+    story
+  ])
 
   function restart(): void {
     sessionRef.current?.dispose()

@@ -135,6 +135,7 @@ export default function App(): JSX.Element {
   const [pendingProjectName, setPendingProjectName] = useState<string | null>(null)
   const [previewRequest, setPreviewRequest] = useState<number>(0)
   const [previewTargetNodeId, setPreviewTargetNodeId] = useState<string | null>(null)
+  const [pauseAfterPreviewTarget, setPauseAfterPreviewTarget] = useState<boolean>(false)
   const [activeSnippetIds, setActiveSnippetIds] = useState<ReadonlySet<string>>(
     (): ReadonlySet<string> => new Set()
   )
@@ -209,6 +210,7 @@ export default function App(): JSX.Element {
         setSelectedNodeId(nextHistory.present.snippets[0]?.id ?? null)
         setActiveSnippetIds(new Set())
         setPreviewTargetNodeId(null)
+        setPauseAfterPreviewTarget(false)
         setSelectedAsset(firstAssetSelection(project.previewInput.assets))
         setExpandedParallelIds(collectParallelIds(nextHistory.present))
         setSearchQuery('')
@@ -271,9 +273,10 @@ export default function App(): JSX.Element {
     }, 550)
   }
 
-  function requestPreview(targetNodeId: string | null): void {
+  function requestPreview(targetNodeId: string | null, pauseAfterTarget: boolean): void {
     setActiveSnippetIds(new Set())
     setPreviewTargetNodeId(targetNodeId)
+    setPauseAfterPreviewTarget(pauseAfterTarget)
     setPreviewRequest((current: number): number => current + 1)
   }
 
@@ -351,7 +354,7 @@ export default function App(): JSX.Element {
 
     commitStory(nextStory)
     setSelectedNodeId(sourceId)
-    requestPreview(sourceId)
+    requestPreview(sourceId, true)
     if (placement === 'inside') {
       setExpandedParallelIds((current: ReadonlySet<string>): ReadonlySet<string> => {
         const next: Set<string> = new Set(current)
@@ -639,7 +642,7 @@ export default function App(): JSX.Element {
             variant="outline"
             size="sm"
             disabled={!selectedNode}
-            onClick={(): void => requestPreview(selectedNode?.id ?? null)}
+            onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
             预览
@@ -672,7 +675,7 @@ export default function App(): JSX.Element {
           onSelectNode={(nodeId: string): void => {
             setSelectedNodeId(nodeId)
             setActivePanel('story')
-            requestPreview(nodeId)
+            requestPreview(nodeId, true)
           }}
           onToggleParallel={toggleParallel}
           onMoveSnippet={moveSnippet}
@@ -693,8 +696,9 @@ export default function App(): JSX.Element {
           story={story}
           previewRequest={previewRequest}
           previewTargetNodeId={previewTargetNode?.id ?? null}
+          pauseAfterPreviewTarget={pauseAfterPreviewTarget}
           onActiveSnippetIdsChange={setActiveSnippetIds}
-          onPreviewFromBeginning={(): void => requestPreview(null)}
+          onPreviewFromBeginning={(): void => requestPreview(null, false)}
         />
 
         {activePanel === 'assets' ? (
