@@ -116,6 +116,9 @@ export default function App(): JSX.Element {
 
     let cancelled = false
     let app: Application | null = null
+    let appInitialized = false
+    let appDestroyed = false
+    let mountedCanvas: HTMLCanvasElement | null = null
     let dispatcher: StoryDispatcher | null = null
     let runtime: StoryRuntime | null = null
     let preloadedModels: StoryModelInstance[] = []
@@ -130,13 +133,36 @@ export default function App(): JSX.Element {
       snippetCount: currentStoryInput.story.snippets.length
     })
 
+    function detachMountedCanvas(): void {
+      const canvas: HTMLCanvasElement | null = mountedCanvas
+      mountedCanvas = null
+      if (canvas && stageElement.contains(canvas)) {
+        stageElement.replaceChildren()
+      }
+    }
+
+    function destroyPreloadedModels(): void {
+      const models: StoryModelInstance[] = preloadedModels
+      preloadedModels = []
+      for (const { model } of models) {
+        model.destroy({ children: true })
+      }
+    }
+
+    function destroyInitializedApp(): void {
+      if (!app || !appInitialized || appDestroyed) return
+      appDestroyed = true
+      app.destroy(true, { children: true })
+    }
+
     async function startStory(): Promise<void> {
       await ensureSekaiLive2DReady()
       if (cancelled) return
       logger.debug('player.live2d_ready', { projectName: currentStoryInput.projectName })
 
-      app = new Application()
-      await app.init({
+      const playerApp: Application = new Application()
+      app = playerApp
+      await playerApp.init({
         resizeTo: stageElement,
         preference: 'webgl',
         autoDensity: true,
@@ -144,8 +170,14 @@ export default function App(): JSX.Element {
         backgroundAlpha: 0
       })
 
-      if (cancelled) return
-      stageElement.replaceChildren(app.canvas)
+      appInitialized = true
+      mountedCanvas = playerApp.canvas
+      if (cancelled) {
+        detachMountedCanvas()
+        destroyInitializedApp()
+        return
+      }
+      stageElement.replaceChildren(mountedCanvas)
       logger.info('player.pixi_ready', {
         projectName: currentStoryInput.projectName,
         resolution: resolveRenderPrecision(currentStoryInput.settings)
@@ -160,19 +192,22 @@ export default function App(): JSX.Element {
 
       setModelLoadState({ status: 'loading', message: '加载模型资源' })
       preloadedModels = await preloadStoryModels({
-        app,
+        app: playerApp,
         dataPath: currentStoryInput.dataPath,
         assets: currentStoryInput.assets,
         modelRegistry: currentStoryInput.modelRegistry
       })
-      if (cancelled) return
+      if (cancelled) {
+        destroyPreloadedModels()
+        return
+      }
       logger.info('player.models_loaded', {
         projectName: currentStoryInput.projectName,
         modelCount: preloadedModels.length
       })
 
       runtime = createStoryRuntime({
-        app,
+        app: playerApp,
         dataPath: currentStoryInput.dataPath,
         projectPath: currentStoryInput.projectPath,
         assets: currentStoryInput.assets,
@@ -220,13 +255,12 @@ export default function App(): JSX.Element {
       dispatcher?.cancel()
       if (runtime) {
         destroyStoryRuntime(runtime)
+        preloadedModels = []
       } else {
-        for (const { model } of preloadedModels) {
-          model.destroy({ children: true })
-        }
+        destroyPreloadedModels()
       }
-      app?.destroy(true, { children: true })
-      stageElement.replaceChildren()
+      detachMountedCanvas()
+      destroyInitializedApp()
     }
   }, [loadState.status, storyInput])
 

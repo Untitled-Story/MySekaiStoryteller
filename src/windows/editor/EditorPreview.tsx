@@ -69,6 +69,9 @@ export function EditorPreview({
 
     let disposed = false
     let app: Application | null = null
+    let appInitialized = false
+    let appDestroyed = false
+    let mountedCanvas: HTMLCanvasElement | null = null
     let dispatcher: StoryDispatcher | null = null
     let runtime: StoryRuntime | null = null
     let preloadedModels: StoryModelInstance[] = []
@@ -80,6 +83,28 @@ export function EditorPreview({
     const useImmediateStart: boolean = initialLoadRef.current || requestedFromToolbar
     previousPreviewRequestRef.current = previewRequest
     initialLoadRef.current = false
+
+    function detachMountedCanvas(): void {
+      const canvas: HTMLCanvasElement | null = mountedCanvas
+      mountedCanvas = null
+      if (canvas && stageElement.contains(canvas)) {
+        stageElement.replaceChildren()
+      }
+    }
+
+    function destroyPreloadedModels(): void {
+      const models: StoryModelInstance[] = preloadedModels
+      preloadedModels = []
+      for (const { model } of models) {
+        model.destroy({ children: true })
+      }
+    }
+
+    function destroyInitializedApp(): void {
+      if (!app || !appInitialized || appDestroyed) return
+      appDestroyed = true
+      app.destroy(true, { children: true })
+    }
 
     function dispose(): void {
       if (disposed) return
@@ -93,16 +118,12 @@ export function EditorPreview({
       dispatcher?.cancel()
       if (runtime) {
         destroyStoryRuntime(runtime)
+        preloadedModels = []
       } else {
-        for (const { model } of preloadedModels) {
-          model.destroy({ children: true })
-        }
+        destroyPreloadedModels()
       }
-      const canvas: HTMLCanvasElement | null = app?.canvas ?? null
-      app?.destroy(true, { children: true })
-      if (canvas && stageElement.contains(canvas)) {
-        stageElement.replaceChildren()
-      }
+      detachMountedCanvas()
+      destroyInitializedApp()
       if (sessionRef.current?.dispatcher === dispatcher) {
         sessionRef.current = null
       }
@@ -126,16 +147,23 @@ export function EditorPreview({
         if (disposed) return
         logger.debug('editor.preview_live2d_ready', { projectName: input.projectName })
 
-        app = new Application()
-        await app.init({
+        const previewApp: Application = new Application()
+        app = previewApp
+        await previewApp.init({
           resizeTo: stageElement,
           preference: 'webgl',
           autoDensity: true,
           resolution: resolveRenderPrecision(input.settings),
           backgroundAlpha: 0
         })
-        if (disposed) return
-        stageElement.replaceChildren(app.canvas)
+        appInitialized = true
+        mountedCanvas = previewApp.canvas
+        if (disposed) {
+          detachMountedCanvas()
+          destroyInitializedApp()
+          return
+        }
+        stageElement.replaceChildren(mountedCanvas)
         logger.info('editor.preview_pixi_ready', {
           projectName: input.projectName,
           resolution: resolveRenderPrecision(input.settings)
@@ -145,19 +173,22 @@ export function EditorPreview({
         const fontFamily: string = await loadPlaybackFontFamily(input.settings, input.dataPath)
         if (disposed) return
         preloadedModels = await preloadStoryModels({
-          app,
+          app: previewApp,
           dataPath: input.dataPath,
           assets: input.assets,
           modelRegistry: input.modelRegistry
         })
-        if (disposed) return
+        if (disposed) {
+          destroyPreloadedModels()
+          return
+        }
         logger.info('editor.preview_models_loaded', {
           projectName: input.projectName,
           modelCount: preloadedModels.length
         })
 
         runtime = createStoryRuntime({
-          app,
+          app: previewApp,
           dataPath: input.dataPath,
           projectPath: input.projectPath,
           assets: input.assets,
