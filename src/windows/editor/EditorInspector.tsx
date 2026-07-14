@@ -563,7 +563,6 @@ function EmptyInspector(): JSX.Element {
 export function EditorAssetInspector({
   assets,
   selectedAsset,
-  storyDirty,
   onModelChange,
   onFileAssetChange,
   onRename,
@@ -571,7 +570,6 @@ export function EditorAssetInspector({
 }: {
   assets: ProjectAssets
   selectedAsset: EditorAssetSelection | null
-  storyDirty: boolean
   onModelChange: (key: string, asset: ModelAsset) => void
   onFileAssetChange: (
     kind: Exclude<ProjectAssetKind, 'models'>,
@@ -629,7 +627,7 @@ export function EditorAssetInspector({
           <p className="mt-1 break-all font-mono text-sm font-medium">{selectedAsset.key}</p>
         </div>
         <div className="space-y-5 px-4 py-5">
-          <AssetKeyField selection={selectedAsset} storyDirty={storyDirty} onRename={onRename} />
+          <AssetKeyField selection={selectedAsset} onRename={onRename} />
           {selectedAsset.kind === 'models' ? (
             <ModelAssetFields
               asset={asset as ModelAsset}
@@ -657,11 +655,9 @@ export function EditorAssetInspector({
 
 function AssetKeyField({
   selection,
-  storyDirty,
   onRename
 }: {
   selection: EditorAssetSelection
-  storyDirty: boolean
   onRename: (selection: EditorAssetSelection, newKey: string) => void
 }): JSX.Element {
   const [keyDraft, setKeyDraft] = useState<string>(selection.key)
@@ -684,7 +680,7 @@ function AssetKeyField({
           type="button"
           variant="outline"
           size="sm"
-          disabled={storyDirty || keyDraft === selection.key}
+          disabled={keyDraft === selection.key}
           onClick={(): void => onRename(selection, keyDraft)}
         >
           改名

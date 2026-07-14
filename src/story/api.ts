@@ -6,6 +6,7 @@ export async function getProjectStory(projectName: string): Promise<StoryData> {
   return StorySchema.parse(raw)
 }
 
-export function setProjectStory(projectName: string, story: StoryInput): Promise<void> {
-  return invoke('set_project_story', { projectName, story })
+export async function setProjectStory(projectName: string, story: StoryInput): Promise<void> {
+  const validatedStory: StoryData = StorySchema.parse(story)
+  await invoke('set_project_story', { projectName, story: validatedStory })
 }

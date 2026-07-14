@@ -28,7 +28,7 @@ export type HistoryAction =
   | { type: 'flush-merge' }
   | { type: 'undo' }
   | { type: 'redo' }
-  | { type: 'save' }
+  | { type: 'save'; story: EditorStory }
 
 export type InsertSnippetResult = {
   story: EditorStory
@@ -116,8 +116,7 @@ export function editorHistoryReducer(
     case 'save':
       return {
         ...state,
-        saved: state.present,
-        activeMergeKey: null
+        saved: action.story
       }
   }
 }

@@ -2,6 +2,11 @@ import type { ChangeEvent, JSX } from 'react'
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import {
+  getCurrentWindow,
+  type CloseRequestedEvent,
+  type Window as TauriWindow
+} from '@tauri-apps/api/window'
+import {
   ChevronRight,
   CirclePlay,
   Clapperboard,
@@ -33,7 +38,7 @@ import {
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/style'
 import { describeError as describeLogError, logger } from '@/lib/logger'
-import type { ModelRegistry } from '@/modelRegistry/schema'
+import type { ImportedModelResult, ModelRegistry } from '@/modelRegistry/schema'
 import { getModelRegistry, importGlobalModel } from '@/modelRegistry/api'
 import {
   deleteProjectAsset,
@@ -50,6 +55,7 @@ import type {
   BackgroundAsset,
   ModelAsset,
   ProjectAssetKind,
+  ProjectAssetMutationResult,
   ProjectAssetReference,
   ProjectAssets,
   VoiceAsset
@@ -105,6 +111,24 @@ type AssetDeletePrompt = {
   references: readonly ProjectAssetReference[]
 }
 
+type StorySaveStatus = 'saved' | 'dirty' | 'saving' | 'error'
+
+type PersistedStorySnapshot = {
+  projectName: string
+  story: EditorStory
+}
+
+type QueuedStorySave = {
+  projectName: string
+  fingerprint: string
+  promise: Promise<boolean>
+}
+
+type PendingAssetWrite = {
+  projectName: string
+  assets: ProjectAssets
+}
+
 const EMPTY_ASSETS: ProjectAssets = {
   models: {},
   backgrounds: {},
@@ -112,6 +136,10 @@ const EMPTY_ASSETS: ProjectAssets = {
 }
 
 const INITIAL_STORY: EditorStory = createDocumentHistory({ version: 1, snippets: [] }).present
+const STRUCTURE_AUTOSAVE_DELAY_MS: number = 200
+const INPUT_AUTOSAVE_DELAY_MS: number = 800
+const ASSET_AUTOSAVE_DELAY_MS: number = 650
+const SAVE_RETRY_DELAY_MS: number = 600
 
 export default function App(): JSX.Element {
   const requestedProjectName = useWindowProjectName()
@@ -133,6 +161,7 @@ export default function App(): JSX.Element {
   const [deleteSnippetId, setDeleteSnippetId] = useState<string | null>(null)
   const [assetDeletePrompt, setAssetDeletePrompt] = useState<AssetDeletePrompt | null>(null)
   const [pendingProjectName, setPendingProjectName] = useState<string | null>(null)
+  const [projectSwitchNeedsDecision, setProjectSwitchNeedsDecision] = useState<boolean>(false)
   const [previewRequest, setPreviewRequest] = useState<number>(0)
   const [previewTargetNodeId, setPreviewTargetNodeId] = useState<string | null>(null)
   const [pauseAfterPreviewTarget, setPauseAfterPreviewTarget] = useState<boolean>(false)
@@ -140,15 +169,52 @@ export default function App(): JSX.Element {
     (): ReadonlySet<string> => new Set()
   )
   const [savingStory, setSavingStory] = useState<boolean>(false)
+  const [savingAssets, setSavingAssets] = useState<boolean>(false)
+  const [storySaveStatus, setStorySaveStatus] = useState<StorySaveStatus>('saved')
+  const [storySaveError, setStorySaveError] = useState<string | null>(null)
+  const [projectMutationInProgress, setProjectMutationInProgress] = useState<boolean>(false)
   const [registerModelOpen, setRegisterModelOpen] = useState<boolean>(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const inputMergeTimerRef = useRef<number | null>(null)
+  const storySaveTimerRef = useRef<number | null>(null)
+  const assetWriteTimerRef = useRef<number | null>(null)
   const blockedSwitchProjectRef = useRef<string | null>(null)
+  const projectSwitchAttemptRef = useRef<string | null>(null)
+  const projectMutationCountRef = useRef<number>(0)
   const assetsRef = useRef<ProjectAssets>(EMPTY_ASSETS)
-  const assetWriteQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const storyRef = useRef<EditorStory>(INITIAL_STORY)
+  const loadedProjectRef = useRef<LoadedEditorProject | null>(null)
+  const projectWriteQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const queuedStorySaveRef = useRef<QueuedStorySave | null>(null)
+  const queuedAssetWriteRef = useRef<Promise<boolean> | null>(null)
+  const pendingAssetWriteRef = useRef<PendingAssetWrite | null>(null)
+  const lastPersistedStoryRef = useRef<PersistedStorySnapshot | null>(null)
+  const saveSessionRef = useRef<number>(0)
+  const allowWindowCloseRef = useRef<boolean>(false)
+  const beginStorySaveSessionRef = useRef<(projectName: string, savedStory: EditorStory) => void>(
+    (): void => undefined
+  )
+  const enqueueStorySaveRef = useRef<
+    (projectName: string, snapshot: EditorStory) => Promise<boolean>
+  >((): Promise<boolean> => Promise.resolve(false))
+  const flushEditorWritesRef = useRef<() => Promise<boolean>>(
+    (): Promise<boolean> => Promise.resolve(true)
+  )
 
   const story: EditorStory = history.present
+  storyRef.current = story
+  loadedProjectRef.current = loadedProject
   const isDirty: boolean = !storiesEqual(history.present, history.saved)
+  const editorSaving: boolean = savingStory || savingAssets || projectMutationInProgress
+  const saveButtonTitle: string = editorSaving
+    ? '正在保存'
+    : storySaveStatus === 'error'
+      ? '保存失败，点击重试'
+      : isDirty
+        ? '立即保存'
+        : '已保存'
+  const visibleError: string | null = storySaveError ?? actionError
+  const loadedProjectName: string | null = loadedProject?.previewInput.projectName ?? null
   const selectedNode = findEditorNode(story, selectedNodeId)
   const previewTargetNode: ReturnType<typeof findEditorNode> = findEditorNode(
     story,
@@ -176,20 +242,88 @@ export default function App(): JSX.Element {
       if (inputMergeTimerRef.current !== null) {
         window.clearTimeout(inputMergeTimerRef.current)
       }
+      clearStorySaveTimer()
+      clearAssetWriteTimer()
+      saveSessionRef.current += 1
+    }
+  }, [])
+
+  useEffect((): (() => void) => {
+    function saveOnShortcut(event: KeyboardEvent): void {
+      if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) return
+      event.preventDefault()
+      void flushEditorWritesRef.current()
+    }
+
+    window.addEventListener('keydown', saveOnShortcut, true)
+    return (): void => window.removeEventListener('keydown', saveOnShortcut, true)
+  }, [])
+
+  useEffect((): (() => void) => {
+    const currentWindow: TauriWindow = getCurrentWindow()
+    let unlisten: (() => void) | null = null
+    let disposed: boolean = false
+
+    void currentWindow
+      .onCloseRequested(async (event: CloseRequestedEvent): Promise<void> => {
+        if (allowWindowCloseRef.current || !loadedProjectRef.current) return
+
+        event.preventDefault()
+        const saved: boolean = await flushEditorWritesRef.current()
+        if (!saved) return
+
+        allowWindowCloseRef.current = true
+        try {
+          await currentWindow.destroy()
+        } catch (error: unknown) {
+          allowWindowCloseRef.current = false
+          setActionError(describeError(error, '关闭编辑器窗口失败'))
+          logger.error('editor.window_close_failed', {
+            error: describeLogError(error)
+          })
+        }
+      })
+      .then((listener: () => void): void => {
+        if (disposed) listener()
+        else unlisten = listener
+      })
+
+    return (): void => {
+      disposed = true
+      unlisten?.()
     }
   }, [])
 
   useEffect((): void => {
     if (!requestedProjectName || requestedProjectName === activeProjectName) return
+    if (
+      blockedSwitchProjectRef.current &&
+      blockedSwitchProjectRef.current !== requestedProjectName
+    ) {
+      blockedSwitchProjectRef.current = null
+    }
     if (blockedSwitchProjectRef.current === requestedProjectName) return
 
-    if (activeProjectName && loadedProject && isDirty) {
+    if (activeProjectName && loadedProject) {
+      if (projectSwitchAttemptRef.current === requestedProjectName) return
+      projectSwitchAttemptRef.current = requestedProjectName
       setPendingProjectName(requestedProjectName)
+      setProjectSwitchNeedsDecision(false)
+      void flushEditorWritesRef.current().then((saved: boolean): void => {
+        if (projectSwitchAttemptRef.current !== requestedProjectName) return
+        if (!saved) {
+          setProjectSwitchNeedsDecision(true)
+          return
+        }
+        projectSwitchAttemptRef.current = null
+        setPendingProjectName(null)
+        setActiveProjectName(requestedProjectName)
+      })
       return
     }
 
     setActiveProjectName(requestedProjectName)
-  }, [activeProjectName, isDirty, loadedProject, requestedProjectName])
+  }, [activeProjectName, loadedProject, requestedProjectName])
 
   useEffect((): (() => void) | undefined => {
     if (!activeProjectName) return undefined
@@ -205,6 +339,7 @@ export default function App(): JSX.Element {
       .then((project: LoadedEditorProject): void => {
         if (cancelled) return
         const nextHistory = createDocumentHistory(project.story)
+        beginStorySaveSessionRef.current(project.previewInput.projectName, nextHistory.present)
         dispatchHistory({ type: 'load', story: nextHistory.present })
         setLoadedProject(project)
         setSelectedNodeId(nextHistory.present.snippets[0]?.id ?? null)
@@ -215,6 +350,7 @@ export default function App(): JSX.Element {
         setExpandedParallelIds(collectParallelIds(nextHistory.present))
         setSearchQuery('')
         setActivePanel('story')
+        setStorySaveError(null)
         setLoadState({ status: 'ready' })
         logger.info('editor.project_load_completed', {
           projectName: activeProjectName,
@@ -263,6 +399,231 @@ export default function App(): JSX.Element {
     }
   }, [loadedProject, story])
 
+  useEffect((): (() => void) | undefined => {
+    if (!loadedProjectName) return undefined
+
+    clearStorySaveTimer()
+    const projectName: string = loadedProjectName
+    const fingerprint: string = storyFingerprint(story)
+    const queuedSave: QueuedStorySave | null = queuedStorySaveRef.current
+    const hasDifferentQueuedSave: boolean = Boolean(
+      queuedSave && queuedSave.projectName === projectName && queuedSave.fingerprint !== fingerprint
+    )
+
+    if (!isDirty && !hasDifferentQueuedSave) {
+      setStorySaveStatus('saved')
+      return undefined
+    }
+
+    setStorySaveStatus(
+      (current: StorySaveStatus): StorySaveStatus => (current === 'saving' ? current : 'dirty')
+    )
+    const delayMs: number = history.activeMergeKey
+      ? INPUT_AUTOSAVE_DELAY_MS
+      : STRUCTURE_AUTOSAVE_DELAY_MS
+    storySaveTimerRef.current = window.setTimeout((): void => {
+      storySaveTimerRef.current = null
+      void enqueueStorySaveRef.current(projectName, story)
+    }, delayMs)
+
+    return (): void => clearStorySaveTimer()
+  }, [history.activeMergeKey, isDirty, loadedProjectName, story])
+
+  function clearStorySaveTimer(): void {
+    if (storySaveTimerRef.current === null) return
+    window.clearTimeout(storySaveTimerRef.current)
+    storySaveTimerRef.current = null
+  }
+
+  function clearAssetWriteTimer(): void {
+    if (assetWriteTimerRef.current === null) return
+    window.clearTimeout(assetWriteTimerRef.current)
+    assetWriteTimerRef.current = null
+  }
+
+  function beginStorySaveSession(projectName: string, savedStory: EditorStory): void {
+    clearStorySaveTimer()
+    clearAssetWriteTimer()
+    saveSessionRef.current += 1
+    queuedStorySaveRef.current = null
+    queuedAssetWriteRef.current = null
+    pendingAssetWriteRef.current = null
+    lastPersistedStoryRef.current = { projectName, story: savedStory }
+    setSavingStory(false)
+    setSavingAssets(false)
+    setStorySaveStatus('saved')
+  }
+
+  function invalidateSaveSession(): void {
+    clearStorySaveTimer()
+    clearAssetWriteTimer()
+    saveSessionRef.current += 1
+    queuedStorySaveRef.current = null
+    queuedAssetWriteRef.current = null
+    pendingAssetWriteRef.current = null
+    setSavingStory(false)
+    setSavingAssets(false)
+  }
+
+  function enqueueStorySave(projectName: string, snapshot: EditorStory): Promise<boolean> {
+    const fingerprint: string = storyFingerprint(snapshot)
+    const queuedSave: QueuedStorySave | null = queuedStorySaveRef.current
+    if (
+      queuedSave &&
+      queuedSave.projectName === projectName &&
+      queuedSave.fingerprint === fingerprint
+    ) {
+      return queuedSave.promise
+    }
+
+    const persisted: PersistedStorySnapshot | null = lastPersistedStoryRef.current
+    if (
+      !queuedSave &&
+      persisted?.projectName === projectName &&
+      storiesEqual(persisted.story, snapshot)
+    ) {
+      return Promise.resolve(true)
+    }
+
+    const session: number = saveSessionRef.current
+    const startedAt: number = performance.now()
+    const task: Promise<boolean> = projectWriteQueueRef.current.then(async (): Promise<boolean> => {
+      if (session !== saveSessionRef.current) return false
+
+      setSavingStory(true)
+      setStorySaveStatus('saving')
+      setStorySaveError(null)
+      logger.info('editor.story_save_started', {
+        projectName,
+        snapshotBytes: fingerprint.length
+      })
+
+      try {
+        await saveStoryWithRetry(projectName, snapshot)
+        if (session !== saveSessionRef.current) return false
+
+        lastPersistedStoryRef.current = { projectName, story: snapshot }
+        dispatchHistory({ type: 'save', story: snapshot })
+        const latestMatches: boolean = storiesEqual(storyRef.current, snapshot)
+        setStorySaveStatus(latestMatches ? 'saved' : 'dirty')
+        logger.info('editor.story_save_completed', {
+          projectName,
+          snapshotBytes: fingerprint.length,
+          durationMs: Math.round(performance.now() - startedAt),
+          latestMatches
+        })
+        return true
+      } catch (error: unknown) {
+        if (session !== saveSessionRef.current) return false
+        const message: string = describeError(error, '保存 story.json 失败')
+        setStorySaveStatus('error')
+        setStorySaveError(message)
+        logger.error('editor.story_save_failed', {
+          projectName,
+          snapshotBytes: fingerprint.length,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: describeLogError(error)
+        })
+        return false
+      } finally {
+        if (session === saveSessionRef.current) setSavingStory(false)
+      }
+    })
+
+    projectWriteQueueRef.current = task.then((): void => undefined)
+    queuedStorySaveRef.current = { projectName, fingerprint, promise: task }
+    void task.then((): void => {
+      if (queuedStorySaveRef.current?.promise === task) queuedStorySaveRef.current = null
+    })
+    return task
+  }
+
+  async function saveStoryWithRetry(projectName: string, snapshot: EditorStory): Promise<void> {
+    try {
+      await setProjectStory(projectName, snapshot)
+    } catch (error: unknown) {
+      logger.warn('editor.story_save_retry', {
+        projectName,
+        error: describeLogError(error)
+      })
+      await waitForDelay(SAVE_RETRY_DELAY_MS)
+      await setProjectStory(projectName, snapshot)
+    }
+  }
+
+  function scheduleAssetWrite(projectName: string, assets: ProjectAssets): void {
+    pendingAssetWriteRef.current = { projectName, assets }
+    clearAssetWriteTimer()
+    assetWriteTimerRef.current = window.setTimeout((): void => {
+      assetWriteTimerRef.current = null
+      void flushAssetWrites()
+    }, ASSET_AUTOSAVE_DELAY_MS)
+  }
+
+  function enqueueAssetWrite(write: PendingAssetWrite): Promise<boolean> {
+    const session: number = saveSessionRef.current
+    const task: Promise<boolean> = projectWriteQueueRef.current.then(async (): Promise<boolean> => {
+      if (session !== saveSessionRef.current) return false
+
+      setSavingAssets(true)
+      try {
+        await saveAssetsWithRetry(write.projectName, write.assets)
+        if (session !== saveSessionRef.current) return false
+        setActionError(null)
+        return true
+      } catch (error: unknown) {
+        if (session !== saveSessionRef.current) return false
+        if (!pendingAssetWriteRef.current) pendingAssetWriteRef.current = write
+        setActionError(describeError(error, '保存 assets.json 失败'))
+        logger.error('editor.assets_save_failed', {
+          projectName: write.projectName,
+          error: describeLogError(error)
+        })
+        return false
+      } finally {
+        if (session === saveSessionRef.current) setSavingAssets(false)
+      }
+    })
+
+    projectWriteQueueRef.current = task.then((): void => undefined)
+    queuedAssetWriteRef.current = task
+    void task.then((): void => {
+      if (queuedAssetWriteRef.current === task) queuedAssetWriteRef.current = null
+    })
+    return task
+  }
+
+  async function saveAssetsWithRetry(projectName: string, assets: ProjectAssets): Promise<void> {
+    try {
+      await setProjectAssets(projectName, assets)
+    } catch (error: unknown) {
+      logger.warn('editor.assets_save_retry', {
+        projectName,
+        error: describeLogError(error)
+      })
+      await waitForDelay(SAVE_RETRY_DELAY_MS)
+      await setProjectAssets(projectName, assets)
+    }
+  }
+
+  async function flushAssetWrites(): Promise<boolean> {
+    clearAssetWriteTimer()
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const pendingWrite: PendingAssetWrite | null = pendingAssetWriteRef.current
+      if (pendingWrite) pendingAssetWriteRef.current = null
+      const task: Promise<boolean> | null = pendingWrite
+        ? enqueueAssetWrite(pendingWrite)
+        : queuedAssetWriteRef.current
+      if (!task) return true
+
+      const saved: boolean = await task
+      if (!saved) return false
+      if (!pendingAssetWriteRef.current) return true
+    }
+    setActionError('资源仍在持续变化，请稍后重试。')
+    return false
+  }
+
   function commitStory(nextStory: EditorStory, mergeKey?: string): void {
     dispatchHistory({ type: 'commit', story: nextStory, mergeKey })
     if (!mergeKey) return
@@ -284,6 +645,8 @@ export default function App(): JSX.Element {
     if (!loadedProject) return
     setActionError(null)
     try {
+      const saved: boolean = await flushEditorWrites()
+      if (!saved) return
       await openPlayerWindow(loadedProject.previewInput.projectName)
     } catch (error: unknown) {
       setActionError(describeError(error, '打开播放器失败'))
@@ -301,19 +664,65 @@ export default function App(): JSX.Element {
   async function saveStory(): Promise<boolean> {
     if (!loadedProject) return false
     flushInputMerge()
-    setSavingStory(true)
-    setActionError(null)
-    try {
-      await setProjectStory(loadedProject.previewInput.projectName, story)
-      dispatchHistory({ type: 'save' })
-      return true
-    } catch (error: unknown) {
-      setActionError(describeError(error, '保存 story.json 失败'))
-      return false
-    } finally {
-      setSavingStory(false)
+    clearStorySaveTimer()
+    const projectName: string = loadedProject.previewInput.projectName
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const snapshot: EditorStory = storyRef.current
+      const saved: boolean = await enqueueStorySave(projectName, snapshot)
+      if (!saved) return false
+
+      const latestStory: EditorStory = storyRef.current
+      const queuedSave: QueuedStorySave | null = queuedStorySaveRef.current
+      const queuedDifferentSnapshot: boolean = Boolean(
+        queuedSave &&
+          queuedSave.projectName === projectName &&
+          queuedSave.fingerprint !== storyFingerprint(latestStory)
+      )
+      const persisted: PersistedStorySnapshot | null = lastPersistedStoryRef.current
+      if (
+        !queuedDifferentSnapshot &&
+        persisted?.projectName === projectName &&
+        storiesEqual(persisted.story, latestStory)
+      ) {
+        return true
+      }
     }
+
+    setStorySaveStatus('error')
+    setStorySaveError('Story 仍在持续变化，请稍后重试。')
+    return false
   }
+
+  async function flushEditorWrites(): Promise<boolean> {
+    const storySaved: boolean = await saveStory()
+    const assetsSaved: boolean = await flushAssetWrites()
+    await projectWriteQueueRef.current
+    return storySaved && assetsSaved
+  }
+
+  function runProjectMutation<TResult>(mutation: () => Promise<TResult>): Promise<TResult> {
+    function finishProjectMutation(): void {
+      projectMutationCountRef.current = Math.max(0, projectMutationCountRef.current - 1)
+      setProjectMutationInProgress(projectMutationCountRef.current > 0)
+    }
+
+    projectMutationCountRef.current += 1
+    setProjectMutationInProgress(true)
+    const task: Promise<TResult> = projectWriteQueueRef.current.then(mutation)
+    projectWriteQueueRef.current = task.then(
+      (): void => undefined,
+      (): void => undefined
+    )
+    void task.then(
+      (): void => finishProjectMutation(),
+      (): void => finishProjectMutation()
+    )
+    return task
+  }
+
+  beginStorySaveSessionRef.current = beginStorySaveSession
+  enqueueStorySaveRef.current = enqueueStorySave
+  flushEditorWritesRef.current = flushEditorWrites
 
   function addSnippet(type: AddableSnippetType): void {
     try {
@@ -389,14 +798,18 @@ export default function App(): JSX.Element {
 
     setActionError(null)
     try {
-      const result = await importProjectAsset(
-        loadedProject.previewInput.projectName,
-        kind,
-        sourcePath
-      )
-      replaceAssets(result.assets)
-      setSelectedAsset({ kind, key: result.key })
-      setActivePanel('assets')
+      const saved: boolean = await flushEditorWrites()
+      if (!saved) return
+      await runProjectMutation(async (): Promise<void> => {
+        const result: ProjectAssetMutationResult = await importProjectAsset(
+          loadedProject.previewInput.projectName,
+          kind,
+          sourcePath
+        )
+        replaceAssets(result.assets)
+        setSelectedAsset({ kind, key: result.key })
+        setActivePanel('assets')
+      })
     } catch (error: unknown) {
       setActionError(describeError(error, `导入${ASSET_KIND_LABELS[kind]}失败`))
     }
@@ -436,14 +849,7 @@ export default function App(): JSX.Element {
     const nextAssets: ProjectAssets = update(assetsRef.current)
     const projectName: string = loadedProject.previewInput.projectName
     replaceAssets(nextAssets)
-    assetWriteQueueRef.current = assetWriteQueueRef.current
-      .catch((): void => undefined)
-      .then(async (): Promise<void> => {
-        await setProjectAssets(projectName, nextAssets)
-      })
-      .catch((error: unknown): void => {
-        setActionError(describeError(error, '保存 assets.json 失败'))
-      })
+    scheduleAssetWrite(projectName, nextAssets)
   }
 
   function updateModelAsset(key: string, asset: ModelAsset): void {
@@ -478,21 +884,39 @@ export default function App(): JSX.Element {
   }
 
   async function renameAsset(selection: EditorAssetSelection, nextKey: string): Promise<void> {
-    if (!loadedProject || isDirty) {
-      setActionError('请先保存 story，再重命名资源键。')
-      return
-    }
+    if (!loadedProject) return
+    const saved: boolean = await flushEditorWrites()
+    if (!saved) return
+    const persistedBeforeRename: EditorStory =
+      lastPersistedStoryRef.current?.story ?? storyRef.current
     try {
-      const nextAssets = await renameProjectAsset(
-        loadedProject.previewInput.projectName,
-        selection.kind,
-        selection.key,
-        nextKey
-      )
-      replaceAssets(nextAssets)
-      const rewrittenStory = renameAssetReferences(story, selection.kind, selection.key, nextKey)
-      dispatchHistory({ type: 'load', story: rewrittenStory })
-      setSelectedAsset({ kind: selection.kind, key: nextKey })
+      await runProjectMutation(async (): Promise<void> => {
+        const nextAssets: ProjectAssets = await renameProjectAsset(
+          loadedProject.previewInput.projectName,
+          selection.kind,
+          selection.key,
+          nextKey
+        )
+        replaceAssets(nextAssets)
+        const persistedRewrittenStory: EditorStory = renameAssetReferences(
+          persistedBeforeRename,
+          selection.kind,
+          selection.key,
+          nextKey
+        )
+        const currentRewrittenStory: EditorStory = renameAssetReferences(
+          storyRef.current,
+          selection.kind,
+          selection.key,
+          nextKey
+        )
+        beginStorySaveSession(loadedProject.previewInput.projectName, persistedRewrittenStory)
+        dispatchHistory({ type: 'load', story: persistedRewrittenStory })
+        if (!storiesEqual(currentRewrittenStory, persistedRewrittenStory)) {
+          dispatchHistory({ type: 'commit', story: currentRewrittenStory })
+        }
+        setSelectedAsset({ kind: selection.kind, key: nextKey })
+      })
     } catch (error: unknown) {
       setActionError(describeError(error, '重命名资源键失败'))
     }
@@ -515,6 +939,8 @@ export default function App(): JSX.Element {
       return
     }
     try {
+      const saved: boolean = await flushEditorWrites()
+      if (!saved) return
       const references = await getProjectAssetReferences(
         loadedProject.previewInput.projectName,
         selection.kind,
@@ -529,14 +955,18 @@ export default function App(): JSX.Element {
   async function confirmDeleteAsset(): Promise<void> {
     if (!loadedProject || !assetDeletePrompt || assetDeletePrompt.references.length > 0) return
     try {
-      const nextAssets = await deleteProjectAsset(
-        loadedProject.previewInput.projectName,
-        assetDeletePrompt.selection.kind,
-        assetDeletePrompt.selection.key
-      )
-      replaceAssets(nextAssets)
-      setSelectedAsset(firstAssetSelection(nextAssets))
-      setAssetDeletePrompt(null)
+      const saved: boolean = await flushEditorWrites()
+      if (!saved) return
+      await runProjectMutation(async (): Promise<void> => {
+        const nextAssets: ProjectAssets = await deleteProjectAsset(
+          loadedProject.previewInput.projectName,
+          assetDeletePrompt.selection.kind,
+          assetDeletePrompt.selection.key
+        )
+        replaceAssets(nextAssets)
+        setSelectedAsset(firstAssetSelection(nextAssets))
+        setAssetDeletePrompt(null)
+      })
     } catch (error: unknown) {
       setActionError(describeError(error, '删除资源失败'))
       setAssetDeletePrompt(null)
@@ -547,16 +977,25 @@ export default function App(): JSX.Element {
     const targetProjectName: string | null = pendingProjectName
     if (!targetProjectName) return
     if (action === 'save') {
-      const saved: boolean = await saveStory()
-      if (!saved) return
+      setProjectSwitchNeedsDecision(false)
+      const saved: boolean = await flushEditorWrites()
+      if (!saved) {
+        setProjectSwitchNeedsDecision(true)
+        return
+      }
     }
     if (action === 'cancel') {
       blockedSwitchProjectRef.current = targetProjectName
+      projectSwitchAttemptRef.current = null
       setPendingProjectName(null)
+      setProjectSwitchNeedsDecision(false)
       return
     }
+    if (action === 'discard') invalidateSaveSession()
     blockedSwitchProjectRef.current = null
+    projectSwitchAttemptRef.current = null
     setPendingProjectName(null)
+    setProjectSwitchNeedsDecision(false)
     setActiveProjectName(targetProjectName)
   }
 
@@ -588,7 +1027,13 @@ export default function App(): JSX.Element {
             <Clapperboard className="size-4" />
           </div>
           <p className="min-w-0 truncate text-sm font-semibold">{loadedProject.metadata.title}</p>
-          {isDirty && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}
+          <span
+            aria-label={isDirty ? '有未保存修改' : undefined}
+            className={cn(
+              'size-1.5 shrink-0 rounded-full bg-amber-500 transition-opacity duration-300 ease-out',
+              isDirty ? 'opacity-100' : 'opacity-0'
+            )}
+          />
         </div>
 
         <div className="ml-5 flex items-center gap-1 border-l pl-4">
@@ -598,7 +1043,7 @@ export default function App(): JSX.Element {
             size="icon"
             aria-label="撤销"
             title="撤销"
-            disabled={history.past.length === 0 || savingStory}
+            disabled={history.past.length === 0}
             onClick={(): void => dispatchHistory({ type: 'undo' })}
           >
             <Undo2 className="size-4" />
@@ -609,33 +1054,29 @@ export default function App(): JSX.Element {
             size="icon"
             aria-label="重做"
             title="重做"
-            disabled={history.future.length === 0 || savingStory}
+            disabled={history.future.length === 0}
             onClick={(): void => dispatchHistory({ type: 'redo' })}
           >
             <Redo2 className="size-4" />
           </Button>
           <Button
             type="button"
-            variant={isDirty ? 'default' : 'outline'}
-            size="sm"
-            className="ml-1"
-            disabled={savingStory}
+            variant="ghost"
+            size="icon"
+            className={cn('ml-1', storySaveStatus === 'error' && 'text-destructive')}
+            aria-label={saveButtonTitle}
+            title={saveButtonTitle}
             onClick={(): void => {
-              void saveStory()
+              void flushEditorWrites()
             }}
           >
-            {savingStory ? (
-              <LoaderCircle className="size-3.5 animate-spin" />
-            ) : (
-              <Save className="size-3.5" />
-            )}
-            {isDirty ? '保存修改' : '已保存'}
+            <Save className="size-4" />
           </Button>
         </div>
 
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          {actionError && (
-            <span className="max-w-72 truncate text-xs text-destructive">{actionError}</span>
+          {visibleError && (
+            <span className="max-w-72 truncate text-xs text-destructive">{visibleError}</span>
           )}
           <Button
             type="button"
@@ -659,7 +1100,10 @@ export default function App(): JSX.Element {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,0.86fr)_minmax(420px,1.72fr)_minmax(300px,1fr)] overflow-hidden">
+      <div
+        className="grid min-h-0 flex-1 grid-cols-[minmax(240px,0.86fr)_minmax(420px,1.72fr)_minmax(300px,1fr)] overflow-hidden"
+        inert={projectMutationInProgress}
+      >
         <EditorSidebar
           activePanel={activePanel}
           searchQuery={searchQuery}
@@ -705,7 +1149,6 @@ export default function App(): JSX.Element {
           <EditorAssetInspector
             assets={previewInput.assets}
             selectedAsset={selectedAsset}
-            storyDirty={isDirty}
             onModelChange={updateModelAsset}
             onFileAssetChange={updateFileAsset}
             onRename={(selection: EditorAssetSelection, key: string): void => {
@@ -757,8 +1200,8 @@ export default function App(): JSX.Element {
       </AlertDialog>
 
       <ProjectSwitchDialog
-        targetProjectName={pendingProjectName}
-        saving={savingStory}
+        targetProjectName={projectSwitchNeedsDecision ? pendingProjectName : null}
+        saving={editorSaving}
         onAction={handleProjectSwitch}
       />
       <AssetDeleteDialog
@@ -772,16 +1215,20 @@ export default function App(): JSX.Element {
         onOpenChange={setRegisterModelOpen}
         onRegister={async (modelId: string, key: string, name: string): Promise<void> => {
           try {
-            const result = await registerProjectModel(
-              previewInput.projectName,
-              modelId,
-              key || undefined,
-              name || undefined
-            )
-            replaceAssets(result.assets)
-            setSelectedAsset({ kind: 'models', key: result.key })
-            setActivePanel('assets')
-            setRegisterModelOpen(false)
+            const saved: boolean = await flushEditorWrites()
+            if (!saved) throw new Error('保存当前编辑器修改失败')
+            await runProjectMutation(async (): Promise<void> => {
+              const result: ProjectAssetMutationResult = await registerProjectModel(
+                previewInput.projectName,
+                modelId,
+                key || undefined,
+                name || undefined
+              )
+              replaceAssets(result.assets)
+              setSelectedAsset({ kind: 'models', key: result.key })
+              setActivePanel('assets')
+              setRegisterModelOpen(false)
+            })
           } catch (error: unknown) {
             setActionError(describeError(error, '注册模型失败'))
             throw error
@@ -789,18 +1236,25 @@ export default function App(): JSX.Element {
         }}
         onImport={async (sourcePath: string, key: string, name: string): Promise<void> => {
           try {
-            const imported = await importGlobalModel(sourcePath, name || undefined)
-            replaceModelRegistry(imported.registry)
-            const result = await registerProjectModel(
-              previewInput.projectName,
-              imported.modelId,
-              key || undefined,
-              name || undefined
-            )
-            replaceAssets(result.assets)
-            setSelectedAsset({ kind: 'models', key: result.key })
-            setActivePanel('assets')
-            setRegisterModelOpen(false)
+            const saved: boolean = await flushEditorWrites()
+            if (!saved) throw new Error('保存当前编辑器修改失败')
+            await runProjectMutation(async (): Promise<void> => {
+              const imported: ImportedModelResult = await importGlobalModel(
+                sourcePath,
+                name || undefined
+              )
+              replaceModelRegistry(imported.registry)
+              const result: ProjectAssetMutationResult = await registerProjectModel(
+                previewInput.projectName,
+                imported.modelId,
+                key || undefined,
+                name || undefined
+              )
+              replaceAssets(result.assets)
+              setSelectedAsset({ kind: 'models', key: result.key })
+              setActivePanel('assets')
+              setRegisterModelOpen(false)
+            })
           } catch (error: unknown) {
             setActionError(describeError(error, '导入模型失败'))
             throw error
@@ -853,9 +1307,9 @@ function ProjectSwitchDialog({
     <AlertDialog open={targetProjectName !== null}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>保存当前项目的修改？</AlertDialogTitle>
+          <AlertDialogTitle>自动保存失败</AlertDialogTitle>
           <AlertDialogDescription>
-            将切换到「{targetProjectName ?? ''}」。未保存的 story 修改可以保存、放弃，或取消切换。
+            切换到「{targetProjectName ?? ''}」前无法保存当前修改。可以重试、放弃修改，或取消切换。
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -876,7 +1330,7 @@ function ProjectSwitchDialog({
             放弃修改
           </Button>
           <Button type="button" disabled={saving} onClick={(): void => void onAction('save')}>
-            保存并切换
+            重试并切换
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1219,6 +1673,16 @@ function countDescendants(node: NonNullable<ReturnType<typeof findEditorNode>>):
 
 function describeError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
+}
+
+function storyFingerprint(story: EditorStory): string {
+  return JSON.stringify(story)
+}
+
+function waitForDelay(delayMs: number): Promise<void> {
+  return new Promise<void>((resolve: () => void): void => {
+    window.setTimeout(resolve, delayMs)
+  })
 }
 
 function fileNameFromPath(path: string): string {

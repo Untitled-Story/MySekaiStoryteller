@@ -18,6 +18,13 @@
       "opener:default"
     ]
   },
+  "editor": {
+    "identifier": "editor",
+    "description": "Additional permissions for the editor window",
+    "local": true,
+    "windows": ["editor"],
+    "permissions": ["core:window:allow-destroy"]
+  },
   "player": {
     "identifier": "player",
     "description": "Additional permissions for the borderless player window",
