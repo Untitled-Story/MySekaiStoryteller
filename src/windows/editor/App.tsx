@@ -755,12 +755,15 @@ export default function App({
     }
   }
 
-  function duplicateSelectedSnippet(): void {
-    if (!selectedNode) return
-    const duplication = duplicateSnippetSubtree(story, selectedNode.id)
+  function duplicateSnippet(nodeId: string): void {
+    const duplication = duplicateSnippetSubtree(story, nodeId)
     if (!duplication) return
     commitStory(duplication.story)
     setSelectedNodeId(duplication.duplicatedId)
+  }
+
+  function duplicateSelectedSnippet(): void {
+    if (selectedNode) duplicateSnippet(selectedNode.id)
   }
 
   function deleteSelectedSnippet(): void {
@@ -1136,6 +1139,20 @@ export default function App({
             setSelectedNodeId(nodeId)
             setActivePanel('story')
             requestPreview(nodeId, true)
+          }}
+          onContextSelectSnippet={(nodeId: string): void => {
+            setSelectedNodeId(nodeId)
+            setActivePanel('story')
+          }}
+          onPreviewSnippet={(nodeId: string): void => {
+            setSelectedNodeId(nodeId)
+            setActivePanel('story')
+            requestPreview(nodeId, false)
+          }}
+          onDuplicateSnippet={duplicateSnippet}
+          onDeleteSnippet={(nodeId: string): void => {
+            setSelectedNodeId(nodeId)
+            setDeleteSnippetId(nodeId)
           }}
           onToggleParallel={toggleParallel}
           onMoveSnippet={moveSnippet}

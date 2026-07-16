@@ -2,14 +2,21 @@ import type { ChangeEvent, JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useRef, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
+  Copy,
   FolderPlus,
   GripVertical,
   ImagePlus,
+  IndentDecrease,
+  IndentIncrease,
   LibraryBig,
+  Play,
   Plus,
   Search,
+  Trash2,
   UserPlus,
   Volume2
 } from 'lucide-react'
@@ -22,6 +29,13 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/ContextMenu'
 import { builtinSnippetDefinitions, type StoryAssetKind } from '@/story'
 import type { ProjectAssetKind, ProjectAssets } from '@/project/assets'
 import { cn } from '@/lib/style'
@@ -48,6 +62,18 @@ type StoryDropTarget = {
   indicatorDepth: number
 }
 
+type StoryMoveTarget = {
+  nodeId: string
+  placement: SnippetDropPlacement
+}
+
+type StoryContextMoves = {
+  up: StoryMoveTarget | null
+  down: StoryMoveTarget | null
+  indent: StoryMoveTarget | null
+  outdent: StoryMoveTarget | null
+}
+
 export function EditorSidebar({
   activePanel,
   searchQuery,
@@ -61,6 +87,10 @@ export function EditorSidebar({
   onActivePanelChange,
   onSearchQueryChange,
   onSelectNode,
+  onContextSelectSnippet,
+  onPreviewSnippet,
+  onDuplicateSnippet,
+  onDeleteSnippet,
   onToggleParallel,
   onMoveSnippet,
   onSelectAsset,
@@ -81,6 +111,10 @@ export function EditorSidebar({
   onActivePanelChange: (panel: EditorSidebarTab) => void
   onSearchQueryChange: (query: string) => void
   onSelectNode: (nodeId: string) => void
+  onContextSelectSnippet: (nodeId: string) => void
+  onPreviewSnippet: (nodeId: string) => void
+  onDuplicateSnippet: (nodeId: string) => void
+  onDeleteSnippet: (nodeId: string) => void
   onToggleParallel: (nodeId: string) => void
   onMoveSnippet: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   onSelectAsset: (selection: EditorAssetSelection) => void
@@ -146,6 +180,10 @@ export function EditorSidebar({
           activeSnippetIds={activeSnippetIds}
           expandedParallelIds={expandedParallelIds}
           onSelect={onSelectNode}
+          onContextSelect={onContextSelectSnippet}
+          onPreview={onPreviewSnippet}
+          onDuplicate={onDuplicateSnippet}
+          onDelete={onDeleteSnippet}
           onToggleParallel={onToggleParallel}
           onMove={onMoveSnippet}
           dragEnabled={!searchQuery.trim()}
@@ -203,6 +241,10 @@ function StoryTree({
   activeSnippetIds,
   expandedParallelIds,
   onSelect,
+  onContextSelect,
+  onPreview,
+  onDuplicate,
+  onDelete,
   onToggleParallel,
   onMove,
   dragEnabled,
@@ -213,6 +255,10 @@ function StoryTree({
   activeSnippetIds: ReadonlySet<string>
   expandedParallelIds: ReadonlySet<string>
   onSelect: (nodeId: string) => void
+  onContextSelect: (nodeId: string) => void
+  onPreview: (nodeId: string) => void
+  onDuplicate: (nodeId: string) => void
+  onDelete: (nodeId: string) => void
   onToggleParallel: (nodeId: string) => void
   onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   dragEnabled: boolean
@@ -354,8 +400,9 @@ function StoryTree({
       onPointerCancel={finishPointerDrag}
     >
       <div className="space-y-0.5">
-        {nodes.map(
-          (flatNode: FlatTreeNode): JSX.Element => (
+        {nodes.map((flatNode: FlatTreeNode): JSX.Element => {
+          const contextMoves: StoryContextMoves = resolveContextMoves(nodes, flatNode)
+          return (
             <StoryNodeRow
               key={flatNode.node.id}
               flatNode={flatNode}
@@ -374,10 +421,16 @@ function StoryTree({
                 dropTarget?.indicatorNodeId === flatNode.node.id ? dropTarget.indicatorDepth : null
               }
               onSelect={onSelect}
+              onContextSelect={onContextSelect}
+              onPreview={onPreview}
+              onDuplicate={onDuplicate}
+              onDelete={onDelete}
+              onMove={onMove}
+              contextMoves={contextMoves}
               onToggleParallel={onToggleParallel}
             />
           )
-        )}
+        })}
       </div>
       {nodes.length === 0 && (
         <div className="px-2 pt-8 text-center text-xs text-muted-foreground">当前场景没有片段</div>
@@ -405,6 +458,12 @@ function StoryNodeRow({
   dropPlacement,
   dropIndicatorDepth,
   onSelect,
+  onContextSelect,
+  onPreview,
+  onDuplicate,
+  onDelete,
+  onMove,
+  contextMoves,
   onToggleParallel
 }: {
   flatNode: FlatTreeNode
@@ -417,6 +476,12 @@ function StoryNodeRow({
   dropPlacement: SnippetDropPlacement | null
   dropIndicatorDepth: number | null
   onSelect: (nodeId: string) => void
+  onContextSelect: (nodeId: string) => void
+  onPreview: (nodeId: string) => void
+  onDuplicate: (nodeId: string) => void
+  onDelete: (nodeId: string) => void
+  onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
+  contextMoves: StoryContextMoves
   onToggleParallel: (nodeId: string) => void
 }): JSX.Element {
   const node: EditorNode = flatNode.node
@@ -424,84 +489,140 @@ function StoryNodeRow({
   const Icon: LucideIcon = presentation.icon
   const isParallel: boolean = node.type === 'Parallel'
 
+  function moveTo(target: StoryMoveTarget | null): void {
+    if (target) onMove(node.id, target.nodeId, target.placement)
+  }
+
   return (
-    <div
-      className={cn('relative transition-opacity', dragging && 'opacity-35')}
-      style={{ paddingLeft: `${flatNode.depth * 18}px` }}
-      data-snippet-id={node.id}
-    >
-      {dropPlacement === 'before' && (
-        <span
-          className="pointer-events-none absolute top-0 right-2 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary"
-          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
-        />
-      )}
-      {dropPlacement === 'after' && (
-        <span
-          className="pointer-events-none absolute right-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary"
-          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
-        />
-      )}
-      {flatNode.depth > 0 && (
-        <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
-      )}
-      <button
-        type="button"
-        title={dragEnabled ? '拖拽以调整片段顺序或层级' : '清除搜索后可拖拽片段'}
-        className={cn(
-          'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
-          selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
-          isParallel && !selected && 'bg-violet-500/[0.035]',
-          dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60'
-        )}
-        onClick={(): void => onSelect(node.id)}
-      >
-        <span
-          data-drag-handle
-          className={cn(
-            'flex shrink-0',
-            dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(): void => onContextSelect(node.id)}>
+        <div
+          className={cn('relative transition-opacity', dragging && 'opacity-35')}
+          style={{ paddingLeft: `${flatNode.depth * 18}px` }}
+          data-snippet-id={node.id}
+        >
+          {dropPlacement === 'before' && (
+            <span
+              className="pointer-events-none absolute top-0 right-2 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary"
+              style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+            />
           )}
-          title={dragEnabled ? '拖拽调整片段' : undefined}
-        >
-          <GripVertical className="size-3 text-muted-foreground/45" />
-        </span>
-        <span
-          className={cn(
-            'flex size-6 shrink-0 items-center justify-center rounded-sm',
-            TONE_CLASS_NAMES[presentation.tone]
+          {dropPlacement === 'after' && (
+            <span
+              className="pointer-events-none absolute right-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary"
+              style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+            />
           )}
+          {flatNode.depth > 0 && (
+            <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
+          )}
+          <button
+            type="button"
+            title={dragEnabled ? '拖拽以调整片段顺序或层级' : '清除搜索后可拖拽片段'}
+            className={cn(
+              'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
+              selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
+              isParallel && !selected && 'bg-violet-500/[0.035]',
+              dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60'
+            )}
+            onClick={(): void => onSelect(node.id)}
+          >
+            <span
+              data-drag-handle
+              className={cn(
+                'flex shrink-0',
+                dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+              )}
+              title={dragEnabled ? '拖拽调整片段' : undefined}
+            >
+              <GripVertical className="size-3 text-muted-foreground/45" />
+            </span>
+            <span
+              className={cn(
+                'flex size-6 shrink-0 items-center justify-center rounded-sm',
+                TONE_CLASS_NAMES[presentation.tone]
+              )}
+            >
+              <Icon className="size-3.5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium">{node.type}</span>
+              <span className="block truncate text-[11px] text-muted-foreground">
+                {formatNodeSummary(node)}
+              </span>
+            </span>
+            {(active || (!hasActiveSnippets && selected)) && (
+              <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+            )}
+          </button>
+          {isParallel && (
+            <button
+              type="button"
+              className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label={expanded ? '收起 Parallel' : '展开 Parallel'}
+              title={expanded ? '收起 Parallel' : '展开 Parallel'}
+              data-no-drag
+              onClick={(): void => onToggleParallel(node.id)}
+            >
+              {expanded ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+            </button>
+          )}
+          {isParallel && flatNode.childCount > 0 && (
+            <span className="absolute right-9 bottom-1 font-mono text-[9px] text-violet-700/80">
+              {flatNode.childCount}
+            </span>
+          )}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-52 font-medium select-none">
+        <ContextMenuItem onClick={(): void => onPreview(node.id)}>
+          <Play />
+          从此处预览
+        </ContextMenuItem>
+        <ContextMenuItem onClick={(): void => onDuplicate(node.id)}>
+          <Copy />
+          复制片段
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          disabled={!dragEnabled || !contextMoves.up}
+          onClick={(): void => moveTo(contextMoves.up)}
         >
-          <Icon className="size-3.5" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-medium">{node.type}</span>
-          <span className="block truncate text-[11px] text-muted-foreground">
-            {formatNodeSummary(node)}
-          </span>
-        </span>
-        {(active || (!hasActiveSnippets && selected)) && (
-          <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-        )}
-      </button>
-      {isParallel && (
-        <button
-          type="button"
-          className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={expanded ? '收起 Parallel' : '展开 Parallel'}
-          title={expanded ? '收起 Parallel' : '展开 Parallel'}
-          data-no-drag
-          onClick={(): void => onToggleParallel(node.id)}
+          <ArrowUp />
+          上移
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!dragEnabled || !contextMoves.down}
+          onClick={(): void => moveTo(contextMoves.down)}
         >
-          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        </button>
-      )}
-      {isParallel && flatNode.childCount > 0 && (
-        <span className="absolute right-9 bottom-1 font-mono text-[9px] text-violet-700/80">
-          {flatNode.childCount}
-        </span>
-      )}
-    </div>
+          <ArrowDown />
+          下移
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!dragEnabled || !contextMoves.indent}
+          onClick={(): void => moveTo(contextMoves.indent)}
+        >
+          <IndentIncrease />
+          移入上方 Parallel
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!dragEnabled || !contextMoves.outdent}
+          onClick={(): void => moveTo(contextMoves.outdent)}
+        >
+          <IndentDecrease />
+          移出 Parallel
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" onClick={(): void => onDelete(node.id)}>
+          <Trash2 />
+          删除片段
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -517,6 +638,39 @@ function resolveDropPlacement(
   if (relativeY < 0.28) return 'before'
   if (relativeY > 0.72) return 'after'
   return 'inside'
+}
+
+function resolveContextMoves(
+  nodes: readonly FlatTreeNode[],
+  source: FlatTreeNode
+): StoryContextMoves {
+  const siblingIndex: number | undefined = source.path.at(-1)
+  const parentPath: readonly number[] = source.path.slice(0, -1)
+  if (siblingIndex === undefined) {
+    return { up: null, down: null, indent: null, outdent: null }
+  }
+
+  const previousSibling: FlatTreeNode | undefined = findTreeNodeAtPath(nodes, [
+    ...parentPath,
+    siblingIndex - 1
+  ])
+  const nextSibling: FlatTreeNode | undefined = findTreeNodeAtPath(nodes, [
+    ...parentPath,
+    siblingIndex + 1
+  ])
+  const parent: FlatTreeNode | undefined =
+    parentPath.length > 0 ? findTreeNodeAtPath(nodes, parentPath) : undefined
+
+  return {
+    up: previousSibling ? { nodeId: previousSibling.node.id, placement: 'before' } : null,
+    down: nextSibling ? { nodeId: nextSibling.node.id, placement: 'after' } : null,
+    indent:
+      previousSibling?.node.type === 'Parallel'
+        ? { nodeId: previousSibling.node.id, placement: 'inside' }
+        : null,
+    outdent:
+      parent?.node.type === 'Parallel' ? { nodeId: parent.node.id, placement: 'after' } : null
+  }
 }
 
 function resolveOutdentTarget(
@@ -597,6 +751,13 @@ function pathsEqual(left: readonly number[], right: readonly number[]): boolean 
     left.length === right.length &&
     left.every((index: number, depth: number): boolean => index === right[depth])
   )
+}
+
+function findTreeNodeAtPath(
+  nodes: readonly FlatTreeNode[],
+  path: readonly number[]
+): FlatTreeNode | undefined {
+  return nodes.find((candidate: FlatTreeNode): boolean => pathsEqual(candidate.path, path))
 }
 
 function findLastTreeNode(
