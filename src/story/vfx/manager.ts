@@ -62,10 +62,11 @@ export class StoryVisualEffectManager {
 
     const target: StoryVisualEffectTarget = this.resolveTarget(targetData)
     const registrations: StoryVisualEffectFactoryRegistration[] = this.registry.resolve(effectName)
-    for (const registration of registrations) {
-      if (!registration.targets.includes(target.type)) {
-        throw new Error(`VFX ${registration.name} 不支持 ${target.type} target`)
-      }
+    const supportedTargets = this.registry.getSupportedTargets(effectName)
+    if (!supportedTargets.includes(target.type)) {
+      throw new Error(
+        `VFX ${effectName} 不支持 ${target.type} target，仅支持: ${supportedTargets.join(', ')}`
+      )
     }
 
     const context: StoryVisualEffectContext = {

@@ -19,13 +19,14 @@ export function createBuiltinVisualEffectRegistry(): StoryVisualEffectRegistry {
       factory: createHologramEffect
     },
     {
-      name: 'builtin:hologram-triangles',
+      name: 'TriangleParticles',
       targets: ['Model'],
       factory: createTriangleParticleEffect
     },
     {
-      name: 'hologram',
-      effects: ['builtin:hologram-beam', 'builtin:hologram-triangles']
+      name: 'Hologram',
+      targets: ['Model'],
+      effects: ['builtin:hologram-beam', 'TriangleParticles']
     },
     {
       name: 'Grayscale',

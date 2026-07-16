@@ -75,7 +75,7 @@ const TELOP_SHOW_TIME_MS: number = 200
 const TELOP_HOLD_TIME_MS: number = 2000
 const TELOP_HIDE_TIME_MS: number = 200
 const VOICE_VOLUME: number = 0.5
-const INTERNAL_MODEL_EFFECT_PREFIX: string = '__layout-model-effect:'
+const LAYOUT_HOLOGRAM_EFFECT_PREFIX: string = '__layout-hologram:'
 const MOTION_IGNORE_EYE_PARAMS = [
   'ParamEyeROpen',
   'ParamEyeLOpen',
@@ -278,20 +278,16 @@ export function createStoryScene({
     },
     async showModel(options: StoryModelAppearOptions): Promise<void> {
       const { model } = attachModel(options.modelKey)
+      await setLayoutHologram(options.modelKey, options.hologram)
 
       if (fastForwarding) {
         await applyModelLastFrame(model, options.motion, options.facial)
-        if (options.hologram) await applyModelEffects(options.modelKey, ['hologram'])
-        else await disableAllModelEffects(options.modelKey)
         ensureAlphaFilter(model).alpha = 1
         return
       }
 
       await playModelLastFrame(model, waitUntil, options.motion, options.facial)
 
-      if (options.hologram) {
-        await applyModelEffects(options.modelKey, ['hologram'])
-      }
       const showTask = showModelWithFade(model, MODEL_SHOW_TIME_MS, animateLinear)
       if (options.motion) {
         await closeModelEyes(model, 0, animateLinear)
@@ -315,13 +311,13 @@ export function createStoryScene({
       const { model } = getModel(options.modelKey)
       if (fastForwarding) {
         ensureAlphaFilter(model).alpha = 0
-        await disableAllModelEffects(options.modelKey)
+        await setLayoutHologram(options.modelKey, false)
         model.visible = false
         model.removeFromParent()
         return
       }
       await hideModelWithFade(model, MODEL_HIDE_TIME_MS, animateLinear)
-      await disableAllModelEffects(options.modelKey)
+      await setLayoutHologram(options.modelKey, false)
       model.visible = false
       model.removeFromParent()
     },
@@ -593,25 +589,6 @@ export function createStoryScene({
     previousStageSize = nextStageSize
   }
 
-  async function applyModelEffects(
-    modelKey: string,
-    effectNames: readonly string[]
-  ): Promise<void> {
-    for (const effectName of effectNames) {
-      await visualEffectManager.apply({
-        effectId: internalModelEffectId(modelKey, effectName),
-        effectName,
-        target: { type: 'Model', model: modelKey }
-      })
-    }
-  }
-
-  async function disableAllModelEffects(modelKey: string): Promise<void> {
-    await visualEffectManager.removeMatching((effectId: string): boolean =>
-      effectId.startsWith(`${INTERNAL_MODEL_EFFECT_PREFIX}${modelKey}:`)
-    )
-  }
-
   function resolveEffectTarget(target: EffectTargetData): StoryVisualEffectTarget {
     if (target.type === 'Stage') return { type: 'Stage', container: stageRoot }
     if (target.type === 'Screen') return { type: 'Screen', container: presentationRoot }
@@ -619,6 +596,20 @@ export function createStoryScene({
     const model: StoryModelInstance = getModel(target.model)
     prepareModel(model)
     return { type: 'Model', container: model.model, model }
+  }
+
+  async function setLayoutHologram(modelKey: string, enabled: boolean): Promise<void> {
+    const effectId: string = `${LAYOUT_HOLOGRAM_EFFECT_PREFIX}${modelKey}`
+    if (!enabled) {
+      await visualEffectManager.remove(effectId, 0)
+      return
+    }
+    await visualEffectManager.apply({
+      effectId,
+      effectName: 'Hologram',
+      target: { type: 'Model', model: modelKey },
+      durationMs: 0
+    })
   }
 
   function getModel(modelKey: string): StoryModelInstance {
@@ -655,10 +646,6 @@ export function createStoryScene({
     presentationRoot.removeFromParent()
     presentationRoot.destroy()
   }
-}
-
-function internalModelEffectId(modelKey: string, effectName: string): string {
-  return `${INTERNAL_MODEL_EFFECT_PREFIX}${modelKey}:${effectName}`
 }
 
 function resolveCustomLayerZIndex(options: StoryCreateLayerOptions): number {

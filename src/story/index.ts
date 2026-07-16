@@ -14,6 +14,7 @@ export {
   EffectIdSchema,
   EffectTargetSchema,
   GrayscaleEffectSchema,
+  HologramEffectSchema,
   HexColorSchema,
   HideTalkSnippetSchema,
   LayoutAppearSnippetSchema,
@@ -41,6 +42,7 @@ export {
   StorySchema,
   TalkSnippetSchema,
   TelopSnippetSchema,
+  TriangleParticlesEffectSchema,
   VisualEffectSchema,
   type AssetKeyData,
   type BlurEffectData,
@@ -50,6 +52,7 @@ export {
   type HexColorData,
   type EffectTargetData,
   type GrayscaleEffectData,
+  type HologramEffectData,
   type LeafSnippetData,
   type LeafSnippetInput,
   type LayoutModeData,
@@ -64,6 +67,7 @@ export {
   type SnippetInput,
   type StoryData,
   type StoryInput,
+  type TriangleParticlesEffectData,
   type VisualEffectData
 } from './schema'
 export {
@@ -139,3 +143,9 @@ export {
   type StorySceneApi,
   type StoryTelopOptions
 } from './types'
+export {
+  createBuiltinVisualEffectRegistry,
+  StoryVisualEffectManager,
+  StoryVisualEffectRegistry,
+  type StoryVisualEffectTargetType
+} from './vfx'

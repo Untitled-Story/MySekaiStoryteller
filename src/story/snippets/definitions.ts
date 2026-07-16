@@ -1,5 +1,11 @@
 import type { StorySnippetRegistration } from '@/story'
-import type { CurveData, MoveSpeedData, PositionData, SnippetData } from '@/story/schema'
+import type {
+  CurveData,
+  MoveSpeedData,
+  PositionData,
+  SnippetData,
+  VisualEffectData
+} from '@/story/schema'
 import type { ProjectAssets } from '@/project/assets'
 import { Curves, LayoutModes, MoveSpeed, Sides } from '@/story/schema'
 import ChangeBackgroundImageSnippet from './builtin/ChangeBackgroundImageSnippet'
@@ -568,13 +574,15 @@ function requireAssetKey(assets: ProjectAssets, kind: StoryAssetKind): string {
   return key
 }
 
-function effectLabel(type: 'Grayscale' | 'Blur' | 'OldFilm' | 'CRT' | 'ColorOverlay'): string {
+function effectLabel(type: VisualEffectData['type']): string {
   return {
     Grayscale: '黑白',
     Blur: '模糊',
     OldFilm: '老电影',
     CRT: 'CRT',
-    ColorOverlay: '纯色覆盖'
+    ColorOverlay: '纯色覆盖',
+    Hologram: '全息投影',
+    TriangleParticles: '三角粒子'
   }[type]
 }
 

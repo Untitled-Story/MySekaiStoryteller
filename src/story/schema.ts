@@ -99,12 +99,22 @@ export const ColorOverlayEffectSchema = z.object({
   alpha: FiniteNumberSchema.min(0).max(1).default(0.5)
 })
 
+export const HologramEffectSchema = z.object({
+  type: z.literal('Hologram')
+})
+
+export const TriangleParticlesEffectSchema = z.object({
+  type: z.literal('TriangleParticles')
+})
+
 export const VisualEffectSchema = z.discriminatedUnion('type', [
   GrayscaleEffectSchema,
   BlurEffectSchema,
   OldFilmEffectSchema,
   CrtEffectSchema,
-  ColorOverlayEffectSchema
+  ColorOverlayEffectSchema,
+  HologramEffectSchema,
+  TriangleParticlesEffectSchema
 ])
 
 export const ChangeLayoutModeSnippetSchema = SnippetBaseSchema.extend({
@@ -262,6 +272,8 @@ export type BlurEffectData = z.output<typeof BlurEffectSchema>
 export type OldFilmEffectData = z.output<typeof OldFilmEffectSchema>
 export type CrtEffectData = z.output<typeof CrtEffectSchema>
 export type ColorOverlayEffectData = z.output<typeof ColorOverlayEffectSchema>
+export type HologramEffectData = z.output<typeof HologramEffectSchema>
+export type TriangleParticlesEffectData = z.output<typeof TriangleParticlesEffectSchema>
 export type SnippetBaseData = z.output<typeof SnippetBaseSchema>
 export type LeafSnippetData = z.output<typeof LeafSnippetSchema>
 export type LeafSnippetInput = z.input<typeof LeafSnippetSchema>

@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
 import {
+  createBuiltinVisualEffectRegistry,
   defaultParameterAnimation,
   getBuiltinSnippetDefinition,
   storyFieldOptions,
-  type StorySnippetFieldDefinition
+  type StorySnippetFieldDefinition,
+  type StoryVisualEffectTargetType
 } from '@/story'
 import type {
   BackgroundAsset,
@@ -38,6 +40,8 @@ import {
 } from './editorDocument'
 
 type ValueAtPath = unknown
+
+const EDITOR_VISUAL_EFFECT_REGISTRY = createBuiltinVisualEffectRegistry()
 
 export function EditorInspector({
   story,
@@ -487,6 +491,8 @@ function EffectFields({
 
   const { target, effect } = node.data
   const modelKeys: string[] = Object.keys(assets.models)
+  const supportedTargets: StoryVisualEffectTargetType[] =
+    EDITOR_VISUAL_EFFECT_REGISTRY.getSupportedTargets(effect.type)
   const updateEffect = (patch: Partial<VisualEffectData>): void => {
     onValueChange([...path, 'effect'], { ...effect, ...patch })
   }
@@ -509,11 +515,17 @@ function EffectFields({
               onValueChange([...path, 'target'], { type })
             }}
           >
-            <option value="Stage">舞台（背景、模型与粒子）</option>
-            <option value="Screen">整画面（包含文字 UI）</option>
-            <option value="Model" disabled={modelKeys.length === 0}>
-              指定模型
-            </option>
+            {supportedTargets.includes('Stage') && (
+              <option value="Stage">舞台（背景、模型与粒子）</option>
+            )}
+            {supportedTargets.includes('Screen') && (
+              <option value="Screen">整画面（包含文字 UI）</option>
+            )}
+            {supportedTargets.includes('Model') && (
+              <option value="Model" disabled={modelKeys.length === 0}>
+                指定模型
+              </option>
+            )}
           </select>
           {target.type === 'Model' && (
             <select
@@ -547,15 +559,27 @@ function EffectFields({
           aria-label="Effect 类型"
           className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
           value={effect.type}
-          onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
-            onValueChange([...path, 'effect'], defaultVisualEffect(event.currentTarget.value))
-          }
+          onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
+            const nextEffect: VisualEffectData = defaultVisualEffect(event.currentTarget.value)
+            const nextSupportedTargets: StoryVisualEffectTargetType[] =
+              EDITOR_VISUAL_EFFECT_REGISTRY.getSupportedTargets(nextEffect.type)
+            const nextTarget = nextSupportedTargets.includes(target.type)
+              ? target
+              : defaultEffectTarget(nextSupportedTargets, modelKeys)
+            onValueChange(path, { ...node.data, effect: nextEffect, target: nextTarget })
+          }}
         >
           <option value="Grayscale">黑白</option>
           <option value="Blur">模糊</option>
           <option value="OldFilm">老电影</option>
           <option value="CRT">CRT 显示器</option>
           <option value="ColorOverlay">纯色覆盖</option>
+          <option value="Hologram" disabled={modelKeys.length === 0}>
+            全息投影
+          </option>
+          <option value="TriangleParticles" disabled={modelKeys.length === 0}>
+            三角粒子
+          </option>
         </select>
       </FieldGroup>
 
@@ -794,9 +818,25 @@ function defaultVisualEffect(type: string): VisualEffectData {
       }
     case 'ColorOverlay':
       return { type: 'ColorOverlay', color: '#000000', alpha: 0.5 }
+    case 'Hologram':
+      return { type: 'Hologram' }
+    case 'TriangleParticles':
+      return { type: 'TriangleParticles' }
     default:
       return { type: 'Grayscale', intensity: 1 }
   }
+}
+
+function defaultEffectTarget(
+  supportedTargets: readonly StoryVisualEffectTargetType[],
+  modelKeys: readonly string[]
+): Extract<EditorNode, { type: 'ApplyEffect' }>['data']['target'] {
+  if (supportedTargets.includes('Model') && modelKeys[0]) {
+    return { type: 'Model', model: modelKeys[0] }
+  }
+  if (supportedTargets.includes('Stage')) return { type: 'Stage' }
+  if (supportedTargets.includes('Screen')) return { type: 'Screen' }
+  return { type: 'Model', model: '' }
 }
 
 function ParameterFields({
@@ -1271,7 +1311,9 @@ function effectReferenceLabel(story: EditorStory, node: EditorAppliedEffect): st
     Blur: '模糊',
     OldFilm: '老电影',
     CRT: 'CRT',
-    ColorOverlay: '纯色覆盖'
+    ColorOverlay: '纯色覆盖',
+    Hologram: '全息投影',
+    TriangleParticles: '三角粒子'
   }[node.data.effect.type]
   const targetLabel: string =
     node.data.target.type === 'Model'
