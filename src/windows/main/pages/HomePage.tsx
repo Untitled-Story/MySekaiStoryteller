@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Plus, Edit3, Play, Clock, Folder, Settings } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
@@ -7,16 +7,24 @@ import type { ProjectMetadata } from '@/project/metadata'
 import { timeAgo } from '@/windows/main/utils/time'
 import { useNavigate } from 'react-router'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
+import { useSettings } from '@/settings/useSettings'
+import { MAIN_TOUR_VERSION } from '@/onboarding/types'
+import { MainProductTour } from '@/onboarding/MainProductTour'
 
 export default function HomePage(): JSX.Element {
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const navigate = useNavigate()
+  const { onboarding, setOnboarding } = useSettings()
+
+  const completeMainTour = useCallback((): void => {
+    setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
+  }, [onboarding, setOnboarding])
 
   const latest: ProjectMetadata | null =
     projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
 
-  const handleOpenEditor = async (title: string) => {
+  const handleOpenEditor = async (title: string): Promise<void> => {
     try {
       await openEditorWindow(title)
     } catch (error) {
@@ -24,7 +32,7 @@ export default function HomePage(): JSX.Element {
     }
   }
 
-  const handleOpenPlayer = async (title: string) => {
+  const handleOpenPlayer = async (title: string): Promise<void> => {
     try {
       await openPlayerWindow(title)
     } catch (error) {
@@ -87,6 +95,7 @@ export default function HomePage(): JSX.Element {
           </h3>
           <nav className="space-y-1">
             <button
+              data-tour="main-create-project"
               onClick={() => setCreateDialogOpen(true)}
               className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm hover:bg-accent transition-colors text-left"
             >
@@ -115,6 +124,10 @@ export default function HomePage(): JSX.Element {
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleProjectCreated}
+      />
+      <MainProductTour
+        active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}
+        onComplete={completeMainTour}
       />
     </div>
   )

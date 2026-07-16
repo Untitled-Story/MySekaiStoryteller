@@ -1,13 +1,14 @@
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Agentation } from 'agentation'
 import { HashRouter } from 'react-router'
 import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { describeError, logger } from '@/lib/logger'
-import { getSettings } from '@/settings/api'
+import { getSettings, saveSettings } from '@/settings/api'
 import type { AppSettings, SystemTheme } from '@/settings/types'
 import { useSystemTheme } from '@/settings/useSystemTheme'
 import App from './App'
+import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
 
 export function EditorRoot(): JSX.Element {
   const systemTheme: SystemTheme = useSystemTheme()
@@ -51,9 +52,28 @@ export function EditorRoot(): JSX.Element {
     root.style.colorScheme = activeTheme
   }, [activeTheme])
 
+  const completeEditorTour = useCallback((): void => {
+    void getSettings()
+      .then(async (stored: AppSettings | null): Promise<void> => {
+        if (!stored) return
+        const nextSettings: AppSettings = {
+          ...stored,
+          onboarding: {
+            ...normalizeOnboardingSettings(stored.onboarding),
+            editorTourVersion: EDITOR_TOUR_VERSION
+          }
+        }
+        setSettings(nextSettings)
+        await saveSettings(nextSettings)
+      })
+      .catch((error: unknown): void => {
+        logger.warn('editor.tour_completion_save_failed', { error: describeError(error) })
+      })
+  }, [])
+
   return (
     <HashRouter>
-      <App settings={settings} />
+      <App settings={settings} onCompleteEditorTour={completeEditorTour} />
       {import.meta.env.DEV && <Agentation />}
     </HashRouter>
   )

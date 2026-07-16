@@ -22,3 +22,113 @@ body,
 .spin-once {
   animation: spin-once 0.6s linear;
 }
+
+.driver-popover.mss-product-tour {
+  --driver-popover-font-family: inherit;
+  min-width: 280px;
+  max-width: 340px;
+  padding: 17px;
+  color: var(--popover-foreground);
+  background: color-mix(in oklab, var(--popover) 96%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 18px 48px rgb(0 0 0 / 0.2),
+    0 2px 8px rgb(0 0 0 / 0.1);
+  backdrop-filter: blur(18px);
+}
+
+.mss-product-tour .driver-popover-title {
+  padding-right: 24px;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.mss-product-tour .driver-popover-description {
+  margin-top: 7px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.mss-product-tour .mss-tour-action {
+  display: block;
+  margin-top: 9px;
+  color: oklch(0.63 0.17 157);
+  font-weight: 650;
+}
+
+.dark .mss-product-tour .mss-tour-action {
+  color: oklch(0.76 0.17 157);
+}
+
+.mss-product-tour .driver-popover-close-btn {
+  top: 9px;
+  right: 8px;
+  color: var(--muted-foreground);
+  border-radius: 6px;
+  font-size: 19px;
+}
+
+.mss-product-tour .driver-popover-close-btn:hover,
+.mss-product-tour .driver-popover-close-btn:focus {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.mss-product-tour .driver-popover-footer {
+  margin-top: 15px;
+}
+
+.mss-product-tour .driver-popover-progress-text {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mss-product-tour .driver-popover-footer-btn {
+  min-height: 29px;
+  padding: 5px 10px;
+  color: var(--foreground);
+  background: transparent;
+  border-color: var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.mss-product-tour .driver-popover-next-btn {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.mss-product-tour .driver-popover-footer-btn:hover,
+.mss-product-tour .driver-popover-footer-btn:focus {
+  filter: brightness(0.96);
+  background: var(--accent);
+}
+
+.mss-product-tour .driver-popover-next-btn:hover,
+.mss-product-tour .driver-popover-next-btn:focus {
+  background: var(--primary);
+  filter: brightness(0.92);
+}
+
+.mss-product-tour .driver-popover-arrow-side-left {
+  border-color: transparent transparent transparent var(--popover);
+}
+
+.mss-product-tour .driver-popover-arrow-side-right {
+  border-color: transparent var(--popover) transparent transparent;
+}
+
+.mss-product-tour .driver-popover-arrow-side-top {
+  border-color: var(--popover) transparent transparent transparent;
+}
+
+.mss-product-tour .driver-popover-arrow-side-bottom {
+  border-color: transparent transparent var(--popover) transparent;
+}

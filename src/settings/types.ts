@@ -1,3 +1,5 @@
+import type { OnboardingSettings } from '@/onboarding/types'
+
 export type SystemTheme = 'light' | 'dark'
 
 export type AppearanceSettings = {
@@ -48,5 +50,6 @@ export type AppSettings = {
   appearance: AppearanceSettings
   playback: PlaybackSettings
   shortcuts: ShortcutSettings
+  onboarding: OnboardingSettings
   workspaceDir?: string
 }

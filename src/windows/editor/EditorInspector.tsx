@@ -55,7 +55,10 @@ export function EditorInspector({
   onDelete: () => void
 }): JSX.Element {
   return (
-    <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l bg-background">
+    <aside
+      data-tour="editor-inspector"
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l bg-background"
+    >
       <div className="flex h-12 shrink-0 items-center border-b px-4">
         <SlidersHorizontal className="mr-2 size-4 text-muted-foreground" />
         <span className="text-sm font-medium">属性</span>
@@ -209,6 +212,11 @@ function SnippetField({
         {field.kind === 'textarea' ? (
           <textarea
             aria-label={field.label}
+            data-tour={
+              node.type === 'Talk' && field.path.join('.') === 'data.content'
+                ? 'editor-talk-content'
+                : undefined
+            }
             className="min-h-24 w-full resize-y rounded-md border bg-transparent px-3 py-2 text-sm leading-6 shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
             value={textValue}
             placeholder={field.placeholder}

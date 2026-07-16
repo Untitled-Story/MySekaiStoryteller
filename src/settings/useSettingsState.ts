@@ -10,15 +10,19 @@ import type {
   ShortcutSettings,
   SystemTheme
 } from './types'
+import type { OnboardingSettings } from '@/onboarding/types'
+import { DEFAULT_ONBOARDING, normalizeOnboardingSettings } from '@/onboarding/types'
 import { defaultPlaybackFont, normalizePlaybackFont } from './fonts'
 import { defaultShortcutSettings, normalizeShortcutSettings } from './shortcuts'
 import { describeError, logger } from '@/lib/logger'
+import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 
 export type SettingsHook = {
   loaded: boolean
   appearance: AppearanceSettings & { activeTheme: SystemTheme }
   playback: PlaybackSettings
   shortcuts: ShortcutSettings
+  onboarding: OnboardingSettings
   workspaceDir: string | null
   setFollowSystem: (follow: boolean) => void
   setManualTheme: (theme: SystemTheme) => void
@@ -26,6 +30,7 @@ export type SettingsHook = {
   setRenderPrecision: (value: RenderPrecision) => void
   setPlaybackFont: (value: PlaybackFontSettings) => void
   setShortcuts: (value: ShortcutSettings) => void
+  setOnboarding: (value: OnboardingSettings) => void
   setWorkspaceDir: (dir: string) => void
 }
 
@@ -49,6 +54,7 @@ export function useSettingsState(): SettingsHook {
   }))
   const [workspaceDir, setWorkspaceDirState] = useState<string | null>(null)
   const [shortcuts, setShortcuts] = useState<ShortcutSettings>(defaultShortcutSettings)
+  const [onboarding, setOnboarding] = useState<OnboardingSettings>(DEFAULT_ONBOARDING)
   const [loaded, setLoaded] = useState(false)
 
   const activeTheme = useMemo<SystemTheme>(
@@ -84,6 +90,7 @@ export function useSettingsState(): SettingsHook {
           font: normalizePlaybackFont(stored.playback?.font)
         })
         setShortcuts(normalizeShortcutSettings(stored.shortcuts))
+        setOnboarding(normalizeOnboardingSettings(stored.onboarding))
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setLoaded(true)
         logger.info('settings.load_completed', {
@@ -105,6 +112,35 @@ export function useSettingsState(): SettingsHook {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect((): (() => void) => {
+    let disposed: boolean = false
+    let unlisten: (() => void) | null = null
+
+    void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
+      if (disposed) return
+      const nextOnboarding: OnboardingSettings = normalizeOnboardingSettings(
+        event.payload.onboarding
+      )
+      setOnboarding((current: OnboardingSettings): OnboardingSettings => {
+        if (
+          current.mainTourVersion === nextOnboarding.mainTourVersion &&
+          current.editorTourVersion === nextOnboarding.editorTourVersion
+        ) {
+          return current
+        }
+        return nextOnboarding
+      })
+    }).then((dispose: () => void): void => {
+      if (disposed) dispose()
+      else unlisten = dispose
+    })
+
+    return (): void => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
+
   // Save settings when they change
   useEffect(() => {
     if (!loaded) return
@@ -116,19 +152,29 @@ export function useSettingsState(): SettingsHook {
       },
       playback,
       shortcuts,
+      onboarding,
       workspaceDir: workspaceDir ?? undefined
     }
 
     saveSettings(payload).catch((error: unknown): void => {
       logger.error('settings.save_failed', { error: describeError(error) })
     })
-  }, [appearance.followSystem, appearance.manualTheme, playback, shortcuts, workspaceDir, loaded])
+  }, [
+    appearance.followSystem,
+    appearance.manualTheme,
+    playback,
+    shortcuts,
+    onboarding,
+    workspaceDir,
+    loaded
+  ])
 
   return {
     loaded,
     appearance: { ...appearance, activeTheme },
     playback,
     shortcuts,
+    onboarding,
     workspaceDir,
     setFollowSystem: (follow) =>
       setAppearance((prev) => ({
@@ -156,6 +202,7 @@ export function useSettingsState(): SettingsHook {
         font: normalizePlaybackFont(value)
       })),
     setShortcuts: (value) => setShortcuts(normalizeShortcutSettings(value)),
+    setOnboarding: (value) => setOnboarding(normalizeOnboardingSettings(value)),
     setWorkspaceDir: (dir) => setWorkspaceDirState(dir)
   }
 }

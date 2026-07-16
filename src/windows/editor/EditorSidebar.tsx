@@ -103,6 +103,7 @@ export function EditorSidebar({
             type="button"
             variant="ghost"
             size="icon"
+            data-tour="editor-add-snippet"
             className="ml-auto size-8"
             aria-label="添加片段"
             title="添加片段"
@@ -313,6 +314,7 @@ function StoryTree({
   return (
     <div
       ref={treeRef}
+      data-tour="editor-story-tree"
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -675,6 +677,7 @@ function AddSnippetDialog({
                       <button
                         key={definition.type}
                         type="button"
+                        data-tour={definition.type === 'Talk' ? 'editor-add-talk' : undefined}
                         className="flex min-w-0 items-center gap-3 rounded-md border p-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
                         disabled={missingAssetKinds.length > 0}
                         title={

@@ -96,6 +96,8 @@ import {
   type EditorStory
 } from './editorDocument'
 import { moveSnippetSubtree, type SnippetDropPlacement } from './editorTree'
+import { EditorProductTour } from '@/onboarding/EditorProductTour'
+import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
 
 type LoadedEditorProject = {
   metadata: ProjectMetadata
@@ -143,7 +145,13 @@ const INPUT_AUTOSAVE_DELAY_MS: number = 800
 const ASSET_AUTOSAVE_DELAY_MS: number = 650
 const SAVE_RETRY_DELAY_MS: number = 600
 
-export default function App({ settings }: { settings: AppSettings | null }): JSX.Element {
+export default function App({
+  settings,
+  onCompleteEditorTour
+}: {
+  settings: AppSettings | null
+  onCompleteEditorTour: () => void
+}): JSX.Element {
   const requestedProjectName = useWindowProjectName()
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
@@ -1088,6 +1096,7 @@ export default function App({ settings }: { settings: AppSettings | null }): JSX
             type="button"
             variant="outline"
             size="sm"
+            data-tour="editor-preview-button"
             disabled={!selectedNode}
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
@@ -1097,6 +1106,7 @@ export default function App({ settings }: { settings: AppSettings | null }): JSX
           <Button
             type="button"
             size="sm"
+            data-tour="editor-player-button"
             title="使用 Player 播放已保存内容"
             onClick={(): void => void playSavedProject()}
           >
@@ -1177,6 +1187,14 @@ export default function App({ settings }: { settings: AppSettings | null }): JSX
           />
         )}
       </div>
+
+      <EditorProductTour
+        active={
+          settings !== null &&
+          normalizeOnboardingSettings(settings.onboarding).editorTourVersion < EDITOR_TOUR_VERSION
+        }
+        onComplete={onCompleteEditorTour}
+      />
 
       <AlertDialog
         open={deleteSnippetNode !== null}

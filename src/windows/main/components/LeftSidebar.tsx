@@ -33,6 +33,13 @@ export default function LeftSidebar(): JSX.Element {
             <NavLink
               key={to}
               to={to}
+              data-tour={
+                to === '/projects'
+                  ? 'main-projects'
+                  : to === '/settings'
+                    ? 'main-settings'
+                    : undefined
+              }
               draggable={false}
               aria-current={isActive ? 'page' : undefined}
               className={`relative flex items-center w-full px-3 py-2 rounded-md transition-colors duration-200 ${

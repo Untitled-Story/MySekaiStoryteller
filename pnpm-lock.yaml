@@ -22,6 +22,9 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2.2.8
         version: 2.5.3
+      driver.js:
+        specifier: ^1.7.0
+        version: 1.7.0
       pixi-filters:
         specifier: 6.1.5
         version: 6.1.5(pixi.js@8.19.0)
@@ -1899,6 +1902,12 @@ packages:
         integrity: sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw==
       }
     engines: { node: '>=0.10.0' }
+
+  driver.js@1.7.0:
+    resolution:
+      {
+        integrity: sha512-IWkESaVWaoxIWu3TqTpLRDgOFmDdjZsg/Oz7hrrr4ApBUapTFm9YCXYnptu3mKN8l4eAdtrxpU54l7kHLK96tw==
+      }
 
   dunder-proto@1.0.1:
     resolution:
@@ -5075,6 +5084,8 @@ snapshots:
   doctrine@2.1.0:
     dependencies:
       esutils: 2.0.3
+
+  driver.js@1.7.0: {}
 
   dunder-proto@1.0.1:
     dependencies:

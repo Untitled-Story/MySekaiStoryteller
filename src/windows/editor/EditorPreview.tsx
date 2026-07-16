@@ -338,7 +338,10 @@ export function EditorPreview({
   const paused: boolean = status === 'paused'
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-muted/15">
+    <section
+      data-tour="editor-preview-stage"
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-muted/15"
+    >
       <div className="flex h-12 shrink-0 items-center border-b bg-background/70 px-4">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm font-medium">画面预览</span>

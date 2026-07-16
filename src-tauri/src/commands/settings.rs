@@ -69,6 +69,15 @@ pub struct ShortcutSettings {
     pub player: PlayerShortcutSettings,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardingSettings {
+    #[serde(default)]
+    pub main_tour_version: u32,
+    #[serde(default)]
+    pub editor_tour_version: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RenderPrecision {
@@ -98,6 +107,8 @@ pub struct AppSettings {
     pub playback: PlaybackSettings,
     #[serde(default)]
     pub shortcuts: ShortcutSettings,
+    #[serde(default)]
+    pub onboarding: OnboardingSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_dir: Option<String>,
 }
@@ -280,6 +291,8 @@ mod tests {
         assert_eq!(settings.shortcuts.player.enter_fullscreen.key, "F11");
         assert_eq!(settings.shortcuts.player.exit_fullscreen.key, "Escape");
         assert_eq!(settings.shortcuts.player.close.key, "w");
+        assert_eq!(settings.onboarding.main_tour_version, 0);
+        assert_eq!(settings.onboarding.editor_tour_version, 0);
     }
 
     #[test]

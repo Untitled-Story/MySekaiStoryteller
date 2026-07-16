@@ -23,12 +23,15 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FolderOpen, RotateCcw } from 'lucide-react'
 import { describeError, logger } from '@/lib/logger'
+import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
+import { useNavigate } from 'react-router'
 
 export default function SettingsPage(): JSX.Element {
   const {
     appearance,
     playback,
     shortcuts,
+    onboarding,
     workspaceDir,
     setFollowSystem,
     setManualTheme,
@@ -36,8 +39,10 @@ export default function SettingsPage(): JSX.Element {
     setRenderPrecision,
     setPlaybackFont,
     setShortcuts,
+    setOnboarding,
     setWorkspaceDir
   } = useSettings()
+  const navigate = useNavigate()
   const [renderPrecisionText, setRenderPrecisionText] = useState<string>(() =>
     renderPrecisionToText(playback.renderPrecision)
   )
@@ -105,6 +110,15 @@ export default function SettingsPage(): JSX.Element {
     } catch (error: unknown) {
       logger.error('settings.log_directory_open_failed', { error: describeError(error) })
     }
+  }
+
+  const handleRestartMainTour = (): void => {
+    setOnboarding({ ...onboarding, mainTourVersion: 0 })
+    navigate('/')
+  }
+
+  const handleRestartEditorTour = (): void => {
+    setOnboarding({ ...onboarding, editorTourVersion: 0 })
   }
 
   const fontValue: string = playbackFontToSelectValue(playback.font)
@@ -313,6 +327,38 @@ export default function SettingsPage(): JSX.Element {
         onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
         onReset={handleShortcutReset}
       />
+
+      <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+        <h2 className="text-2xl font-semibold leading-tight">新手教程</h2>
+        <p className="text-sm text-muted-foreground">重新查看主页或编辑器的操作引导。</p>
+      </div>
+
+      <div className="w-full max-w-2xl divide-y divide-border pb-4">
+        <SettingRow
+          title="主页导览"
+          description={
+            onboarding.mainTourVersion >= MAIN_TOUR_VERSION ? '已完成' : '将在主页自动显示'
+          }
+        >
+          <Button variant="outline" size="sm" onClick={handleRestartMainTour}>
+            <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+            重新开始
+          </Button>
+        </SettingRow>
+        <SettingRow
+          title="编辑器教程"
+          description={
+            onboarding.editorTourVersion >= EDITOR_TOUR_VERSION
+              ? '已完成；重置后将在下次打开编辑器时显示'
+              : '将在下次打开编辑器时自动显示'
+          }
+        >
+          <Button variant="outline" size="sm" onClick={handleRestartEditorTour}>
+            <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+            重新开始
+          </Button>
+        </SettingRow>
+      </div>
     </div>
   )
 }
