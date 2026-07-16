@@ -1,5 +1,10 @@
-import type { ChangeEvent, JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import type {
+  ChangeEvent,
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent
+} from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Copy, Layers3, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -19,8 +24,10 @@ import type {
   ProjectAssets,
   VoiceAsset
 } from '@/project/assets'
+import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { VisualEffectData } from '@/story/schema'
 import { cn } from '@/lib/style'
+import { fuzzyMatchOptions } from '@/lib/fuzzyMatch'
 import {
   ASSET_KIND_LABELS,
   getAssetItems,
@@ -48,6 +55,7 @@ export function EditorInspector({
   selectedNode,
   selectedNodePath,
   assets,
+  modelRegistry,
   onStoryChange,
   onInputBlur,
   onDuplicate,
@@ -57,6 +65,7 @@ export function EditorInspector({
   selectedNode: EditorNode | null
   selectedNodePath: string
   assets: ProjectAssets
+  modelRegistry: ModelRegistry
   onStoryChange: (story: EditorStory, mergeKey?: string) => void
   onInputBlur: () => void
   onDuplicate: () => void
@@ -105,6 +114,7 @@ export function EditorInspector({
             node={selectedNode}
             path={selectedNodePath}
             assets={assets}
+            modelRegistry={modelRegistry}
             onStoryChange={onStoryChange}
             onInputBlur={onInputBlur}
           />
@@ -121,6 +131,7 @@ function SnippetInspectorContent({
   node,
   path,
   assets,
+  modelRegistry,
   onStoryChange,
   onInputBlur
 }: {
@@ -128,6 +139,7 @@ function SnippetInspectorContent({
   node: EditorNode
   path: string
   assets: ProjectAssets
+  modelRegistry: ModelRegistry
   onStoryChange: (story: EditorStory, mergeKey?: string) => void
   onInputBlur: () => void
 }): JSX.Element {
@@ -174,6 +186,7 @@ function SnippetInspectorContent({
               story={story}
               node={node}
               assets={assets}
+              modelRegistry={modelRegistry}
               onValueChange={update}
               onInputBlur={onInputBlur}
             />
@@ -194,6 +207,7 @@ function SnippetInspectorContent({
                     story={story}
                     node={node}
                     assets={assets}
+                    modelRegistry={modelRegistry}
                     onValueChange={update}
                     onInputBlur={onInputBlur}
                   />
@@ -229,6 +243,7 @@ function SnippetField({
   story,
   node,
   assets,
+  modelRegistry,
   onValueChange,
   onInputBlur
 }: {
@@ -236,6 +251,7 @@ function SnippetField({
   story: EditorStory
   node: EditorNode
   assets: ProjectAssets
+  modelRegistry: ModelRegistry
   onValueChange: (path: readonly string[], value: unknown, merge?: boolean) => void
   onInputBlur: () => void
 }): JSX.Element {
@@ -275,6 +291,31 @@ function SnippetField({
             )
           )}
         </select>
+      </FieldGroup>
+    )
+  }
+
+  if (field.kind === 'model-motion') {
+    const textValue: string = typeof value === 'string' ? value : ''
+    const options: readonly string[] = getModelMotionOptions(
+      node,
+      assets,
+      modelRegistry,
+      field.catalog
+    )
+    return (
+      <FieldGroup label={field.label}>
+        <FuzzyCombobox
+          label={field.label}
+          value={textValue}
+          options={options}
+          placeholder={field.placeholder}
+          emptyText={options.length === 0 ? '当前模型没有可用索引' : '没有匹配项，将保留自定义值'}
+          onChange={(nextValue: string): void =>
+            onValueChange(field.path, field.optional && !nextValue ? undefined : nextValue, true)
+          }
+          onBlur={onInputBlur}
+        />
       </FieldGroup>
     )
   }
@@ -472,6 +513,153 @@ function SnippetField({
       onInputBlur={onInputBlur}
     />
   )
+}
+
+function FuzzyCombobox({
+  label,
+  value,
+  options,
+  placeholder,
+  emptyText,
+  onChange,
+  onBlur
+}: {
+  label: string
+  value: string
+  options: readonly string[]
+  placeholder?: string
+  emptyText: string
+  onChange: (value: string) => void
+  onBlur: () => void
+}): JSX.Element {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [open, setOpen] = useState<boolean>(false)
+  const [query, setQuery] = useState<string>('')
+  const [activeIndex, setActiveIndex] = useState<number>(0)
+  const matches: readonly string[] = useMemo((): readonly string[] => {
+    const fuzzyMatches: readonly string[] = fuzzyMatchOptions(options, query, 60)
+    if (query || !value || !options.includes(value) || fuzzyMatches.includes(value)) {
+      return fuzzyMatches
+    }
+    return [value, ...fuzzyMatches.slice(0, 59)]
+  }, [options, query, value])
+
+  useEffect((): void => {
+    setActiveIndex(0)
+  }, [matches])
+
+  function choose(nextValue: string): void {
+    onChange(nextValue)
+    setQuery(nextValue)
+    setOpen(false)
+    onBlur()
+    inputRef.current?.focus()
+  }
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      const wasOpen: boolean = open
+      setOpen(true)
+      setActiveIndex((current: number): number =>
+        !wasOpen || matches.length === 0 ? 0 : Math.min(current + 1, matches.length - 1)
+      )
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setOpen(true)
+      setActiveIndex((current: number): number => Math.max(current - 1, 0))
+      return
+    }
+    if (event.key === 'Enter' && open && matches[activeIndex]) {
+      event.preventDefault()
+      choose(matches[activeIndex])
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        ref={inputRef}
+        role="combobox"
+        aria-label={label}
+        aria-autocomplete="list"
+        aria-expanded={open}
+        value={value}
+        placeholder={placeholder}
+        className="h-9 font-mono text-xs"
+        autoComplete="off"
+        onFocus={(event): void => {
+          setQuery('')
+          setOpen(true)
+          event.currentTarget.select()
+        }}
+        onChange={(event: ChangeEvent<HTMLInputElement>): void => {
+          const nextValue: string = event.currentTarget.value
+          setQuery(nextValue)
+          setOpen(true)
+          onChange(nextValue)
+        }}
+        onKeyDown={handleKeyDown}
+        onBlur={(): void => {
+          setOpen(false)
+          onBlur()
+        }}
+      />
+      {open && (
+        <div
+          role="listbox"
+          className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent"
+        >
+          {matches.length > 0 ? (
+            matches.map(
+              (option: string, index: number): JSX.Element => (
+                <button
+                  key={option}
+                  type="button"
+                  role="option"
+                  aria-selected={option === value}
+                  className={cn(
+                    'block w-full truncate rounded-sm px-2 py-1.5 text-left font-mono text-xs',
+                    index === activeIndex && 'bg-accent text-accent-foreground',
+                    option === value && 'font-semibold text-primary'
+                  )}
+                  title={option}
+                  onMouseEnter={(): void => setActiveIndex(index)}
+                  onMouseDown={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+                    event.preventDefault()
+                    choose(option)
+                  }}
+                >
+                  {option}
+                </button>
+              )
+            )
+          ) : (
+            <p className="px-2 py-2 text-xs text-muted-foreground">{emptyText}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function getModelMotionOptions(
+  node: EditorNode,
+  assets: ProjectAssets,
+  modelRegistry: ModelRegistry,
+  catalog: 'motions' | 'facials'
+): readonly string[] {
+  if (node.type !== 'LayoutAppear' && node.type !== 'Motion') return []
+  const modelAsset: ModelAsset | undefined = assets.models[node.data.model]
+  if (!modelAsset) return []
+  return modelRegistry.models[modelAsset.modelId]?.[catalog] ?? []
 }
 
 function EffectFields({

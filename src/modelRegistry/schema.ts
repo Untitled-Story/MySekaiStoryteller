@@ -2,7 +2,9 @@ import { z } from 'zod'
 
 export const ModelRegistryEntrySchema = z.object({
   name: z.string().optional(),
-  entry: z.string().min(1)
+  entry: z.string().min(1),
+  motions: z.array(z.string()).default([]),
+  facials: z.array(z.string()).default([])
 })
 
 export const ModelRegistrySchema = z.object({

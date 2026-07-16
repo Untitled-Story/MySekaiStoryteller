@@ -1197,6 +1197,7 @@ export default function App({
             selectedNode={selectedNode}
             selectedNodePath={displayedNodePath}
             assets={previewInput.assets}
+            modelRegistry={previewInput.modelRegistry}
             onStoryChange={commitStory}
             onInputBlur={flushInputMerge}
             onDuplicate={duplicateSelectedSnippet}

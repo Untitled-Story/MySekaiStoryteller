@@ -90,6 +90,14 @@ export type StorySnippetFieldDefinition = (
       path: readonly string[]
       label: string
     }
+  | {
+      kind: 'model-motion'
+      path: readonly string[]
+      label: string
+      catalog: 'motions' | 'facials'
+      optional?: boolean
+      placeholder?: string
+    }
 ) & {
   advanced?: boolean
 }
@@ -298,16 +306,18 @@ export const builtinSnippetDefinitions = [
     fields: [
       { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
       {
-        kind: 'text',
+        kind: 'model-motion',
         path: ['data', 'motion'],
         label: '动作',
+        catalog: 'motions',
         optional: true,
         placeholder: 'motion 名称'
       },
       {
-        kind: 'text',
+        kind: 'model-motion',
         path: ['data', 'facial'],
         label: '表情',
+        catalog: 'facials',
         optional: true,
         placeholder: 'facial 名称'
       }
@@ -511,16 +521,18 @@ function modelAppearanceFields(): readonly StorySnippetFieldDefinition[] {
   return [
     { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
     {
-      kind: 'text',
+      kind: 'model-motion',
       path: ['data', 'motion'],
       label: '动作',
+      catalog: 'motions',
       optional: true,
       placeholder: 'motion 名称'
     },
     {
-      kind: 'text',
+      kind: 'model-motion',
       path: ['data', 'facial'],
       label: '表情',
+      catalog: 'facials',
       optional: true,
       placeholder: 'facial 名称'
     },

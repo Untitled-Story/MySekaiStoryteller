@@ -32,11 +32,16 @@ fn model_registry_from_dirs(models_dir: &Path) -> Result<Value, String> {
         let Some(model_entry) = find_model_entry_file(&entry.path())? else {
             continue;
         };
+        let (motions, facials) = read_json_file(&entry.path().join(&model_entry))
+            .map(|entry_json| motion_catalog_from_json(&entry_json))
+            .unwrap_or_default();
 
         models.insert(
             model_id,
             serde_json::json!({
-                "entry": model_entry
+                "entry": model_entry,
+                "motions": motions,
+                "facials": facials
             }),
         );
     }
@@ -161,6 +166,9 @@ pub fn import_global_model(
         .ok_or_else(|| "全局模型注册表格式无效".to_string())?;
     let mut registry_entry =
         serde_json::Map::from_iter([("entry".to_string(), Value::String(entry_name.to_string()))]);
+    let (motions, facials) = motion_catalog_from_json(&entry_json);
+    registry_entry.insert("motions".to_string(), serde_json::json!(motions));
+    registry_entry.insert("facials".to_string(), serde_json::json!(facials));
     if let Some(display_name) = name.filter(|value| !value.trim().is_empty()) {
         registry_entry.insert("name".to_string(), Value::String(display_name));
     }
@@ -186,6 +194,31 @@ fn is_model_entry_name(file_name: &str) -> bool {
     normalized.ends_with(".model3.json")
         || normalized == "model.json"
         || normalized.ends_with(".model.json")
+}
+
+fn motion_catalog_from_json(entry: &Value) -> (Vec<String>, Vec<String>) {
+    let groups = entry
+        .get("FileReferences")
+        .and_then(|references| references.get("Motions"))
+        .or_else(|| entry.get("Motions"))
+        .or_else(|| entry.get("motions"))
+        .and_then(Value::as_object);
+    let Some(groups) = groups else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let mut motions = Vec::new();
+    let mut facials = Vec::new();
+    for name in groups.keys() {
+        if name.to_ascii_lowercase().starts_with("face_") {
+            facials.push(name.clone());
+        } else {
+            motions.push(name.clone());
+        }
+    }
+    motions.sort();
+    facials.sort();
+    (motions, facials)
 }
 
 fn normalize_model_id(value: &str) -> String {
@@ -296,7 +329,8 @@ fn unique_suffix() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_model_entry_name, next_model_id, normalize_model_id};
+    use super::{is_model_entry_name, motion_catalog_from_json, next_model_id, normalize_model_id};
+    use serde_json::json;
     use std::fs;
 
     #[test]
@@ -313,5 +347,20 @@ mod tests {
         assert_eq!(normalize_model_id("My Model!"), "my-model");
         assert_eq!(next_model_id(&root, "my-model"), "my-model-2");
         fs::remove_dir_all(root).expect("remove test model directory");
+    }
+
+    #[test]
+    fn indexes_motion_and_facial_groups() {
+        let entry = json!({
+            "FileReferences": {
+                "Motions": {
+                    "w-adult-think01": [{ "File": "motions/body.motion3.json" }],
+                    "face_smile_01": [{ "File": "motions/face.motion3.json" }]
+                }
+            }
+        });
+        let (motions, facials) = motion_catalog_from_json(&entry);
+        assert_eq!(motions, vec!["w-adult-think01"]);
+        assert_eq!(facials, vec!["face_smile_01"]);
     }
 }
