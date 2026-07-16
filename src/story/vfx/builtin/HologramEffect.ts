@@ -24,7 +24,7 @@ export class HologramEffect extends VisualEffectBase {
   private readonly maxAlpha = 0.5
 
   constructor(context: StoryVisualEffectContext) {
-    super(context.model)
+    super(context)
     this.animateLinear = context.animateLinear
     this.addChild(this.graphicLarge, this.graphicSmall)
 

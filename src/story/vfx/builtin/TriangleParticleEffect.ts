@@ -66,7 +66,7 @@ export default class TriangleParticleEffect extends VisualEffectBase {
   private readonly colors = [0xff00ff, 0x00ffff, 0xffff00]
 
   constructor(context: StoryVisualEffectContext) {
-    super(context.model)
+    super(context)
   }
 
   private randomInRange([min, max]: [number, number]): number {
@@ -123,6 +123,7 @@ export default class TriangleParticleEffect extends VisualEffectBase {
 
   destroyEffect(): void {
     this.clearAllParticles()
+    this.destroy({ children: true })
   }
 
   clearAllParticles(): void {

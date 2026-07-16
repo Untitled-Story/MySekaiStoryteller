@@ -2,13 +2,15 @@ import type { Application, Container } from 'pixi.js'
 import type { BackgroundAsset, ModelAsset, ProjectAssets, VoiceAsset } from '@/project/assets'
 import type {
   CurveData,
+  EffectTargetData,
   HexColorData,
   LayoutModeData,
   LeafSnippetData,
   MoveSpeedData,
   PositionData,
   SnippetData,
-  StoryData
+  StoryData,
+  VisualEffectData
 } from './schema'
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { SekaiLive2DModel } from '@/lib/live2d'
@@ -112,6 +114,18 @@ export type StoryFadeInOptions = {
   duration: number
 }
 
+export type StoryApplyEffectOptions = {
+  effectId: string
+  target: EffectTargetData
+  effect: VisualEffectData
+  duration: number
+}
+
+export type StoryRemoveEffectOptions = {
+  effectId: string
+  duration: number
+}
+
 export type StorySceneApi = {
   readonly layers: StoryLayers
   readonly pixi: StoryPixiAccessApi
@@ -129,6 +143,8 @@ export type StorySceneApi = {
   showTelop(options: StoryTelopOptions): Promise<void>
   fadeOut(options: StoryFadeOutOptions): Promise<void>
   fadeIn(options: StoryFadeInOptions): Promise<void>
+  applyEffect(options: StoryApplyEffectOptions): Promise<void>
+  removeEffect(options: StoryRemoveEffectOptions): Promise<void>
   destroy(): void
 }
 

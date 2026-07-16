@@ -1,6 +1,6 @@
 import type { ChangeEvent, JSX } from 'react'
-import { useEffect, useState } from 'react'
-import { Copy, Layers3, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronRight, Copy, Layers3, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
@@ -17,6 +17,7 @@ import type {
   ProjectAssets,
   VoiceAsset
 } from '@/project/assets'
+import type { VisualEffectData } from '@/story/schema'
 import { cn } from '@/lib/style'
 import {
   ASSET_KIND_LABELS,
@@ -28,7 +29,10 @@ import {
 } from './editorCatalog'
 import {
   countSnippetSubtree,
+  findAppliedEffectsBeforeNode,
+  findEditorNodePath,
   updateSnippetValue,
+  type EditorAppliedEffect,
   type EditorNode,
   type EditorStory
 } from './editorDocument'
@@ -126,6 +130,12 @@ function SnippetInspectorContent({
   const definition = getBuiltinSnippetDefinition(node.type)
   const presentation = NODE_PRESENTATIONS[node.type]
   const Icon = presentation.icon
+  const standardFields: readonly StorySnippetFieldDefinition[] = definition.fields.filter(
+    (field: StorySnippetFieldDefinition): boolean => !field.advanced
+  )
+  const advancedFields: readonly StorySnippetFieldDefinition[] = definition.fields.filter(
+    (field: StorySnippetFieldDefinition): boolean => Boolean(field.advanced)
+  )
 
   function update(pathSegments: readonly string[], value: unknown, merge = false): void {
     const mergeKey: string | undefined = merge ? `${node.id}:${pathSegments.join('.')}` : undefined
@@ -152,17 +162,41 @@ function SnippetInspectorContent({
         </div>
       </div>
       <div className="space-y-5 px-4 py-5">
-        {definition.fields.map(
-          (field: StorySnippetFieldDefinition): JSX.Element => (
+        {standardFields.map(
+          (field: StorySnippetFieldDefinition, index: number): JSX.Element => (
             <SnippetField
-              key={field.path.join('.')}
+              key={`${field.kind}:${field.path.join('.')}:${index}`}
               field={field}
+              story={story}
               node={node}
               assets={assets}
               onValueChange={update}
               onInputBlur={onInputBlur}
             />
           )
+        )}
+        {advancedFields.length > 0 && (
+          <details className="group overflow-hidden rounded-md border bg-muted/15">
+            <summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 text-xs font-medium text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
+              高级选项
+            </summary>
+            <div className="space-y-4 border-t px-3 py-3">
+              {advancedFields.map(
+                (field: StorySnippetFieldDefinition, index: number): JSX.Element => (
+                  <SnippetField
+                    key={`${field.kind}:${field.path.join('.')}:advanced:${index}`}
+                    field={field}
+                    story={story}
+                    node={node}
+                    assets={assets}
+                    onValueChange={update}
+                    onInputBlur={onInputBlur}
+                  />
+                )
+              )}
+            </div>
+          </details>
         )}
         {node.type === 'Parallel' && (
           <div className="rounded-md border border-dashed px-3 py-3 text-xs text-muted-foreground">
@@ -188,18 +222,58 @@ function SnippetInspectorContent({
 
 function SnippetField({
   field,
+  story,
   node,
   assets,
   onValueChange,
   onInputBlur
 }: {
   field: StorySnippetFieldDefinition
+  story: EditorStory
   node: EditorNode
   assets: ProjectAssets
   onValueChange: (path: readonly string[], value: unknown, merge?: boolean) => void
   onInputBlur: () => void
 }): JSX.Element {
   const value: ValueAtPath = getValueAtPath(node, field.path)
+
+  if (field.kind === 'effect-reference') {
+    const selectedEffectId: string = typeof value === 'string' ? value : ''
+    const availableEffects: EditorAppliedEffect[] = findAppliedEffectsBeforeNode(story, node.id)
+    const hasMissingSelection: boolean =
+      Boolean(selectedEffectId) &&
+      !availableEffects.some(
+        (effectNode: EditorAppliedEffect): boolean => effectNode.data.effectId === selectedEffectId
+      )
+
+    return (
+      <FieldGroup label={field.label}>
+        <select
+          aria-label={field.label}
+          className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          value={selectedEffectId}
+          disabled={availableEffects.length === 0 && !hasMissingSelection}
+          onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
+            onValueChange(field.path, event.currentTarget.value)
+          }
+        >
+          {availableEffects.length === 0 && !hasMissingSelection && (
+            <option value="">前面没有可移除的效果</option>
+          )}
+          {hasMissingSelection && (
+            <option value={selectedEffectId}>未找到：{selectedEffectId}</option>
+          )}
+          {availableEffects.map(
+            (effectNode: EditorAppliedEffect): JSX.Element => (
+              <option key={effectNode.id} value={effectNode.data.effectId}>
+                {effectReferenceLabel(story, effectNode)}
+              </option>
+            )
+          )}
+        </select>
+      </FieldGroup>
+    )
+  }
 
   if (field.kind === 'text' || field.kind === 'textarea') {
     const textValue: string = typeof value === 'string' ? value : ''
@@ -227,6 +301,7 @@ function SnippetField({
           <Input
             value={textValue}
             placeholder={field.placeholder}
+            readOnly={field.readOnly}
             className="h-8 text-sm"
             onChange={onChange}
             onBlur={onInputBlur}
@@ -373,6 +448,18 @@ function SnippetField({
     )
   }
 
+  if (field.kind === 'effect') {
+    return (
+      <EffectFields
+        node={node}
+        assets={assets}
+        path={field.path}
+        onValueChange={onValueChange}
+        onInputBlur={onInputBlur}
+      />
+    )
+  }
+
   return (
     <ParameterFields
       path={field.path}
@@ -381,6 +468,335 @@ function SnippetField({
       onInputBlur={onInputBlur}
     />
   )
+}
+
+function EffectFields({
+  node,
+  assets,
+  path,
+  onValueChange,
+  onInputBlur
+}: {
+  node: EditorNode
+  assets: ProjectAssets
+  path: readonly string[]
+  onValueChange: (path: readonly string[], value: unknown, merge?: boolean) => void
+  onInputBlur: () => void
+}): JSX.Element {
+  if (node.type !== 'ApplyEffect') return <></>
+
+  const { target, effect } = node.data
+  const modelKeys: string[] = Object.keys(assets.models)
+  const updateEffect = (patch: Partial<VisualEffectData>): void => {
+    onValueChange([...path, 'effect'], { ...effect, ...patch })
+  }
+
+  return (
+    <div className="space-y-5">
+      <FieldGroup label="作用范围">
+        <div className="space-y-2">
+          <select
+            aria-label="Effect 作用范围"
+            className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+            value={target.type}
+            onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
+              const type: string = event.currentTarget.value
+              if (type === 'Model') {
+                const model: string | undefined = modelKeys[0]
+                if (model) onValueChange([...path, 'target'], { type: 'Model', model })
+                return
+              }
+              onValueChange([...path, 'target'], { type })
+            }}
+          >
+            <option value="Stage">舞台（背景、模型与粒子）</option>
+            <option value="Screen">整画面（包含文字 UI）</option>
+            <option value="Model" disabled={modelKeys.length === 0}>
+              指定模型
+            </option>
+          </select>
+          {target.type === 'Model' && (
+            <select
+              aria-label="Effect 目标模型"
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+              value={target.model}
+              onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
+                onValueChange([...path, 'target'], {
+                  type: 'Model',
+                  model: event.currentTarget.value
+                })
+              }
+            >
+              {!assets.models[target.model] && (
+                <option value={target.model}>缺失：{target.model}</option>
+              )}
+              {modelKeys.map(
+                (key: string): JSX.Element => (
+                  <option key={key} value={key}>
+                    {getAssetOptionLabel(assets, 'models', key)} · {key}
+                  </option>
+                )
+              )}
+            </select>
+          )}
+        </div>
+      </FieldGroup>
+
+      <FieldGroup label="效果类型">
+        <select
+          aria-label="Effect 类型"
+          className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          value={effect.type}
+          onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
+            onValueChange([...path, 'effect'], defaultVisualEffect(event.currentTarget.value))
+          }
+        >
+          <option value="Grayscale">黑白</option>
+          <option value="Blur">模糊</option>
+          <option value="OldFilm">老电影</option>
+          <option value="CRT">CRT 显示器</option>
+          <option value="ColorOverlay">纯色覆盖</option>
+        </select>
+      </FieldGroup>
+
+      {effect.type === 'Grayscale' && (
+        <EffectNumberField
+          label="黑白强度"
+          value={effect.intensity}
+          min={0}
+          max={1}
+          step={0.05}
+          onChange={(intensity: number): void => updateEffect({ intensity })}
+          onBlur={onInputBlur}
+        />
+      )}
+
+      {effect.type === 'Blur' && (
+        <>
+          <EffectNumberField
+            label="模糊强度"
+            value={effect.strength}
+            min={0}
+            max={32}
+            step={0.5}
+            onChange={(strength: number): void => updateEffect({ strength })}
+            onBlur={onInputBlur}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <EffectNumberField
+              label="质量"
+              value={effect.quality}
+              min={1}
+              max={4}
+              step={1}
+              onChange={(quality: number): void => updateEffect({ quality: Math.round(quality) })}
+              onBlur={onInputBlur}
+            />
+            <FieldGroup label="采样核">
+              <select
+                aria-label="模糊采样核"
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none"
+                value={effect.kernelSize}
+                onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
+                  updateEffect({
+                    kernelSize: Number(event.currentTarget.value) as Extract<
+                      VisualEffectData,
+                      { type: 'Blur' }
+                    >['kernelSize']
+                  })
+                }
+              >
+                {[5, 7, 9, 11, 13, 15].map(
+                  (size: number): JSX.Element => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  )
+                )}
+              </select>
+            </FieldGroup>
+          </div>
+        </>
+      )}
+
+      {effect.type === 'OldFilm' && (
+        <EffectNumberGrid
+          fields={[
+            ['棕褐色', effect.sepia, 'sepia', 0, 1, 0.05],
+            ['噪点', effect.noise, 'noise', 0, 1, 0.05],
+            ['噪点尺寸', effect.noiseSize, 'noiseSize', 0, 20, 0.5],
+            ['划痕', effect.scratch, 'scratch', 0, 1, 0.05],
+            ['划痕密度', effect.scratchDensity, 'scratchDensity', 0, 1, 0.05],
+            ['划痕宽度', effect.scratchWidth, 'scratchWidth', 0, 20, 0.5],
+            ['暗角范围', effect.vignetting, 'vignetting', 0, 1, 0.05],
+            ['暗角强度', effect.vignettingAlpha, 'vignettingAlpha', 0, 1, 0.05],
+            ['暗角模糊', effect.vignettingBlur, 'vignettingBlur', 0, 1, 0.05]
+          ]}
+          onChange={updateEffect}
+          onBlur={onInputBlur}
+        />
+      )}
+
+      {effect.type === 'CRT' && (
+        <>
+          <EffectNumberGrid
+            fields={[
+              ['曲率', effect.curvature, 'curvature', 0, 10, 0.1],
+              ['扫描线宽度', effect.lineWidth, 'lineWidth', 0, 20, 0.5],
+              ['扫描线对比', effect.lineContrast, 'lineContrast', 0, 1, 0.05],
+              ['噪点', effect.noise, 'noise', 0, 1, 0.05],
+              ['噪点尺寸', effect.noiseSize, 'noiseSize', 0, 20, 0.5],
+              ['暗角范围', effect.vignetting, 'vignetting', 0, 1, 0.05],
+              ['暗角强度', effect.vignettingAlpha, 'vignettingAlpha', 0, 1, 0.05],
+              ['暗角模糊', effect.vignettingBlur, 'vignettingBlur', 0, 1, 0.05]
+            ]}
+            onChange={updateEffect}
+            onBlur={onInputBlur}
+          />
+          <FieldGroup label="扫描线方向">
+            <div className="flex h-9 items-center justify-between rounded-md border px-3">
+              <span className="text-xs text-muted-foreground">
+                {effect.verticalLine ? '垂直' : '水平'}
+              </span>
+              <Switch
+                checked={effect.verticalLine}
+                onCheckedChange={(verticalLine: boolean): void => updateEffect({ verticalLine })}
+              />
+            </div>
+          </FieldGroup>
+        </>
+      )}
+
+      {effect.type === 'ColorOverlay' && (
+        <>
+          <FieldGroup label="覆盖颜色">
+            <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2 shadow-xs">
+              <input
+                aria-label="覆盖颜色"
+                type="color"
+                value={effect.color}
+                className="size-5 cursor-pointer border-0 bg-transparent p-0"
+                onChange={(event: ChangeEvent<HTMLInputElement>): void =>
+                  updateEffect({ color: event.currentTarget.value })
+                }
+              />
+              <span className="font-mono text-xs text-muted-foreground">
+                {effect.color.toUpperCase()}
+              </span>
+            </div>
+          </FieldGroup>
+          <EffectNumberField
+            label="覆盖强度"
+            value={effect.alpha}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(alpha: number): void => updateEffect({ alpha })}
+            onBlur={onInputBlur}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+type EffectNumberGridField = readonly [string, number, string, number, number, number]
+
+function EffectNumberGrid({
+  fields,
+  onChange,
+  onBlur
+}: {
+  fields: readonly EffectNumberGridField[]
+  onChange: (patch: Partial<VisualEffectData>) => void
+  onBlur: () => void
+}): JSX.Element {
+  return (
+    <div className="grid grid-cols-2 gap-x-2 gap-y-4">
+      {fields.map(
+        ([label, value, key, min, max, step]: EffectNumberGridField): JSX.Element => (
+          <EffectNumberField
+            key={key}
+            label={label}
+            value={value}
+            min={min}
+            max={max}
+            step={step}
+            onChange={(nextValue: number): void => onChange({ [key]: nextValue })}
+            onBlur={onBlur}
+          />
+        )
+      )}
+    </div>
+  )
+}
+
+function EffectNumberField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  onBlur
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (value: number) => void
+  onBlur: () => void
+}): JSX.Element {
+  return (
+    <FieldGroup label={label}>
+      <NumberInput
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onValueChange={onChange}
+        onBlur={onBlur}
+      />
+    </FieldGroup>
+  )
+}
+
+function defaultVisualEffect(type: string): VisualEffectData {
+  switch (type) {
+    case 'Blur':
+      return { type: 'Blur', strength: 8, quality: 2, kernelSize: 5 }
+    case 'OldFilm':
+      return {
+        type: 'OldFilm',
+        sepia: 0.3,
+        noise: 0.3,
+        noiseSize: 1,
+        scratch: 0.5,
+        scratchDensity: 0.3,
+        scratchWidth: 1,
+        vignetting: 0.3,
+        vignettingAlpha: 1,
+        vignettingBlur: 0.3
+      }
+    case 'CRT':
+      return {
+        type: 'CRT',
+        curvature: 1,
+        lineWidth: 1,
+        lineContrast: 0.25,
+        verticalLine: false,
+        noise: 0.3,
+        noiseSize: 1,
+        vignetting: 0.3,
+        vignettingAlpha: 1,
+        vignettingBlur: 0.3
+      }
+    case 'ColorOverlay':
+      return { type: 'ColorOverlay', color: '#000000', alpha: 0.5 }
+    default:
+      return { type: 'Grayscale', intensity: 1 }
+  }
 }
 
 function ParameterFields({
@@ -509,6 +925,7 @@ type ParameterAnimation = ReturnType<typeof defaultParameterAnimation>
 function NumberInput({
   value,
   min,
+  max,
   step,
   suffix,
   onValueChange,
@@ -516,27 +933,64 @@ function NumberInput({
 }: {
   value: number
   min?: number
+  max?: number
   step?: number
   suffix?: string
   onValueChange: (value: number) => void
   onBlur: () => void
 }): JSX.Element {
+  const editingRef = useRef<boolean>(false)
+  const [draft, setDraft] = useState<string>((): string => numberToInputText(value))
+
+  useEffect((): void => {
+    if (!editingRef.current) setDraft(numberToInputText(value))
+  }, [value])
+
+  function clampValue(nextValue: number): number {
+    if (typeof min === 'number' && typeof max === 'number') {
+      return Math.min(max, Math.max(min, nextValue))
+    }
+    if (typeof min === 'number') return Math.max(min, nextValue)
+    if (typeof max === 'number') return Math.min(max, nextValue)
+    return nextValue
+  }
+
+  function commitDraft(): void {
+    editingRef.current = false
+    const nextValue: number = Number(draft)
+    if (!draft.trim() || !Number.isFinite(nextValue)) {
+      setDraft(numberToInputText(value))
+      onBlur()
+      return
+    }
+
+    const clampedValue: number = clampValue(nextValue)
+    setDraft(numberToInputText(clampedValue))
+    onValueChange(clampedValue)
+    onBlur()
+  }
+
   return (
     <div className="relative min-w-0 w-full">
       <Input
         type="number"
-        value={Number.isFinite(value) ? value : 0}
+        value={draft}
         min={min}
+        max={max}
         step={step ?? 1}
         className={cn('h-9 text-sm', suffix && 'pr-9')}
-        onChange={(event: ChangeEvent<HTMLInputElement>): void => {
-          const nextValue: number = Number(event.currentTarget.value)
-          if (!Number.isFinite(nextValue)) return
-          const clampedValue: number =
-            typeof min === 'number' ? Math.max(min, nextValue) : nextValue
-          onValueChange(clampedValue)
+        onFocus={(): void => {
+          editingRef.current = true
         }}
-        onBlur={onBlur}
+        onChange={(event: ChangeEvent<HTMLInputElement>): void => {
+          const nextDraft: string = event.currentTarget.value
+          setDraft(nextDraft)
+          if (!nextDraft.trim()) return
+
+          const nextValue: number = Number(nextDraft)
+          if (Number.isFinite(nextValue)) onValueChange(clampValue(nextValue))
+        }}
+        onBlur={commitDraft}
       />
       {suffix && (
         <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-muted-foreground">
@@ -545,6 +999,10 @@ function NumberInput({
       )}
     </div>
   )
+}
+
+function numberToInputText(value: number): string {
+  return Number.isFinite(value) ? value.toString() : '0'
 }
 
 function FieldGroup({ label, children }: { label: string; children: JSX.Element }): JSX.Element {
@@ -805,6 +1263,27 @@ function isParameterAnimation(value: unknown): value is ParameterAnimation {
     typeof record.curve === 'string' &&
     typeof record.duration === 'number'
   )
+}
+
+function effectReferenceLabel(story: EditorStory, node: EditorAppliedEffect): string {
+  const effectLabel: string = {
+    Grayscale: '黑白',
+    Blur: '模糊',
+    OldFilm: '老电影',
+    CRT: 'CRT',
+    ColorOverlay: '纯色覆盖'
+  }[node.data.effect.type]
+  const targetLabel: string =
+    node.data.target.type === 'Model'
+      ? `模型：${node.data.target.model}`
+      : node.data.target.type === 'Stage'
+        ? '舞台'
+        : '整画面'
+  const path: readonly number[] | null = findEditorNodePath(story, node.id)
+  const snippetLabel: string = path
+    ? `片段 ${path.map((index: number): number => index + 1).join('.')}`
+    : '未知片段'
+  return `${effectLabel} · ${targetLabel} · ${snippetLabel}`
 }
 
 function noop(): void {}

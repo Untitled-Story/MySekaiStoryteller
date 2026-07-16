@@ -586,6 +586,14 @@ fn snippet_references_asset(snippet: &Value, kind: ProjectAssetKind, key: &str) 
             .and_then(Value::as_str)
             .is_some_and(|value| value == key)
     };
+    let effect_model_matches = || {
+        data.and_then(|object| object.get("target"))
+            .and_then(Value::as_object)
+            .filter(|target| target.get("type").and_then(Value::as_str) == Some("Model"))
+            .and_then(|target| target.get("model"))
+            .and_then(Value::as_str)
+            .is_some_and(|value| value == key)
+    };
 
     match kind {
         ProjectAssetKind::Backgrounds => {
@@ -593,10 +601,11 @@ fn snippet_references_asset(snippet: &Value, kind: ProjectAssetKind, key: &str) 
         }
         ProjectAssetKind::Voices => snippet_type == "Talk" && field_matches("voice"),
         ProjectAssetKind::Models => {
-            matches!(
+            (matches!(
                 snippet_type,
                 "LayoutAppear" | "LayoutClear" | "Move" | "Motion" | "DoParam" | "Talk"
-            ) && field_matches("model")
+            ) && field_matches("model"))
+                || (snippet_type == "ApplyEffect" && effect_model_matches())
         }
     }
 }
@@ -626,6 +635,15 @@ fn rewrite_asset_references_in_list(
             .unwrap_or_default()
             .to_string();
         if let Some(data) = snippet.get_mut("data").and_then(Value::as_object_mut) {
+            if kind == ProjectAssetKind::Models && snippet_type == "ApplyEffect" {
+                if let Some(target) = data.get_mut("target").and_then(Value::as_object_mut) {
+                    if target.get("type").and_then(Value::as_str) == Some("Model")
+                        && target.get("model").and_then(Value::as_str) == Some(old_key)
+                    {
+                        target.insert("model".to_string(), Value::String(new_key.to_string()));
+                    }
+                }
+            }
             let field = match kind {
                 ProjectAssetKind::Backgrounds if snippet_type == "ChangeBackgroundImage" => {
                     Some("background")
@@ -808,14 +826,28 @@ mod tests {
                     "type": "ChangeBackgroundImage",
                     "delay": 0,
                     "data": { "background": "miku" }
+                },
+                {
+                    "type": "ApplyEffect",
+                    "delay": 0,
+                    "data": {
+                        "effectId": "model-blur",
+                        "target": { "type": "Model", "model": "miku" },
+                        "effect": { "type": "Blur", "strength": 8, "quality": 2, "kernelSize": 5 },
+                        "duration": 0.3
+                    }
                 }
             ]
         });
+
+        let model_references = find_asset_references(&story, ProjectAssetKind::Models, "miku");
+        assert_eq!(model_references.len(), 2);
 
         rewrite_asset_references(&mut story, ProjectAssetKind::Models, "miku", "miku-2");
 
         assert_eq!(story["snippets"][0]["data"]["model"], "miku-2");
         assert_eq!(story["snippets"][0]["data"]["voice"], "miku");
         assert_eq!(story["snippets"][1]["data"]["background"], "miku");
+        assert_eq!(story["snippets"][2]["data"]["target"]["model"], "miku-2");
     }
 }

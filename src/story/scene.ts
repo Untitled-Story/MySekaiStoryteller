@@ -5,6 +5,7 @@ import type {
   ResolvedAsset,
   StoryDialogueOptions,
   StoryCreateLayerOptions,
+  StoryApplyEffectOptions,
   StoryDisposeCallback,
   StoryFadeInOptions,
   StoryFadeOutOptions,
@@ -18,11 +19,13 @@ import type {
   StoryModelParameterOptions,
   StoryMotionOptions,
   StoryPixiAccessApi,
+  StoryRemoveEffectOptions,
   StorySceneApi,
   StoryTelopOptions
 } from './types'
 import {
   Curves,
+  type EffectTargetData,
   LayoutModes,
   MoveSpeed,
   type CurveData,
@@ -34,7 +37,8 @@ import type { StoryPlaybackClock } from './playbackClock'
 import {
   createBuiltinVisualEffectRegistry,
   StoryVisualEffectManager,
-  type StoryVisualEffectRegistry
+  type StoryVisualEffectRegistry,
+  type StoryVisualEffectTarget
 } from './vfx'
 import { DEFAULT_PLAYBACK_FONT_FAMILY } from '@/settings/fonts'
 import uiTelopUrl from '@/story/assets/ui/ui_telop.svg?url'
@@ -70,6 +74,7 @@ const TELOP_SHOW_TIME_MS: number = 200
 const TELOP_HOLD_TIME_MS: number = 2000
 const TELOP_HIDE_TIME_MS: number = 200
 const VOICE_VOLUME: number = 0.5
+const INTERNAL_MODEL_EFFECT_PREFIX: string = '__layout-model-effect:'
 const MOTION_IGNORE_EYE_PARAMS = [
   'ParamEyeROpen',
   'ParamEyeLOpen',
@@ -194,8 +199,14 @@ export function createStoryScene({
     ui: createSceneLayer('ui'),
     overlay: createSceneLayer('overlay')
   }
+  const presentationRoot = new Container()
+  const stageRoot = new Container()
+  presentationRoot.sortableChildren = true
+  stageRoot.sortableChildren = true
+  stageRoot.addChild(layers.background, layers.models, layers.effects)
+  presentationRoot.addChild(stageRoot, layers.ui)
+  app.stage.addChild(presentationRoot, layers.overlay)
   const customLayers = new Map<string, Container>()
-  const visualEffectManagers = new Map<string, StoryVisualEffectManager>()
   const disposers = new Set<StoryDisposeCallback>()
   let backgroundSprite: Sprite | null = null
   let dialogueUiPromise: Promise<DialogueUiState> | null = null
@@ -217,10 +228,6 @@ export function createStoryScene({
     fastForwarding ? Promise.resolve() : clock.delay(timeMs)
   const waitUntil = (whenFinish: () => boolean): Promise<void> => clock.waitUntil(whenFinish)
 
-  for (const layer of Object.values(layers)) {
-    app.stage.addChild(layer)
-  }
-
   const resizeObserver = new ResizeObserver((): void => {
     relayoutScene()
   })
@@ -235,6 +242,12 @@ export function createStoryScene({
     removeLayer,
     onDispose
   }
+  const visualEffectManager = new StoryVisualEffectManager({
+    pixi,
+    registry: visualEffects,
+    resolveTarget: resolveEffectTarget,
+    animateLinear
+  })
 
   return {
     layers,
@@ -266,8 +279,8 @@ export function createStoryScene({
 
       if (fastForwarding) {
         await applyModelLastFrame(model, options.motion, options.facial)
-        if (options.hologram) applyModelEffects(options.modelKey, ['hologram'])
-        else disableAllModelEffects(options.modelKey)
+        if (options.hologram) await applyModelEffects(options.modelKey, ['hologram'])
+        else await disableAllModelEffects(options.modelKey)
         ensureAlphaFilter(model).alpha = 1
         setModelPositionRel(model, getStageSize(app), sideToPosition(options.to, layoutMode))
         return
@@ -276,7 +289,7 @@ export function createStoryScene({
       await playModelLastFrame(model, waitUntil, options.motion, options.facial)
 
       if (options.hologram) {
-        applyModelEffects(options.modelKey, ['hologram'])
+        await applyModelEffects(options.modelKey, ['hologram'])
       }
       const showTask = showModelWithFade(model, MODEL_SHOW_TIME_MS, animateLinear)
       if (options.motion) {
@@ -321,7 +334,7 @@ export function createStoryScene({
       if (fastForwarding) {
         setModelPositionRel(model, getStageSize(app), sideToPosition(options.to, layoutMode))
         ensureAlphaFilter(model).alpha = 0
-        disableAllModelEffects(options.modelKey)
+        await disableAllModelEffects(options.modelKey)
         model.visible = false
         model.removeFromParent()
         return
@@ -330,8 +343,8 @@ export function createStoryScene({
         model,
         MODEL_HIDE_TIME_MS,
         animateLinear
-      ).then(() => {
-        disableAllModelEffects(options.modelKey)
+      ).then(async (): Promise<void> => {
+        await disableAllModelEffects(options.modelKey)
         model.visible = false
       })
       const from: PositionRel = sideToPosition(options.from, layoutMode)
@@ -477,6 +490,18 @@ export function createStoryScene({
       }, secondsToMs(options.duration))
       overlay.visible = false
     },
+    async applyEffect(options: StoryApplyEffectOptions): Promise<void> {
+      await visualEffectManager.apply({
+        effectId: options.effectId,
+        effectName: options.effect.type,
+        target: options.target,
+        config: options.effect,
+        durationMs: secondsToMs(options.duration)
+      })
+    },
+    async removeEffect(options: StoryRemoveEffectOptions): Promise<void> {
+      await visualEffectManager.remove(options.effectId, secondsToMs(options.duration))
+    },
     destroy
   }
 
@@ -495,7 +520,7 @@ export function createStoryScene({
     layer.sortableChildren = true
     layer.zIndex = resolveCustomLayerZIndex(options)
     customLayers.set(id, layer)
-    app.stage.addChild(layer)
+    stageRoot.addChild(layer)
 
     return layer
   }
@@ -564,7 +589,6 @@ export function createStoryScene({
 
     layoutModel(instance)
     ensureAlphaFilter(model)
-    getVisualEffectManager(instance)
   }
 
   function layoutModel(instance: StoryModelInstance): void {
@@ -605,29 +629,32 @@ export function createStoryScene({
     previousStageSize = nextStageSize
   }
 
-  function getVisualEffectManager(instance: StoryModelInstance): StoryVisualEffectManager {
-    const existing = visualEffectManagers.get(instance.key)
-    if (existing) return existing
-
-    const manager = new StoryVisualEffectManager({
-      pixi,
-      model: instance,
-      registry: visualEffects,
-      animateLinear
-    })
-    visualEffectManagers.set(instance.key, manager)
-    return manager
-  }
-
-  function applyModelEffects(modelKey: string, effectNames: readonly string[]): void {
-    const manager = getVisualEffectManager(getModel(modelKey))
+  async function applyModelEffects(
+    modelKey: string,
+    effectNames: readonly string[]
+  ): Promise<void> {
     for (const effectName of effectNames) {
-      manager.apply(effectName)
+      await visualEffectManager.apply({
+        effectId: internalModelEffectId(modelKey, effectName),
+        effectName,
+        target: { type: 'Model', model: modelKey }
+      })
     }
   }
 
-  function disableAllModelEffects(modelKey: string): void {
-    visualEffectManagers.get(modelKey)?.disableAll()
+  async function disableAllModelEffects(modelKey: string): Promise<void> {
+    await visualEffectManager.removeMatching((effectId: string): boolean =>
+      effectId.startsWith(`${INTERNAL_MODEL_EFFECT_PREFIX}${modelKey}:`)
+    )
+  }
+
+  function resolveEffectTarget(target: EffectTargetData): StoryVisualEffectTarget {
+    if (target.type === 'Stage') return { type: 'Stage', container: stageRoot }
+    if (target.type === 'Screen') return { type: 'Screen', container: presentationRoot }
+
+    const model: StoryModelInstance = getModel(target.model)
+    prepareModel(model)
+    return { type: 'Model', container: model.model, model }
   }
 
   function getModel(modelKey: string): StoryModelInstance {
@@ -652,17 +679,22 @@ export function createStoryScene({
       removeLayer(id)
     }
 
-    for (const manager of visualEffectManagers.values()) {
-      manager.destroy()
-    }
-    visualEffectManagers.clear()
+    visualEffectManager.destroy()
 
     for (const layer of Object.values(layers)) {
       layer.removeChildren()
       layer.removeFromParent()
       layer.destroy()
     }
+    stageRoot.removeFromParent()
+    stageRoot.destroy()
+    presentationRoot.removeFromParent()
+    presentationRoot.destroy()
   }
+}
+
+function internalModelEffectId(modelKey: string, effectName: string): string {
+  return `${INTERNAL_MODEL_EFFECT_PREFIX}${modelKey}:${effectName}`
 }
 
 function resolveCustomLayerZIndex(options: StoryCreateLayerOptions): number {

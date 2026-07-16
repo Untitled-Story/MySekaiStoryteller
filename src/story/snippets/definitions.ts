@@ -14,6 +14,8 @@ import ScreenFadeInSnippet from './builtin/ScreenFadeInSnippet'
 import ScreenFadeOutSnippet from './builtin/ScreenFadeOutSnippet'
 import TalkSnippet from './builtin/TalkSnippet'
 import TelopSnippet from './builtin/TelopSnippet'
+import ApplyEffectSnippet from './builtin/ApplyEffectSnippet'
+import RemoveEffectSnippet from './builtin/RemoveEffectSnippet'
 
 export type StoryAssetKind = 'models' | 'backgrounds' | 'voices'
 
@@ -22,13 +24,14 @@ export type StorySnippetFieldOption = {
   label: string
 }
 
-export type StorySnippetFieldDefinition =
+export type StorySnippetFieldDefinition = (
   | {
       kind: 'text' | 'textarea'
       path: readonly string[]
       label: string
       optional?: boolean
       placeholder?: string
+      readOnly?: boolean
     }
   | {
       kind: 'number'
@@ -71,11 +74,24 @@ export type StorySnippetFieldDefinition =
       path: readonly string[]
       label: string
     }
+  | {
+      kind: 'effect'
+      path: readonly string[]
+      label: string
+    }
+  | {
+      kind: 'effect-reference'
+      path: readonly string[]
+      label: string
+    }
+) & {
+  advanced?: boolean
+}
 
 export type BuiltinSnippetDefinition = {
   type: SnippetData['type']
   label: string
-  category: '场景' | '模型' | '文本' | '控制'
+  category: '场景' | '模型' | '文本' | '特效' | '控制'
   description: string
   fields: readonly StorySnippetFieldDefinition[]
   create(id: string, assets: ProjectAssets): SnippetData
@@ -331,7 +347,7 @@ export const builtinSnippetDefinitions = [
     type: 'DoParam',
     label: 'DoParam',
     category: '模型',
-    description: '动画化 Live2D 参数',
+    description: '为 Live2D 参数制作动画',
     fields: [
       { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
       { kind: 'params', path: ['data', 'params'], label: '参数动画' }
@@ -387,6 +403,81 @@ export const builtinSnippetDefinitions = [
     summary: (snippet: SnippetData): string =>
       snippet.type === 'ScreenFadeIn' ? `${snippet.data.duration}s` : '',
     runtime: { type: 'ScreenFadeIn', constructor: ScreenFadeInSnippet }
+  },
+  {
+    type: 'ApplyEffect',
+    label: 'ApplyEffect',
+    category: '特效',
+    description: '将视觉效果应用到模型、舞台或整个画面',
+    fields: [
+      { kind: 'effect', path: ['data'], label: '效果配置' },
+      {
+        kind: 'number',
+        path: ['data', 'duration'],
+        label: '过渡时长',
+        min: 0,
+        step: 0.1,
+        suffix: 's'
+      },
+      {
+        kind: 'text',
+        path: ['data', 'effectId'],
+        label: '内部 Effect ID',
+        placeholder: '用于后续更新或移除',
+        readOnly: true,
+        advanced: true
+      }
+    ],
+    create: (id: string): SnippetData => ({
+      id,
+      type: 'ApplyEffect',
+      delay: 0,
+      data: {
+        effectId: `effect-${id.slice(0, 8)}`,
+        target: { type: 'Stage' },
+        effect: { type: 'Grayscale', intensity: 1 },
+        duration: 0.3
+      }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'ApplyEffect'
+        ? `${effectLabel(snippet.data.effect.type)} · ${effectTargetLabel(snippet.data.target)}`
+        : '',
+    runtime: { type: 'ApplyEffect', constructor: ApplyEffectSnippet }
+  },
+  {
+    type: 'RemoveEffect',
+    label: 'RemoveEffect',
+    category: '特效',
+    description: '移除之前已应用的视觉效果',
+    fields: [
+      { kind: 'effect-reference', path: ['data', 'effectId'], label: '要移除的效果' },
+      {
+        kind: 'number',
+        path: ['data', 'duration'],
+        label: '过渡时长',
+        min: 0,
+        step: 0.1,
+        suffix: 's'
+      },
+      {
+        kind: 'text',
+        path: ['data', 'effectId'],
+        label: '内部 Effect ID',
+        placeholder: '用于精确匹配效果',
+        readOnly: true,
+        advanced: true
+      }
+    ],
+    create: (id: string): SnippetData => ({
+      id,
+      type: 'RemoveEffect',
+      delay: 0,
+      data: { effectId: `effect-${id.slice(0, 8)}`, duration: 0.3 }
+    }),
+    summary: (snippet: SnippetData): string =>
+      snippet.type === 'RemoveEffect' ? `${snippet.data.effectId} · ${snippet.data.duration}s` : '',
+    runtime: { type: 'RemoveEffect', constructor: RemoveEffectSnippet }
   }
 ] as const satisfies readonly BuiltinSnippetDefinition[]
 
@@ -395,7 +486,7 @@ export function getBuiltinSnippetDefinition(type: SnippetData['type']): BuiltinS
     (candidate: BuiltinSnippetDefinition): boolean => candidate.type === type
   )
   if (!definition) {
-    throw new Error(`未定义 Story snippet: ${type}`)
+    throw new Error(`未定义的片段类型: ${type}`)
   }
 
   return definition
@@ -492,4 +583,21 @@ function requireAssetKey(assets: ProjectAssets, kind: StoryAssetKind): string {
     )
   }
   return key
+}
+
+function effectLabel(type: 'Grayscale' | 'Blur' | 'OldFilm' | 'CRT' | 'ColorOverlay'): string {
+  return {
+    Grayscale: '黑白',
+    Blur: '模糊',
+    OldFilm: '老电影',
+    CRT: 'CRT',
+    ColorOverlay: '纯色覆盖'
+  }[type]
+}
+
+function effectTargetLabel(
+  target: Extract<SnippetData, { type: 'ApplyEffect' }>['data']['target']
+): string {
+  if (target.type === 'Model') return target.model || '未选择模型'
+  return target.type === 'Stage' ? '舞台' : '整个画面'
 }

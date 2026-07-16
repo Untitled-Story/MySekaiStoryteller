@@ -45,6 +45,8 @@ export type StoryAssetReference = {
   snippetType: EditorNode['type']
 }
 
+export type EditorAppliedEffect = Extract<EditorNode, { type: 'ApplyEffect' }>
+
 const MAX_HISTORY_ENTRIES: number = 80
 
 export function createDocumentHistory(story: StoryInput | StoryData): DocumentHistory {
@@ -155,13 +157,50 @@ export function insertNewSnippet(
     selected?.type === 'Parallel' ? selected.id : findParentId(story.snippets, selectedId)
   const afterId: string | null = selected?.type === 'Parallel' ? null : (selected?.id ?? null)
 
-  return {
-    story: {
-      ...story,
-      snippets: insertIntoList(story.snippets, parentId, afterId, inserted)
-    },
-    insertedId
+  let nextStory: EditorStory = {
+    ...story,
+    snippets: insertIntoList(story.snippets, parentId, afterId, inserted)
   }
+
+  if (inserted.type === 'RemoveEffect') {
+    const previousEffect: EditorAppliedEffect | undefined = findAppliedEffectsBeforeNode(
+      nextStory,
+      insertedId
+    ).at(-1)
+    if (previousEffect) {
+      nextStory = updateSnippetValue(
+        nextStory,
+        insertedId,
+        ['data', 'effectId'],
+        previousEffect.data.effectId
+      )
+    }
+  }
+
+  return { story: nextStory, insertedId }
+}
+
+export function findAppliedEffectsBeforeNode(
+  story: EditorStory,
+  nodeId: string
+): EditorAppliedEffect[] {
+  const activeEffects: Map<string, EditorAppliedEffect> = new Map()
+  const nodes: EditorNode[] = []
+  visitNodes(story.snippets, (node: EditorNode): void => {
+    nodes.push(node)
+  })
+
+  for (const node of nodes) {
+    if (node.id === nodeId) break
+    if (node.type === 'ApplyEffect') {
+      activeEffects.delete(node.data.effectId)
+      activeEffects.set(node.data.effectId, node)
+    } else if (node.type === 'RemoveEffect') {
+      activeEffects.delete(node.data.effectId)
+    }
+  }
+
+  return [...activeEffects.values()]
 }
 
 export function duplicateSnippetSubtree(
@@ -411,8 +450,27 @@ function updateList(
   })
 }
 
-function cloneNodeWithNewIds(node: EditorNode): EditorNode {
+function cloneNodeWithNewIds(
+  node: EditorNode,
+  effectIds: Map<string, string> = new Map()
+): EditorNode {
   const id: string = createStorySnippetId()
+  if (node.type === 'ApplyEffect') {
+    const effectId: string = `effect-${id.slice(0, 8)}`
+    effectIds.set(node.data.effectId, effectId)
+    return structuredClone({
+      ...node,
+      id,
+      data: { ...node.data, effectId }
+    }) as EditorNode
+  }
+  if (node.type === 'RemoveEffect') {
+    return structuredClone({
+      ...node,
+      id,
+      data: { ...node.data, effectId: effectIds.get(node.data.effectId) ?? node.data.effectId }
+    }) as EditorNode
+  }
   if (node.type !== 'Parallel') {
     return structuredClone({ ...node, id }) as EditorNode
   }
@@ -420,7 +478,9 @@ function cloneNodeWithNewIds(node: EditorNode): EditorNode {
   return {
     ...node,
     id,
-    snippets: node.snippets.map(cloneNodeWithNewIds)
+    snippets: node.snippets.map(
+      (child: EditorNode): EditorNode => cloneNodeWithNewIds(child, effectIds)
+    )
   }
 }
 
@@ -463,6 +523,8 @@ function nodeReferencesAsset(node: EditorNode, assetKind: StoryAssetKind, key: s
       return node.data.model === key
     case 'Talk':
       return node.data.model === key
+    case 'ApplyEffect':
+      return node.data.target.type === 'Model' && node.data.target.model === key
     default:
       return false
   }
@@ -511,6 +573,13 @@ function renameNodeAssetReference(
         : node
     case 'Talk':
       return node.data.model === oldKey ? { ...node, data: { ...node.data, model: newKey } } : node
+    case 'ApplyEffect':
+      return node.data.target.type === 'Model' && node.data.target.model === oldKey
+        ? {
+            ...node,
+            data: { ...node.data, target: { type: 'Model', model: newKey } }
+          }
+        : node
     default:
       return node
   }

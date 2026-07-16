@@ -125,9 +125,9 @@ export function resolveVoiceUrl(
 
 export function destroyStoryRuntime(runtime: StoryRuntime): void {
   runtime.clock.cancel()
+  runtime.scene.destroy()
   for (const { model } of runtime.models.values()) {
     model.destroy({ children: true })
   }
   runtime.models.clear()
-  runtime.scene.destroy()
 }

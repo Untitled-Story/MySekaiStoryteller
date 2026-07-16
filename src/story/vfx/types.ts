@@ -1,10 +1,19 @@
 import type { Application, Container, Filter } from 'pixi.js'
+import type { EffectTargetData } from '@/story/schema'
 import type { StoryModelInstance, StoryPixiAccessApi } from '@/story/types'
+
+export type StoryVisualEffectTargetType = EffectTargetData['type']
+
+export type StoryVisualEffectTarget = {
+  type: StoryVisualEffectTargetType
+  container: Container
+  model?: StoryModelInstance
+}
 
 export type StoryVisualEffectContext = {
   app: Application
   pixi: StoryPixiAccessApi
-  model: StoryModelInstance
+  target: StoryVisualEffectTarget
   animateLinear(animation: (progress: number) => void, timeMs: number): Promise<void>
 }
 
@@ -12,32 +21,38 @@ export type StoryVisualEffect = {
   enabled: boolean
   readonly container?: Container
   readonly parentFilters?: readonly Filter[]
+  setProgress?(progress: number): void
   update(delta: number): void
   destroyEffect(): void
   clearAllParticles?(): void
 }
 
-export type StoryVisualEffectFactory = (context: StoryVisualEffectContext) => StoryVisualEffect
+export type StoryVisualEffectFactory = (
+  context: StoryVisualEffectContext,
+  config: unknown
+) => StoryVisualEffect
 
 export type StoryVisualEffectRegistration =
   | {
       name: string
+      targets: readonly StoryVisualEffectTargetType[]
       factory: StoryVisualEffectFactory
       effects?: never
     }
   | {
       name: string
       effects: readonly string[]
+      targets?: never
       factory?: never
     }
 
-type StoryVisualEffectFactoryRegistration = {
-  name: string
-  factory: StoryVisualEffectFactory
-}
+export type StoryVisualEffectFactoryRegistration = Extract<
+  StoryVisualEffectRegistration,
+  { factory: StoryVisualEffectFactory }
+>
 
 export class StoryVisualEffectRegistry {
-  private readonly factories = new Map<string, StoryVisualEffectFactory>()
+  private readonly factories = new Map<string, StoryVisualEffectFactoryRegistration>()
   private readonly presets = new Map<string, readonly string[]>()
 
   constructor(registrations: readonly StoryVisualEffectRegistration[] = []) {
@@ -51,7 +66,7 @@ export class StoryVisualEffectRegistry {
     this.presets.delete(registration.name)
 
     if (registration.factory) {
-      this.factories.set(registration.name, registration.factory)
+      this.factories.set(registration.name, registration)
     } else {
       this.presets.set(registration.name, registration.effects)
     }
@@ -62,55 +77,57 @@ export class StoryVisualEffectRegistry {
     this.presets.delete(name)
   }
 
-  get(name: string): StoryVisualEffectFactory | undefined {
+  get(name: string): StoryVisualEffectFactoryRegistration | undefined {
     return this.factories.get(name)
   }
 
-  entries(): [string, StoryVisualEffectFactory][] {
-    return [...this.factories.entries()]
+  entries(): StoryVisualEffectFactoryRegistration[] {
+    return [...this.factories.values()]
   }
 
-  resolve(name: string): string[] {
-    return this.resolveEffectNames(name, new Set())
+  resolve(name: string): StoryVisualEffectFactoryRegistration[] {
+    return this.resolveEffectRegistrations(name, new Set())
   }
 
   clone(): StoryVisualEffectRegistry {
     return new StoryVisualEffectRegistry(
-      this.registrations().map((registration) => ({ ...registration }))
+      this.registrations().map(
+        (registration: StoryVisualEffectRegistration): StoryVisualEffectRegistration => ({
+          ...registration
+        })
+      )
     )
   }
 
   private registrations(): StoryVisualEffectRegistration[] {
-    const factories: StoryVisualEffectFactoryRegistration[] = this.entries().map(
-      ([name, factory]) => ({
-        name,
-        factory
-      })
-    )
     const presets: StoryVisualEffectRegistration[] = [...this.presets.entries()].map(
-      ([name, effects]) => ({
+      ([name, effects]: [string, readonly string[]]): StoryVisualEffectRegistration => ({
         name,
         effects: [...effects]
       })
     )
-
-    return [...factories, ...presets]
+    return [...this.entries(), ...presets]
   }
 
-  private resolveEffectNames(name: string, resolving: Set<string>): string[] {
-    if (this.factories.has(name)) return [name]
+  private resolveEffectRegistrations(
+    name: string,
+    resolving: Set<string>
+  ): StoryVisualEffectFactoryRegistration[] {
+    const factory: StoryVisualEffectFactoryRegistration | undefined = this.factories.get(name)
+    if (factory) return [factory]
 
-    const preset = this.presets.get(name)
-    if (!preset) return [name]
-
+    const preset: readonly string[] | undefined = this.presets.get(name)
+    if (!preset) throw new Error(`未注册 VFX: ${name}`)
     if (resolving.has(name)) {
       throw new Error(`VFX preset contains a cycle: ${[...resolving, name].join(' -> ')}`)
     }
 
     resolving.add(name)
-    const effects = preset.flatMap((effectName) => this.resolveEffectNames(effectName, resolving))
+    const effects: StoryVisualEffectFactoryRegistration[] = preset.flatMap(
+      (effectName: string): StoryVisualEffectFactoryRegistration[] =>
+        this.resolveEffectRegistrations(effectName, resolving)
+    )
     resolving.delete(name)
-
     return effects
   }
 }

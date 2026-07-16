@@ -10,7 +10,9 @@ import {
   PlaySquare,
   SlidersHorizontal,
   Sparkles,
-  UserRound
+  UserRound,
+  WandSparkles,
+  Eraser
 } from 'lucide-react'
 import { getBuiltinSnippetDefinition } from '@/story'
 import type { ProjectAssetKind, ProjectAssets } from '@/project/assets'
@@ -53,7 +55,9 @@ export const NODE_PRESENTATIONS: Record<EditorNode['type'], NodePresentation> = 
   Telop: { icon: Sparkles, tone: 'overlay' },
   DoParam: { icon: SlidersHorizontal, tone: 'model' },
   ScreenFadeOut: { icon: CircleDot, tone: 'scene' },
-  ScreenFadeIn: { icon: CircleDot, tone: 'scene' }
+  ScreenFadeIn: { icon: CircleDot, tone: 'scene' },
+  ApplyEffect: { icon: WandSparkles, tone: 'overlay' },
+  RemoveEffect: { icon: Eraser, tone: 'overlay' }
 }
 
 export const TONE_CLASS_NAMES: Record<NodeTone, string> = {

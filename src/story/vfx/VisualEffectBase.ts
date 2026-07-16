@@ -1,7 +1,8 @@
 import { Container } from 'pixi.js'
 import type { Filter } from 'pixi.js'
-import type { StoryModelInstance } from '@/story/types'
 import type { StoryVisualEffect } from './types'
+import type { StoryVisualEffectContext } from './types'
+import type { StoryModelInstance } from '@/story/types'
 
 export abstract class VisualEffectBase extends Container implements StoryVisualEffect {
   protected readonly modelInstance: StoryModelInstance
@@ -9,10 +10,13 @@ export abstract class VisualEffectBase extends Container implements StoryVisualE
   protected _parentFilters: Filter[] = []
   enabled = false
 
-  protected constructor(model: StoryModelInstance) {
+  protected constructor(context: StoryVisualEffectContext) {
     super()
-    this.modelInstance = model
-    this.model = model.model
+    if (!context.target.model) {
+      throw new Error('该 VFX 只能应用于模型 target')
+    }
+    this.modelInstance = context.target.model
+    this.model = context.target.model.model
   }
 
   get container(): Container {
