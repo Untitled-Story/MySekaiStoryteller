@@ -40,6 +40,14 @@ import type { SnippetDropPlacement } from './editorTree'
 
 export type EditorSidebarTab = 'story' | 'assets'
 
+type StoryDropTarget = {
+  nodeId: string
+  placement: SnippetDropPlacement
+  indicatorNodeId: string
+  indicatorPlacement: SnippetDropPlacement
+  indicatorDepth: number
+}
+
 export function EditorSidebar({
   activePanel,
   searchQuery,
@@ -218,19 +226,11 @@ function StoryTree({
     startY: number
     active: boolean
   } | null>(null)
-  const dropTargetRef = useRef<{
-    nodeId: string
-    placement: SnippetDropPlacement
-  } | null>(null)
+  const dropTargetRef = useRef<StoryDropTarget | null>(null)
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
-  const [dropTarget, setDropTarget] = useState<{
-    nodeId: string
-    placement: SnippetDropPlacement
-  } | null>(null)
+  const [dropTarget, setDropTarget] = useState<StoryDropTarget | null>(null)
 
-  function updateDropTarget(
-    nextTarget: { nodeId: string; placement: SnippetDropPlacement } | null
-  ): void {
+  function updateDropTarget(nextTarget: StoryDropTarget | null): void {
     dropTargetRef.current = nextTarget
     setDropTarget(nextTarget)
   }
@@ -279,19 +279,51 @@ function StoryTree({
     const target: FlatTreeNode | undefined = nodes.find(
       (candidate: FlatTreeNode): boolean => candidate.node.id === targetId
     )
-    if (
-      !source ||
-      !target ||
-      target.node.id === pointer.sourceId ||
-      isPathDescendant(target.path, source.path)
-    ) {
+    if (!source) {
       updateDropTarget(null)
       return
     }
 
+    const treeBounds: DOMRect | undefined = treeRef.current?.getBoundingClientRect()
+    const outdentTarget: StoryDropTarget | null = resolveOutdentTarget(
+      event.clientX,
+      treeBounds,
+      source,
+      target,
+      nodes
+    )
+    if (outdentTarget) {
+      updateDropTarget(outdentTarget)
+      return
+    }
+
+    if (!target) {
+      const rootEndTarget: StoryDropTarget | null = resolveRootEndTarget(
+        event.clientY,
+        treeRef.current,
+        source,
+        nodes
+      )
+      updateDropTarget(rootEndTarget)
+      return
+    }
+
+    if (target.node.id === pointer.sourceId || isPathDescendant(target.path, source.path)) {
+      updateDropTarget(null)
+      return
+    }
+
+    const placement: SnippetDropPlacement = resolveDropPlacement(
+      event.clientY,
+      row?.getBoundingClientRect(),
+      target
+    )
     updateDropTarget({
       nodeId: target.node.id,
-      placement: resolveDropPlacement(event.clientY, row?.getBoundingClientRect(), target)
+      placement,
+      indicatorNodeId: target.node.id,
+      indicatorPlacement: placement,
+      indicatorDepth: placement === 'inside' ? target.depth + 1 : target.depth
     })
   }
 
@@ -333,7 +365,14 @@ function StoryTree({
               expanded={expandedParallelIds.has(flatNode.node.id)}
               dragEnabled={dragEnabled}
               dragging={draggedNodeId === flatNode.node.id}
-              dropPlacement={dropTarget?.nodeId === flatNode.node.id ? dropTarget.placement : null}
+              dropPlacement={
+                dropTarget?.indicatorNodeId === flatNode.node.id
+                  ? dropTarget.indicatorPlacement
+                  : null
+              }
+              dropIndicatorDepth={
+                dropTarget?.indicatorNodeId === flatNode.node.id ? dropTarget.indicatorDepth : null
+              }
               onSelect={onSelect}
               onToggleParallel={onToggleParallel}
             />
@@ -364,6 +403,7 @@ function StoryNodeRow({
   dragEnabled,
   dragging,
   dropPlacement,
+  dropIndicatorDepth,
   onSelect,
   onToggleParallel
 }: {
@@ -375,6 +415,7 @@ function StoryNodeRow({
   dragEnabled: boolean
   dragging: boolean
   dropPlacement: SnippetDropPlacement | null
+  dropIndicatorDepth: number | null
   onSelect: (nodeId: string) => void
   onToggleParallel: (nodeId: string) => void
 }): JSX.Element {
@@ -390,10 +431,16 @@ function StoryNodeRow({
       data-snippet-id={node.id}
     >
       {dropPlacement === 'before' && (
-        <span className="pointer-events-none absolute inset-x-2 top-0 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary" />
+        <span
+          className="pointer-events-none absolute top-0 right-2 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary"
+          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+        />
       )}
       {dropPlacement === 'after' && (
-        <span className="pointer-events-none absolute inset-x-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary" />
+        <span
+          className="pointer-events-none absolute right-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary"
+          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+        />
       )}
       {flatNode.depth > 0 && (
         <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
@@ -472,11 +519,95 @@ function resolveDropPlacement(
   return 'inside'
 }
 
+function resolveOutdentTarget(
+  clientX: number,
+  treeBounds: DOMRect | undefined,
+  source: FlatTreeNode,
+  target: FlatTreeNode | undefined,
+  nodes: readonly FlatTreeNode[]
+): StoryDropTarget | null {
+  if (source.depth === 0 || !treeBounds) return null
+
+  const outdentThreshold: number = treeBounds.left + 12 + source.depth * 18
+  if (clientX >= outdentThreshold) return null
+
+  const parentPath: readonly number[] = source.path.slice(0, -1)
+  const parent: FlatTreeNode | undefined = nodes.find((candidate: FlatTreeNode): boolean =>
+    pathsEqual(candidate.path, parentPath)
+  )
+  if (!parent || parent.node.type !== 'Parallel') return null
+  if (
+    target &&
+    (target.node.id === parent.node.id || !isPathDescendant(target.path, parent.path))
+  ) {
+    return null
+  }
+
+  const lastDescendant: FlatTreeNode =
+    findLastTreeNode(nodes, (candidate: FlatTreeNode): boolean =>
+      isPathDescendant(candidate.path, parent.path)
+    ) ?? parent
+
+  return {
+    nodeId: parent.node.id,
+    placement: 'after',
+    indicatorNodeId: lastDescendant.node.id,
+    indicatorPlacement: 'after',
+    indicatorDepth: parent.depth
+  }
+}
+
+function resolveRootEndTarget(
+  clientY: number,
+  tree: HTMLDivElement | null,
+  source: FlatTreeNode,
+  nodes: readonly FlatTreeNode[]
+): StoryDropTarget | null {
+  const rowElements: HTMLElement[] = tree
+    ? Array.from(tree.querySelectorAll<HTMLElement>('[data-snippet-id]'))
+    : []
+  const lastRow: HTMLElement | undefined = rowElements.at(-1)
+  if (!lastRow || clientY <= lastRow.getBoundingClientRect().bottom + 4) return null
+
+  const lastRootNode: FlatTreeNode | undefined = findLastTreeNode(
+    nodes,
+    (candidate: FlatTreeNode): boolean => candidate.depth === 0
+  )
+  const lastVisibleNode: FlatTreeNode | undefined = nodes.at(-1)
+  if (!lastRootNode || !lastVisibleNode || lastRootNode.node.id === source.node.id) return null
+
+  return {
+    nodeId: lastRootNode.node.id,
+    placement: 'after',
+    indicatorNodeId: lastVisibleNode.node.id,
+    indicatorPlacement: 'after',
+    indicatorDepth: 0
+  }
+}
+
 function isPathDescendant(path: readonly number[], ancestorPath: readonly number[]): boolean {
   return (
     path.length > ancestorPath.length &&
     ancestorPath.every((index: number, depth: number): boolean => path[depth] === index)
   )
+}
+
+function pathsEqual(left: readonly number[], right: readonly number[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((index: number, depth: number): boolean => index === right[depth])
+  )
+}
+
+function findLastTreeNode(
+  nodes: readonly FlatTreeNode[],
+  predicate: (node: FlatTreeNode) => boolean
+): FlatTreeNode | undefined {
+  for (let index: number = nodes.length - 1; index >= 0; index -= 1) {
+    const node: FlatTreeNode = nodes[index]
+    if (predicate(node)) return node
+  }
+  return undefined
 }
 
 function AssetLibrary({
