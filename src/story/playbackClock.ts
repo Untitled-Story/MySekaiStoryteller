@@ -29,6 +29,7 @@ export class StoryPlaybackClock {
 
     this.paused = true
     pauseSekaiLive2DSounds(this)
+    this.app.render()
     this.app.ticker.stop()
   }
 
