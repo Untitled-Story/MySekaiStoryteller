@@ -10,6 +10,8 @@ import {
   ChevronRight,
   CirclePlay,
   Clapperboard,
+  FileJson,
+  FileArchive,
   LoaderCircle,
   Play,
   Redo2,
@@ -38,8 +40,12 @@ import {
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/style'
 import { describeError as describeLogError, logger } from '@/lib/logger'
-import type { ImportedModelResult, ModelRegistry } from '@/modelRegistry/schema'
-import { getModelRegistry, importGlobalModel } from '@/modelRegistry/api'
+import type {
+  ImportedModelResult,
+  ModelArchiveCandidate,
+  ModelRegistry
+} from '@/modelRegistry/schema'
+import { getModelRegistry, importGlobalModel, inspectModelArchive } from '@/modelRegistry/api'
 import {
   deleteProjectAsset,
   getProjectAssetReferences,
@@ -1276,14 +1282,20 @@ export default function App({
             throw error
           }
         }}
-        onImport={async (sourcePath: string, key: string, name: string): Promise<void> => {
+        onImport={async (
+          sourcePath: string,
+          archiveEntry: string | undefined,
+          key: string,
+          name: string
+        ): Promise<void> => {
           try {
             const saved: boolean = await flushEditorWrites()
             if (!saved) throw new Error('保存当前编辑器修改失败')
             await runProjectMutation(async (): Promise<void> => {
               const imported: ImportedModelResult = await importGlobalModel(
                 sourcePath,
-                name || undefined
+                name || undefined,
+                archiveEntry
               )
               replaceModelRegistry(imported.registry)
               const result: ProjectAssetMutationResult = await registerProjectModel(
@@ -1444,7 +1456,12 @@ function ModelRegistrationDialog({
   registry: ModelRegistry
   onOpenChange: (open: boolean) => void
   onRegister: (modelId: string, key: string, name: string) => Promise<void>
-  onImport: (sourcePath: string, key: string, name: string) => Promise<void>
+  onImport: (
+    sourcePath: string,
+    archiveEntry: string | undefined,
+    key: string,
+    name: string
+  ) => Promise<void>
 }): JSX.Element {
   const modelEntries = useMemo(
     (): [string, ModelRegistry['models'][string]][] =>
@@ -1455,6 +1472,12 @@ function ModelRegistrationDialog({
   const [mode, setMode] = useState<'existing' | 'import'>('existing')
   const [modelId, setModelId] = useState<string>('')
   const [sourcePath, setSourcePath] = useState<string>('')
+  const [archiveEntry, setArchiveEntry] = useState<string | undefined>(undefined)
+  const [pendingArchivePath, setPendingArchivePath] = useState<string>('')
+  const [archiveCandidates, setArchiveCandidates] = useState<readonly ModelArchiveCandidate[]>([])
+  const [selectedArchiveEntry, setSelectedArchiveEntry] = useState<string>('')
+  const [archiveSelectionOpen, setArchiveSelectionOpen] = useState<boolean>(false)
+  const [inspectingArchive, setInspectingArchive] = useState<boolean>(false)
   const [key, setKey] = useState<string>('')
   const [name, setName] = useState<string>('')
   const [submitting, setSubmitting] = useState<boolean>(false)
@@ -1465,6 +1488,12 @@ function ModelRegistrationDialog({
     setMode('existing')
     setModelId(firstModelId)
     setSourcePath('')
+    setArchiveEntry(undefined)
+    setPendingArchivePath('')
+    setArchiveCandidates([])
+    setSelectedArchiveEntry('')
+    setArchiveSelectionOpen(false)
+    setInspectingArchive(false)
     setKey('')
     setName('')
     setSubmitting(false)
@@ -1476,11 +1505,41 @@ function ModelRegistrationDialog({
       multiple: false,
       directory: false,
       title: '选择 Live2D 模型入口',
-      filters: [{ name: 'Live2D 模型入口', extensions: ['json'] }]
+      filters: [{ name: 'Live2D 模型', extensions: ['json', 'zip'] }]
     })
-    if (typeof selected === 'string') {
+    if (typeof selected !== 'string') return
+
+    setError('')
+    if (!selected.toLocaleLowerCase().endsWith('.zip')) {
       setSourcePath(selected)
-      setError('')
+      setArchiveEntry(undefined)
+      return
+    }
+
+    setSourcePath('')
+    setArchiveEntry(undefined)
+    setInspectingArchive(true)
+    try {
+      const inspection = await inspectModelArchive(selected)
+      const recognized: ModelArchiveCandidate[] = inspection.candidates.filter(
+        (candidate: ModelArchiveCandidate): boolean => candidate.recognized
+      )
+      if (recognized.length === 1) {
+        setSourcePath(selected)
+        setArchiveEntry(recognized[0].path)
+        return
+      }
+
+      setPendingArchivePath(selected)
+      setArchiveCandidates(recognized.length > 1 ? recognized : inspection.candidates)
+      setSelectedArchiveEntry((recognized[0] ?? inspection.candidates[0]).path)
+      setArchiveSelectionOpen(true)
+    } catch (inspectionError: unknown) {
+      setSourcePath('')
+      setArchiveEntry(undefined)
+      setError(describeError(inspectionError, '检查模型 ZIP 失败'))
+    } finally {
+      setInspectingArchive(false)
     }
   }
 
@@ -1492,7 +1551,7 @@ function ModelRegistrationDialog({
       if (mode === 'existing') {
         await onRegister(modelId, key, name)
       } else {
-        await onImport(sourcePath, key, name)
+        await onImport(sourcePath, archiveEntry, key, name)
       }
     } catch (submitError: unknown) {
       setError(describeError(submitError, mode === 'existing' ? '注册模型失败' : '导入模型失败'))
@@ -1575,19 +1634,19 @@ function ModelRegistrationDialog({
             </label>
           ) : (
             <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-dashed p-4">
-              <p className="text-sm font-medium">选择模型入口文件</p>
+              <p className="text-sm font-medium">选择模型入口或 ZIP</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                支持 *.model3.json 与 *.model.json。入口所在的完整目录会复制到全局 models。
+                支持 *.model3.json、*.model.json、model.json 与 ZIP 压缩包。
               </p>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="mt-3"
-                disabled={submitting}
+                disabled={submitting || inspectingArchive}
                 onClick={(): void => void chooseModelEntry()}
               >
-                选择入口文件
+                {inspectingArchive ? '正在检查 ZIP…' : '选择文件'}
               </Button>
               {sourcePath && (
                 <p
@@ -1595,6 +1654,7 @@ function ModelRegistrationDialog({
                   title={sourcePath}
                 >
                   {fileNameFromPath(sourcePath)}
+                  {archiveEntry ? ` · ${archiveEntry}` : ''}
                 </p>
               )}
             </div>
@@ -1645,12 +1705,87 @@ function ModelRegistrationDialog({
           </Button>
           <Button
             type="button"
-            disabled={submitting || (mode === 'existing' ? !modelId : !sourcePath)}
+            disabled={
+              submitting || inspectingArchive || (mode === 'existing' ? !modelId : !sourcePath)
+            }
             onClick={(): void => void submit()}
           >
             {submitting ? '处理中…' : mode === 'existing' ? '加入项目' : '导入并加入'}
           </Button>
         </DialogFooter>
+        <Dialog open={archiveSelectionOpen} onOpenChange={setArchiveSelectionOpen}>
+          <DialogContent className="max-w-xl min-w-0 overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>选择 ZIP 中的模型入口</DialogTitle>
+              <DialogDescription>
+                {archiveCandidates.some(
+                  (candidate: ModelArchiveCandidate): boolean => candidate.recognized
+                )
+                  ? '检测到多个可用入口，请选择要导入的模型。'
+                  : '未能根据文件名识别入口，请从 JSON 文件中手动选择。'}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-80 space-y-1 overflow-y-auto rounded-md border bg-muted/15 p-1.5 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
+              {archiveCandidates.map(
+                (candidate: ModelArchiveCandidate): JSX.Element => (
+                  <button
+                    key={candidate.path}
+                    type="button"
+                    className={cn(
+                      'flex w-full min-w-0 items-center gap-3 rounded-sm px-3 py-2 text-left transition-colors',
+                      selectedArchiveEntry === candidate.path
+                        ? 'bg-emerald-500/10 ring-1 ring-emerald-500/40'
+                        : 'hover:bg-accent'
+                    )}
+                    onClick={(): void => setSelectedArchiveEntry(candidate.path)}
+                  >
+                    {candidate.recognized ? (
+                      <FileArchive className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <FileJson className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    )}
+                    <span
+                      className="min-w-0 flex-1 truncate font-mono text-xs"
+                      title={candidate.path}
+                    >
+                      {candidate.path}
+                    </span>
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-sm px-1.5 py-0.5 text-[10px]',
+                        candidate.recognized
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                      )}
+                    >
+                      {candidate.recognized ? '已识别' : '普通 JSON'}
+                    </span>
+                  </button>
+                )
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={(): void => setArchiveSelectionOpen(false)}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                disabled={!selectedArchiveEntry}
+                onClick={(): void => {
+                  setSourcePath(pendingArchivePath)
+                  setArchiveEntry(selectedArchiveEntry)
+                  setArchiveSelectionOpen(false)
+                }}
+              >
+                使用此入口
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   )

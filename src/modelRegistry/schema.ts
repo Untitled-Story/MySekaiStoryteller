@@ -17,6 +17,17 @@ export const ImportedModelResultSchema = z.object({
   registry: ModelRegistrySchema
 })
 
+export const ModelArchiveCandidateSchema = z.object({
+  path: z.string().min(1),
+  recognized: z.boolean()
+})
+
+export const ModelArchiveInspectionSchema = z.object({
+  candidates: z.array(ModelArchiveCandidateSchema).min(1)
+})
+
 export type ModelRegistryEntry = z.infer<typeof ModelRegistryEntrySchema>
 export type ModelRegistry = z.infer<typeof ModelRegistrySchema>
 export type ImportedModelResult = z.infer<typeof ImportedModelResultSchema>
+export type ModelArchiveCandidate = z.infer<typeof ModelArchiveCandidateSchema>
+export type ModelArchiveInspection = z.infer<typeof ModelArchiveInspectionSchema>

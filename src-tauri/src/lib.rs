@@ -74,6 +74,7 @@ pub fn run() {
             project::paths::get_log_path,
             project::paths::get_data_fonts,
             project::model_registry::get_model_registry,
+            project::model_registry::inspect_model_archive,
             project::model_registry::import_global_model,
             project::metadata::get_projects,
             project::metadata::get_project_metadata,
