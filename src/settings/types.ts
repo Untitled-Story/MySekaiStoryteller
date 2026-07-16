@@ -23,8 +23,30 @@ export type PlaybackFontSettings =
       path: string
     }
 
+export type ShortcutBinding = {
+  key: string
+  primary: boolean
+  control: boolean
+  meta: boolean
+  alt: boolean
+  shift: boolean
+}
+
+export type ShortcutSettings = {
+  editor: {
+    save: ShortcutBinding
+  }
+  player: {
+    reload: ShortcutBinding
+    enterFullscreen: ShortcutBinding
+    exitFullscreen: ShortcutBinding
+    close: ShortcutBinding
+  }
+}
+
 export type AppSettings = {
   appearance: AppearanceSettings
   playback: PlaybackSettings
+  shortcuts: ShortcutSettings
   workspaceDir?: string
 }

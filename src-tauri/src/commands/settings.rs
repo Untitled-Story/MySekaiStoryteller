@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +22,51 @@ pub struct PlaybackSettings {
     pub render_precision: RenderPrecision,
     #[serde(default)]
     pub font: PlaybackFontSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutBinding {
+    pub key: String,
+    #[serde(default)]
+    pub primary: bool,
+    #[serde(default)]
+    pub control: bool,
+    #[serde(default)]
+    pub meta: bool,
+    #[serde(default)]
+    pub alt: bool,
+    #[serde(default)]
+    pub shift: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorShortcutSettings {
+    #[serde(default = "default_editor_save_shortcut")]
+    pub save: ShortcutBinding,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerShortcutSettings {
+    #[serde(default = "default_player_reload_shortcut")]
+    pub reload: ShortcutBinding,
+    #[serde(default = "default_player_enter_fullscreen_shortcut")]
+    pub enter_fullscreen: ShortcutBinding,
+    #[serde(default = "default_player_exit_fullscreen_shortcut")]
+    pub exit_fullscreen: ShortcutBinding,
+    #[serde(default = "default_player_close_shortcut")]
+    pub close: ShortcutBinding,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutSettings {
+    #[serde(default)]
+    pub editor: EditorShortcutSettings,
+    #[serde(default)]
+    pub player: PlayerShortcutSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +96,8 @@ pub struct AppSettings {
     pub appearance: AppearanceSettings,
     #[serde(default)]
     pub playback: PlaybackSettings,
+    #[serde(default)]
+    pub shortcuts: ShortcutSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_dir: Option<String>,
 }
@@ -70,6 +117,25 @@ impl Default for PlaybackSettings {
             memory_size_mb: default_memory_size_mb(),
             render_precision: RenderPrecision::default(),
             font: PlaybackFontSettings::default(),
+        }
+    }
+}
+
+impl Default for EditorShortcutSettings {
+    fn default() -> Self {
+        Self {
+            save: default_editor_save_shortcut(),
+        }
+    }
+}
+
+impl Default for PlayerShortcutSettings {
+    fn default() -> Self {
+        Self {
+            reload: default_player_reload_shortcut(),
+            enter_fullscreen: default_player_enter_fullscreen_shortcut(),
+            exit_fullscreen: default_player_exit_fullscreen_shortcut(),
+            close: default_player_close_shortcut(),
         }
     }
 }
@@ -96,6 +162,37 @@ fn default_manual_theme() -> String {
 
 fn default_memory_size_mb() -> u32 {
     128
+}
+
+fn shortcut(key: &str, primary: bool) -> ShortcutBinding {
+    ShortcutBinding {
+        key: key.to_string(),
+        primary,
+        control: false,
+        meta: false,
+        alt: false,
+        shift: false,
+    }
+}
+
+fn default_editor_save_shortcut() -> ShortcutBinding {
+    shortcut("s", true)
+}
+
+fn default_player_reload_shortcut() -> ShortcutBinding {
+    shortcut("r", true)
+}
+
+fn default_player_enter_fullscreen_shortcut() -> ShortcutBinding {
+    shortcut("F11", false)
+}
+
+fn default_player_exit_fullscreen_shortcut() -> ShortcutBinding {
+    shortcut("Escape", false)
+}
+
+fn default_player_close_shortcut() -> ShortcutBinding {
+    shortcut("w", true)
 }
 
 fn config_path(app: &AppHandle) -> PathBuf {
@@ -158,10 +255,57 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String
         log::error!(target: "backend::settings", "settings.save write_failed error={error}");
         error.to_string()
     })?;
+    if let Err(error) = app.emit("settings-changed", &settings) {
+        log::warn!(target: "backend::settings", "settings.save emit_failed error={error}");
+    }
     log::debug!(
         target: "backend::settings",
         "settings.save completed duration_ms={}",
         started_at.elapsed().as_millis()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppSettings;
+
+    #[test]
+    fn legacy_settings_receive_default_shortcuts() {
+        let settings: AppSettings = serde_json::from_str("{}").expect("settings should parse");
+
+        assert_eq!(settings.shortcuts.editor.save.key, "s");
+        assert!(settings.shortcuts.editor.save.primary);
+        assert_eq!(settings.shortcuts.player.reload.key, "r");
+        assert_eq!(settings.shortcuts.player.enter_fullscreen.key, "F11");
+        assert_eq!(settings.shortcuts.player.exit_fullscreen.key, "Escape");
+        assert_eq!(settings.shortcuts.player.close.key, "w");
+    }
+
+    #[test]
+    fn partial_shortcut_settings_keep_other_defaults() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{
+                "shortcuts": {
+                    "player": {
+                        "reload": {
+                            "key": "p",
+                            "primary": true,
+                            "alt": true,
+                            "shift": false
+                        }
+                    }
+                }
+            }"#,
+        )
+        .expect("settings should parse");
+
+        assert_eq!(settings.shortcuts.player.reload.key, "p");
+        assert!(settings.shortcuts.player.reload.primary);
+        assert!(!settings.shortcuts.player.reload.control);
+        assert!(!settings.shortcuts.player.reload.meta);
+        assert!(settings.shortcuts.player.reload.alt);
+        assert_eq!(settings.shortcuts.player.enter_fullscreen.key, "F11");
+        assert_eq!(settings.shortcuts.editor.save.key, "s");
+    }
 }

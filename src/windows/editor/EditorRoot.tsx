@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Agentation } from 'agentation'
 import { HashRouter } from 'react-router'
+import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { describeError, logger } from '@/lib/logger'
 import { getSettings } from '@/settings/api'
 import type { AppSettings, SystemTheme } from '@/settings/types'
@@ -16,6 +17,7 @@ export function EditorRoot(): JSX.Element {
 
   useEffect((): (() => void) => {
     let cancelled = false
+    let unlisten: (() => void) | null = null
 
     function refreshSettings(): void {
       void getSettings()
@@ -29,9 +31,16 @@ export function EditorRoot(): JSX.Element {
 
     refreshSettings()
     window.addEventListener('focus', refreshSettings)
+    void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
+      if (!cancelled) setSettings(event.payload)
+    }).then((dispose: () => void): void => {
+      if (cancelled) dispose()
+      else unlisten = dispose
+    })
 
     return (): void => {
       cancelled = true
+      unlisten?.()
       window.removeEventListener('focus', refreshSettings)
     }
   }, [])
@@ -44,7 +53,7 @@ export function EditorRoot(): JSX.Element {
 
   return (
     <HashRouter>
-      <App />
+      <App settings={settings} />
       {import.meta.env.DEV && <Agentation />}
     </HashRouter>
   )

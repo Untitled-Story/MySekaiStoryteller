@@ -62,6 +62,8 @@ import type {
 } from '@/project/assets'
 import type { ProjectMetadata } from '@/project/metadata'
 import { getSettings } from '@/settings/api'
+import { matchesShortcut, normalizeShortcutSettings } from '@/settings/shortcuts'
+import type { AppSettings, ShortcutBinding } from '@/settings/types'
 import { getProjectStory, setProjectStory } from '@/story/api'
 import type { StoryData } from '@/story'
 import { getDataPath } from '@/workspace/api'
@@ -141,7 +143,7 @@ const INPUT_AUTOSAVE_DELAY_MS: number = 800
 const ASSET_AUTOSAVE_DELAY_MS: number = 650
 const SAVE_RETRY_DELAY_MS: number = 600
 
-export default function App(): JSX.Element {
+export default function App({ settings }: { settings: AppSettings | null }): JSX.Element {
   const requestedProjectName = useWindowProjectName()
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
@@ -232,6 +234,10 @@ export default function App(): JSX.Element {
     (): EditorPreviewInput | null => loadedProject?.previewInput ?? null,
     [loadedProject?.previewInput]
   )
+  const saveShortcut: ShortcutBinding = useMemo(
+    (): ShortcutBinding => normalizeShortcutSettings(settings?.shortcuts).editor.save,
+    [settings?.shortcuts]
+  )
 
   useEffect((): void => {
     assetsRef.current = loadedProject?.previewInput.assets ?? EMPTY_ASSETS
@@ -250,14 +256,14 @@ export default function App(): JSX.Element {
 
   useEffect((): (() => void) => {
     function saveOnShortcut(event: KeyboardEvent): void {
-      if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) return
+      if (!matchesShortcut(event, saveShortcut)) return
       event.preventDefault()
       void flushEditorWritesRef.current()
     }
 
     window.addEventListener('keydown', saveOnShortcut, true)
     return (): void => window.removeEventListener('keydown', saveOnShortcut, true)
-  }, [])
+  }, [saveShortcut])
 
   useEffect((): (() => void) => {
     const currentWindow: TauriWindow = getCurrentWindow()

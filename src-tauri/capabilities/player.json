@@ -3,5 +3,5 @@
   "identifier": "player",
   "description": "Additional permissions for the borderless player window",
   "windows": ["player"],
-  "permissions": ["core:window:allow-start-dragging"]
+  "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
 }

@@ -1,6 +1,7 @@
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { Application } from 'pixi.js'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
@@ -22,7 +23,8 @@ import { getProjectAssets, getProjectMetadata, getProjectPath } from '@/project/
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import { getModelRegistry } from '@/modelRegistry/api'
 import { getSettings } from '@/settings/api'
-import type { AppSettings, RenderPrecision } from '@/settings/types'
+import { matchesShortcut, normalizeShortcutSettings } from '@/settings/shortcuts'
+import type { AppSettings, RenderPrecision, ShortcutSettings } from '@/settings/types'
 import { loadPlaybackFontFamily } from '@/settings/fonts'
 import { getDataPath } from '@/workspace/api'
 import { describeError, logger } from '@/lib/logger'
@@ -48,19 +50,87 @@ type ModelLoadState =
   | { status: 'empty'; message: string; error?: never }
   | { status: 'error'; message?: never; error: string }
 
+const PLAYER_STAGE_STYLE: CSSProperties = {
+  width: 'min(100vw, 177.77777778vh)',
+  height: 'min(100vh, 56.25vw)'
+}
+
 export default function App(): JSX.Element {
   const projectName = useWindowProjectName()
   const stageRef = useRef<HTMLDivElement | null>(null)
   const [storyInput, setStoryInput] = useState<PlayerStoryInput | null>(null)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
   const [modelLoadState, setModelLoadState] = useState<ModelLoadState>({ status: 'idle' })
+  const [reloadRequest, setReloadRequest] = useState<number>(0)
+  const [shortcutOverride, setShortcutOverride] = useState<ShortcutSettings | null>(null)
+  const shortcuts: ShortcutSettings = useMemo(
+    (): ShortcutSettings =>
+      normalizeShortcutSettings(shortcutOverride ?? storyInput?.settings?.shortcuts),
+    [shortcutOverride, storyInput?.settings?.shortcuts]
+  )
 
-  useEffect(() => {
+  useEffect((): (() => void) => {
+    let disposed = false
+    let unlisten: (() => void) | null = null
+
+    void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
+      if (!disposed) setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
+    }).then((dispose: () => void): void => {
+      if (disposed) dispose()
+      else unlisten = dispose
+    })
+
+    return (): void => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
+
+  useEffect((): (() => void) => {
     const currentWindow = getCurrentWindow()
 
-    function closeOnShortcut(event: KeyboardEvent): void {
-      if (event.key.toLowerCase() !== 'w') return
-      if (!event.metaKey && !event.ctrlKey) return
+    async function enterFullscreen(): Promise<void> {
+      try {
+        if (await currentWindow.isFullscreen()) return
+        await currentWindow.setFullscreen(true)
+        logger.info('player.fullscreen_entered')
+      } catch (error: unknown) {
+        logger.error('player.fullscreen_enter_failed', { error: describeError(error) })
+      }
+    }
+
+    async function exitFullscreen(): Promise<void> {
+      try {
+        if (!(await currentWindow.isFullscreen())) return
+        await currentWindow.setFullscreen(false)
+        logger.info('player.fullscreen_exited')
+      } catch (error: unknown) {
+        logger.error('player.fullscreen_exit_failed', { error: describeError(error) })
+      }
+    }
+
+    function handlePlayerShortcut(event: KeyboardEvent): void {
+      if (matchesShortcut(event, shortcuts.player.reload)) {
+        event.preventDefault()
+        if (event.repeat) return
+        logger.info('player.reload_requested', { projectName })
+        setReloadRequest((current: number): number => current + 1)
+        return
+      }
+
+      if (matchesShortcut(event, shortcuts.player.enterFullscreen)) {
+        event.preventDefault()
+        if (!event.repeat) void enterFullscreen()
+        return
+      }
+
+      if (matchesShortcut(event, shortcuts.player.exitFullscreen)) {
+        event.preventDefault()
+        if (!event.repeat) void exitFullscreen()
+        return
+      }
+
+      if (!matchesShortcut(event, shortcuts.player.close)) return
 
       event.preventDefault()
       void currentWindow.close().catch((error: unknown) => {
@@ -68,9 +138,9 @@ export default function App(): JSX.Element {
       })
     }
 
-    window.addEventListener('keydown', closeOnShortcut, true)
-    return () => window.removeEventListener('keydown', closeOnShortcut, true)
-  }, [])
+    window.addEventListener('keydown', handlePlayerShortcut, true)
+    return (): void => window.removeEventListener('keydown', handlePlayerShortcut, true)
+  }, [projectName, shortcuts.player])
 
   useEffect(() => {
     if (!projectName) return
@@ -109,7 +179,7 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [projectName])
+  }, [projectName, reloadRequest])
 
   useEffect(() => {
     if (loadState.status !== 'ready' || !storyInput || !stageRef.current) return
@@ -266,7 +336,7 @@ export default function App(): JSX.Element {
 
   return (
     <main
-      className="relative h-screen w-screen overflow-hidden bg-black text-white select-none"
+      className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-black text-white select-none"
       data-player-entry="story-json"
       data-status={loadState.status}
       data-project={storyInput?.projectName ?? projectName ?? ''}
@@ -274,12 +344,18 @@ export default function App(): JSX.Element {
       data-model-status={modelLoadState.status}
     >
       <div className="absolute inset-x-0 top-0 z-20 h-8" onMouseDown={startWindowDrag} />
-      <div ref={stageRef} className="h-full w-full overflow-hidden" />
-      {(loadState.status === 'error' || modelLoadState.status === 'error') && (
-        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm whitespace-pre-wrap text-white/70">
-          {errorMessage(loadState, modelLoadState)}
-        </div>
-      )}
+      <div
+        className="relative shrink-0 overflow-hidden bg-black"
+        style={PLAYER_STAGE_STYLE}
+        data-player-stage="16:9"
+      >
+        <div ref={stageRef} className="absolute inset-0 overflow-hidden" />
+        {(loadState.status === 'error' || modelLoadState.status === 'error') && (
+          <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm whitespace-pre-wrap text-white/70">
+            {errorMessage(loadState, modelLoadState)}
+          </div>
+        )}
+      </div>
     </main>
   )
 }

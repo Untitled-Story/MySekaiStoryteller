@@ -7,21 +7,25 @@ import type {
   PlaybackFontSettings,
   PlaybackSettings,
   RenderPrecision,
+  ShortcutSettings,
   SystemTheme
 } from './types'
 import { defaultPlaybackFont, normalizePlaybackFont } from './fonts'
+import { defaultShortcutSettings, normalizeShortcutSettings } from './shortcuts'
 import { describeError, logger } from '@/lib/logger'
 
 export type SettingsHook = {
   loaded: boolean
   appearance: AppearanceSettings & { activeTheme: SystemTheme }
   playback: PlaybackSettings
+  shortcuts: ShortcutSettings
   workspaceDir: string | null
   setFollowSystem: (follow: boolean) => void
   setManualTheme: (theme: SystemTheme) => void
   setMemorySizeMb: (value: number) => void
   setRenderPrecision: (value: RenderPrecision) => void
   setPlaybackFont: (value: PlaybackFontSettings) => void
+  setShortcuts: (value: ShortcutSettings) => void
   setWorkspaceDir: (dir: string) => void
 }
 
@@ -44,6 +48,7 @@ export function useSettingsState(): SettingsHook {
     font: DEFAULT_PLAYBACK.font
   }))
   const [workspaceDir, setWorkspaceDirState] = useState<string | null>(null)
+  const [shortcuts, setShortcuts] = useState<ShortcutSettings>(defaultShortcutSettings)
   const [loaded, setLoaded] = useState(false)
 
   const activeTheme = useMemo<SystemTheme>(
@@ -78,6 +83,7 @@ export function useSettingsState(): SettingsHook {
           renderPrecision: normalizeRenderPrecision(stored.playback?.renderPrecision),
           font: normalizePlaybackFont(stored.playback?.font)
         })
+        setShortcuts(normalizeShortcutSettings(stored.shortcuts))
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setLoaded(true)
         logger.info('settings.load_completed', {
@@ -109,18 +115,20 @@ export function useSettingsState(): SettingsHook {
         manualTheme: appearance.manualTheme
       },
       playback,
+      shortcuts,
       workspaceDir: workspaceDir ?? undefined
     }
 
     saveSettings(payload).catch((error: unknown): void => {
       logger.error('settings.save_failed', { error: describeError(error) })
     })
-  }, [appearance.followSystem, appearance.manualTheme, playback, workspaceDir, loaded])
+  }, [appearance.followSystem, appearance.manualTheme, playback, shortcuts, workspaceDir, loaded])
 
   return {
     loaded,
     appearance: { ...appearance, activeTheme },
     playback,
+    shortcuts,
     workspaceDir,
     setFollowSystem: (follow) =>
       setAppearance((prev) => ({
@@ -147,6 +155,7 @@ export function useSettingsState(): SettingsHook {
         ...prev,
         font: normalizePlaybackFont(value)
       })),
+    setShortcuts: (value) => setShortcuts(normalizeShortcutSettings(value)),
     setWorkspaceDir: (dir) => setWorkspaceDirState(dir)
   }
 }
