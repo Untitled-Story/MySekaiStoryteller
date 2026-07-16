@@ -189,49 +189,37 @@ export const builtinSnippetDefinitions = [
     type: 'LayoutAppear',
     label: 'LayoutAppear',
     category: '模型',
-    description: '让模型进入画面并播放初始动作',
-    fields: modelPositionFields(true),
+    description: '让模型在当前位置出现并播放初始动作',
+    fields: modelAppearanceFields(),
     create: (id: string, assets: ProjectAssets): SnippetData => ({
       id,
       type: 'LayoutAppear',
       delay: 0,
       data: {
         model: requireAssetKey(assets, 'models'),
-        from: defaultPosition(),
-        to: defaultPosition(),
         motion: undefined,
         facial: undefined,
-        moveSpeed: MoveSpeed.Immediate,
         hologram: false
       }
     }),
     summary: (snippet: SnippetData): string =>
-      snippet.type === 'LayoutAppear'
-        ? `${snippet.data.model || '未选择模型'} -> ${snippet.data.to.side}`
-        : '',
+      snippet.type === 'LayoutAppear' ? snippet.data.model || '未选择模型' : '',
     runtime: { type: 'LayoutAppear', constructor: LayoutAppearSnippet }
   },
   {
     type: 'LayoutClear',
     label: 'LayoutClear',
     category: '模型',
-    description: '让模型离开画面',
-    fields: modelPositionFields(false),
+    description: '让模型在当前位置消失',
+    fields: [{ kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' }],
     create: (id: string, assets: ProjectAssets): SnippetData => ({
       id,
       type: 'LayoutClear',
       delay: 0,
-      data: {
-        model: requireAssetKey(assets, 'models'),
-        from: defaultPosition(),
-        to: defaultPosition(),
-        moveSpeed: MoveSpeed.Immediate
-      }
+      data: { model: requireAssetKey(assets, 'models') }
     }),
     summary: (snippet: SnippetData): string =>
-      snippet.type === 'LayoutClear'
-        ? `${snippet.data.model || '未选择模型'} -> ${snippet.data.to.side}`
-        : '',
+      snippet.type === 'LayoutClear' ? snippet.data.model || '未选择模型' : '',
     runtime: { type: 'LayoutClear', constructor: LayoutClearSnippet }
   },
   {
@@ -278,7 +266,7 @@ export const builtinSnippetDefinitions = [
     label: 'Move',
     category: '模型',
     description: '移动已显示的模型',
-    fields: modelPositionFields(false),
+    fields: modelMoveFields(),
     create: (id: string, assets: ProjectAssets): SnippetData => ({
       id,
       type: 'Move',
@@ -499,10 +487,8 @@ export function getBuiltinSnippetRegistrations(): StorySnippetRegistration[] {
   )
 }
 
-function modelPositionFields(
-  includeAppearanceFields: boolean
-): readonly StorySnippetFieldDefinition[] {
-  const fields: StorySnippetFieldDefinition[] = [
+function modelMoveFields(): readonly StorySnippetFieldDefinition[] {
+  return [
     { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
     { kind: 'position', path: ['data', 'from'], label: '起点' },
     { kind: 'position', path: ['data', 'to'], label: '终点' },
@@ -513,11 +499,11 @@ function modelPositionFields(
       options: MOVE_SPEED_OPTIONS
     }
   ]
+}
 
-  if (!includeAppearanceFields) return fields
-
+function modelAppearanceFields(): readonly StorySnippetFieldDefinition[] {
   return [
-    fields[0],
+    { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
     {
       kind: 'text',
       path: ['data', 'motion'],
@@ -532,9 +518,6 @@ function modelPositionFields(
       optional: true,
       placeholder: 'facial 名称'
     },
-    fields[1],
-    fields[2],
-    fields[3],
     { kind: 'boolean', path: ['data', 'hologram'], label: '全息效果' }
   ]
 }

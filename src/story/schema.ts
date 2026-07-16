@@ -125,11 +125,8 @@ export const LayoutAppearSnippetSchema = SnippetBaseSchema.extend({
   type: z.literal('LayoutAppear'),
   data: z.object({
     model: AssetKeySchema,
-    from: PositionSchema,
-    to: PositionSchema,
     motion: OptionalAssetKeySchema,
     facial: OptionalAssetKeySchema,
-    moveSpeed: MoveSpeedSchema,
     hologram: z.boolean().default(false)
   })
 })
@@ -137,10 +134,7 @@ export const LayoutAppearSnippetSchema = SnippetBaseSchema.extend({
 export const LayoutClearSnippetSchema = SnippetBaseSchema.extend({
   type: z.literal('LayoutClear'),
   data: z.object({
-    model: AssetKeySchema,
-    from: PositionSchema,
-    to: PositionSchema,
-    moveSpeed: MoveSpeedSchema
+    model: AssetKeySchema
   })
 })
 

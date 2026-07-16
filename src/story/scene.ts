@@ -28,6 +28,7 @@ import {
   type EffectTargetData,
   LayoutModes,
   MoveSpeed,
+  Sides,
   type CurveData,
   type LayoutModeData,
   type PositionData
@@ -216,6 +217,7 @@ export function createStoryScene({
   let destroyed = false
   let fastForwarding = false
   let layoutMode: LayoutModeData = LayoutModes.Normal
+  const positionedModelKeys = new Set<string>()
   let previousStageSize: [number, number] = getStageSize(app)
   const animateLinear = (animation: (progress: number) => void, timeMs: number): Promise<void> => {
     if (fastForwarding) {
@@ -282,7 +284,6 @@ export function createStoryScene({
         if (options.hologram) await applyModelEffects(options.modelKey, ['hologram'])
         else await disableAllModelEffects(options.modelKey)
         ensureAlphaFilter(model).alpha = 1
-        setModelPositionRel(model, getStageSize(app), sideToPosition(options.to, layoutMode))
         return
       }
 
@@ -294,24 +295,6 @@ export function createStoryScene({
       const showTask = showModelWithFade(model, MODEL_SHOW_TIME_MS, animateLinear)
       if (options.motion) {
         await closeModelEyes(model, 0, animateLinear)
-      }
-
-      const from = sideToPosition(options.from, layoutMode)
-      const to = sideToPosition(options.to, layoutMode)
-      const moveTask =
-        from.x === to.x && from.y === to.y
-          ? null
-          : moveModelBetween(
-              model,
-              getStageSize(app),
-              from,
-              to,
-              moveSpeedToMs(options.moveSpeed),
-              animateLinear
-            )
-
-      if (!moveTask) {
-        setModelPositionRel(model, getStageSize(app), to)
       }
 
       void delayMs(MOTION_START_DELAY_MS)
@@ -327,53 +310,26 @@ export function createStoryScene({
         .catch((): void => undefined)
 
       await showTask
-      if (moveTask) await moveTask
     },
     async clearModel(options: StoryModelClearOptions): Promise<void> {
       const { model } = getModel(options.modelKey)
       if (fastForwarding) {
-        setModelPositionRel(model, getStageSize(app), sideToPosition(options.to, layoutMode))
         ensureAlphaFilter(model).alpha = 0
         await disableAllModelEffects(options.modelKey)
         model.visible = false
         model.removeFromParent()
         return
       }
-      const hideTask: Promise<void> = hideModelWithFade(
-        model,
-        MODEL_HIDE_TIME_MS,
-        animateLinear
-      ).then(async (): Promise<void> => {
-        await disableAllModelEffects(options.modelKey)
-        model.visible = false
-      })
-      const from: PositionRel = sideToPosition(options.from, layoutMode)
-      const to: PositionRel = sideToPosition(options.to, layoutMode)
-      const moveTask: Promise<void> | null =
-        from.x === to.x && from.y === to.y
-          ? null
-          : moveModelBetween(
-              model,
-              getStageSize(app),
-              from,
-              to,
-              moveSpeedToMs(options.moveSpeed),
-              animateLinear
-            )
-
-      if (!moveTask) {
-        setModelPositionRel(model, getStageSize(app), to)
-      }
-
+      await hideModelWithFade(model, MODEL_HIDE_TIME_MS, animateLinear)
+      await disableAllModelEffects(options.modelKey)
+      model.visible = false
       model.removeFromParent()
-
-      await hideTask
-      if (moveTask) await moveTask
     },
     async moveModel(options: StoryModelMoveOptions): Promise<void> {
       const { model } = getModel(options.modelKey)
       const from: PositionRel = sideToPosition(options.from, layoutMode)
       const to: PositionRel = sideToPosition(options.to, layoutMode)
+      positionedModelKeys.add(options.modelKey)
       if (fastForwarding) {
         setModelPositionRel(model, getStageSize(app), to)
         return
@@ -578,6 +534,14 @@ export function createStoryScene({
       layers.models.addChild(model)
     }
     model.visible = true
+    if (!positionedModelKeys.has(modelKey)) {
+      setModelPositionRel(
+        model,
+        getStageSize(app),
+        sideToPosition({ side: Sides.Center, offset: 0 }, layoutMode)
+      )
+      positionedModelKeys.add(modelKey)
+    }
 
     return instance
   }
@@ -615,7 +579,7 @@ export function createStoryScene({
 
     for (const instance of models.values()) {
       const { model } = instance
-      if (model.parent !== layers.models) continue
+      if (model.parent !== layers.models && !positionedModelKeys.has(instance.key)) continue
 
       const relativeX: number = previousWidth > 0 ? model.position.x / previousWidth : 0.5
       const relativeY: number = previousHeight > 0 ? model.position.y / previousHeight - 0.3 : 0.5

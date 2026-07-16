@@ -53,9 +53,6 @@ export type StoryPixiAccessApi = {
 
 export type StoryModelAppearOptions = {
   modelKey: string
-  from: PositionData
-  to: PositionData
-  moveSpeed: MoveSpeedData
   motion?: string
   facial?: string
   hologram: boolean
@@ -63,9 +60,6 @@ export type StoryModelAppearOptions = {
 
 export type StoryModelClearOptions = {
   modelKey: string
-  from: PositionData
-  to: PositionData
-  moveSpeed: MoveSpeedData
 }
 
 export type StoryModelMoveOptions = {
