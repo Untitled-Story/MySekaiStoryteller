@@ -61,7 +61,7 @@ type ExportNotice = {
 
 export default function ProjectsPage(): JSX.Element {
   const { t } = useTranslation()
-  const { projects, fetchProjects } = useProjectsMetadata()
+  const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -259,7 +259,9 @@ export default function ProjectsPage(): JSX.Element {
       </div>
 
       <div className="flex-1 px-8 overflow-auto overscroll-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
-        {filtered.length > 0 ? (
+        {loading ? (
+          <ProjectListSkeleton />
+        ) : filtered.length > 0 ? (
           <div className="divide-y divide-border">
             {filtered.map((metadata) => (
               <ContextMenu key={metadata.title}>
@@ -404,6 +406,23 @@ export default function ProjectsPage(): JSX.Element {
           closeLabel={t('common.close')}
           onDismiss={(): void => setExportNotice(null)}
         />
+      )}
+    </div>
+  )
+}
+
+function ProjectListSkeleton(): JSX.Element {
+  return (
+    <div className="divide-y divide-border" aria-busy="true">
+      {[0, 1, 2, 3, 4].map(
+        (index: number): JSX.Element => (
+          <div key={index} className="flex h-[61px] items-center px-2 -mx-2">
+            <div className="w-full space-y-2">
+              <div className="h-3.5 w-36 rounded-sm bg-muted" />
+              <div className="h-2.5 w-24 rounded-sm bg-muted/70" />
+            </div>
+          </div>
+        )
       )}
     </div>
   )

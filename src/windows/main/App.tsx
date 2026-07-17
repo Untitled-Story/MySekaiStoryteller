@@ -10,6 +10,7 @@ import { useSettings } from '@/settings/useSettings'
 import { WorkspaceSetup } from '@/windows/main/components/WorkspaceSetup'
 import { Agentation } from 'agentation'
 import { ProjectImportCoordinator } from '@/windows/main/components/ProjectImportCoordinator'
+import { ProjectsMetadataProvider } from '@/windows/main/providers/ProjectsMetadataProvider'
 
 export default function App(): React.JSX.Element {
   return (
@@ -43,7 +44,7 @@ function AppContent(): React.JSX.Element {
   }
 
   return (
-    <>
+    <ProjectsMetadataProvider key={workspaceDir}>
       <LeftSidebar />
       <main className="fixed top-0 left-65 right-0 bottom-0 overflow-hidden overscroll-none">
         <Routes>
@@ -54,6 +55,6 @@ function AppContent(): React.JSX.Element {
         </Routes>
       </main>
       <ProjectImportCoordinator />
-    </>
+    </ProjectsMetadataProvider>
   )
 }
