@@ -51,6 +51,8 @@ import {
 import { formatNodeSummary } from './editorCatalog'
 import type { AddableSnippetType, EditorNode } from './editorDocument'
 import type { SnippetDropPlacement } from './editorTree'
+import { useTranslation } from 'react-i18next'
+import { localizeSnippetCategory, localizeSnippetDescription } from './editorLocalization'
 
 export type EditorSidebarTab = 'story' | 'assets'
 
@@ -123,7 +125,9 @@ export function EditorSidebar({
   onImportAsset: (kind: Exclude<ProjectAssetKind, 'models'>) => void
   onRegisterModel: () => void
 }): JSX.Element {
-  const searchLabel: string = activePanel === 'story' ? '搜索片段' : '搜索资源'
+  const { t } = useTranslation()
+  const searchLabel: string =
+    activePanel === 'story' ? t('editor.searchSnippets') : t('editor.searchAssets')
 
   return (
     <aside className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r bg-muted/20">
@@ -131,12 +135,12 @@ export function EditorSidebar({
         <div className="flex h-8 items-center rounded-md bg-muted p-0.5">
           <TabButton
             active={activePanel === 'story'}
-            label="故事"
+            label={t('editor.story')}
             onClick={(): void => onActivePanelChange('story')}
           />
           <TabButton
             active={activePanel === 'assets'}
-            label="资源"
+            label={t('editor.assets')}
             onClick={(): void => onActivePanelChange('assets')}
           />
         </div>
@@ -147,8 +151,8 @@ export function EditorSidebar({
             size="icon"
             data-tour="editor-add-snippet"
             className="ml-auto size-8"
-            aria-label="添加片段"
-            title="添加片段"
+            aria-label={t('editor.addSnippet')}
+            title={t('editor.addSnippet')}
             onClick={(): void => onAddDialogOpenChange(true)}
           >
             <Plus className="size-4" />
@@ -264,6 +268,7 @@ function StoryTree({
   dragEnabled: boolean
   onAdd: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const treeRef = useRef<HTMLDivElement | null>(null)
   const pointerRef = useRef<{
     pointerId: number
@@ -433,7 +438,9 @@ function StoryTree({
         })}
       </div>
       {nodes.length === 0 && (
-        <div className="px-2 pt-8 text-center text-xs text-muted-foreground">当前场景没有片段</div>
+        <div className="px-2 pt-8 text-center text-xs text-muted-foreground">
+          {t('editor.emptyStory')}
+        </div>
       )}
       <button
         type="button"
@@ -441,7 +448,7 @@ function StoryTree({
         onClick={onAdd}
       >
         <Plus className="size-3.5" />
-        添加片段
+        {t('editor.addSnippet')}
       </button>
     </div>
   )
@@ -484,6 +491,7 @@ function StoryNodeRow({
   contextMoves: StoryContextMoves
   onToggleParallel: (nodeId: string) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const node: EditorNode = flatNode.node
   const presentation: NodePresentation = NODE_PRESENTATIONS[node.type]
   const Icon: LucideIcon = presentation.icon
@@ -518,7 +526,7 @@ function StoryNodeRow({
           )}
           <button
             type="button"
-            title={dragEnabled ? '拖拽以调整片段顺序或层级' : '清除搜索后可拖拽片段'}
+            title={dragEnabled ? t('editor.dragHint') : t('editor.dragDisabledHint')}
             className={cn(
               'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
               selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
@@ -533,7 +541,7 @@ function StoryNodeRow({
                 'flex shrink-0',
                 dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
               )}
-              title={dragEnabled ? '拖拽调整片段' : undefined}
+              title={dragEnabled ? t('editor.dragHandle') : undefined}
             >
               <GripVertical className="size-3 text-muted-foreground/45" />
             </span>
@@ -559,8 +567,8 @@ function StoryNodeRow({
             <button
               type="button"
               className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={expanded ? '收起 Parallel' : '展开 Parallel'}
-              title={expanded ? '收起 Parallel' : '展开 Parallel'}
+              aria-label={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
+              title={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
               data-no-drag
               onClick={(): void => onToggleParallel(node.id)}
             >
@@ -581,11 +589,11 @@ function StoryNodeRow({
       <ContextMenuContent className="w-52 font-medium select-none">
         <ContextMenuItem onClick={(): void => onPreview(node.id)}>
           <Play />
-          从此处预览
+          {t('editor.previewFromHere')}
         </ContextMenuItem>
         <ContextMenuItem onClick={(): void => onDuplicate(node.id)}>
           <Copy />
-          复制片段
+          {t('editor.copySnippet')}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
@@ -593,33 +601,33 @@ function StoryNodeRow({
           onClick={(): void => moveTo(contextMoves.up)}
         >
           <ArrowUp />
-          上移
+          {t('editor.moveUp')}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={!dragEnabled || !contextMoves.down}
           onClick={(): void => moveTo(contextMoves.down)}
         >
           <ArrowDown />
-          下移
+          {t('editor.moveDown')}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={!dragEnabled || !contextMoves.indent}
           onClick={(): void => moveTo(contextMoves.indent)}
         >
           <IndentIncrease />
-          移入上方 Parallel
+          {t('editor.moveIntoParallel')}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={!dragEnabled || !contextMoves.outdent}
           onClick={(): void => moveTo(contextMoves.outdent)}
         >
           <IndentDecrease />
-          移出 Parallel
+          {t('editor.moveOutParallel')}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onClick={(): void => onDelete(node.id)}>
           <Trash2 />
-          删除片段
+          {t('editor.deleteSnippet')}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -829,7 +837,8 @@ function AssetGroup({
   onImport: (kind: Exclude<ProjectAssetKind, 'models'>) => void
   onRegisterModel: () => void
 }): JSX.Element {
-  const actionLabel: string = kind === 'models' ? '注册' : '导入'
+  const { t } = useTranslation()
+  const actionLabel: string = kind === 'models' ? t('common.register') : t('common.import')
   const ActionIcon: LucideIcon =
     kind === 'models' ? UserPlus : kind === 'backgrounds' ? ImagePlus : Volume2
 
@@ -892,7 +901,7 @@ function AssetGroup({
           }}
         >
           <FolderPlus className="size-3.5" />
-          {actionLabel}第一个{ASSET_KIND_LABELS[kind]}
+          {t('editor.addFirstAsset', { action: actionLabel, kind: ASSET_KIND_LABELS[kind] })}
         </button>
       )}
     </section>
@@ -926,6 +935,7 @@ function AddSnippetDialog({
   onOpenChange: (open: boolean) => void
   onAdd: (type: AddableSnippetType) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const categories: readonly string[] = Array.from(
     new Set(builtinSnippetDefinitions.map((definition): string => definition.category))
   )
@@ -934,10 +944,8 @@ function AddSnippetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[80vh] max-w-[640px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden select-none">
         <DialogHeader>
-          <DialogTitle>添加片段</DialogTitle>
-          <DialogDescription>
-            选中 Parallel 时会将新片段作为其子项；其余情况插入到选中项之后。
-          </DialogDescription>
+          <DialogTitle>{t('editor.addSnippet')}</DialogTitle>
+          <DialogDescription>{t('editor.addDialogDescription')}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
           {categories.map((category: string): JSX.Element => {
@@ -946,7 +954,9 @@ function AddSnippetDialog({
             )
             return (
               <section key={category}>
-                <p className="mb-2 text-xs font-medium text-muted-foreground">{category}</p>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  {localizeSnippetCategory(definitions[0].category)}
+                </p>
                 <div className="grid grid-cols-2 gap-2">
                   {definitions.map((definition): JSX.Element => {
                     const presentation: NodePresentation = NODE_PRESENTATIONS[definition.type]
@@ -974,7 +984,7 @@ function AddSnippetDialog({
                         disabled={missingAssetKinds.length > 0}
                         title={
                           missingAssetKinds.length > 0
-                            ? `请先添加${unavailableMessage}资源`
+                            ? t('editor.addRequiredAssets', { kinds: unavailableMessage })
                             : undefined
                         }
                         onClick={(): void => onAdd(definition.type)}
@@ -993,8 +1003,8 @@ function AddSnippetDialog({
                           </span>
                           <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
                             {missingAssetKinds.length > 0
-                              ? `需要先添加${unavailableMessage}资源`
-                              : definition.description}
+                              ? t('editor.requiresAssets', { kinds: unavailableMessage })
+                              : localizeSnippetDescription(definition)}
                           </span>
                         </span>
                       </button>

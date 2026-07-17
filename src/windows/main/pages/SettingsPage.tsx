@@ -4,7 +4,12 @@ import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
 import { Button } from '@/components/ui/Button'
 import { useSettings } from '@/settings/useSettings'
-import type { PlaybackFontSettings, ShortcutBinding, ShortcutSettings } from '@/settings/types'
+import type {
+  AppLanguage,
+  PlaybackFontSettings,
+  ShortcutBinding,
+  ShortcutSettings
+} from '@/settings/types'
 import {
   DEFAULT_PLAYBACK_FONT_FAMILY,
   defaultPlaybackFont,
@@ -25,14 +30,18 @@ import { FolderOpen, RotateCcw } from 'lucide-react'
 import { describeError, logger } from '@/lib/logger'
 import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { useNavigate } from 'react-router'
+import { useTranslation } from 'react-i18next'
 
 export default function SettingsPage(): JSX.Element {
+  const { t } = useTranslation()
   const {
+    language,
     appearance,
     playback,
     shortcuts,
     onboarding,
     workspaceDir,
+    setLanguage,
     setFollowSystem,
     setManualTheme,
     setMemorySizeMb,
@@ -47,7 +56,7 @@ export default function SettingsPage(): JSX.Element {
     renderPrecisionToText(playback.renderPrecision)
   )
   const [dataFonts, setDataFonts] = useState<DataFontInfo[]>([])
-  const [logPath, setLogPath] = useState<string>('系统应用日志目录')
+  const [logPath, setLogPath] = useState<string>(() => t('settings.logDefault'))
   const [shortcutConflict, setShortcutConflict] = useState<ShortcutConflict | null>(null)
   const [recordingShortcutId, setRecordingShortcutId] = useState<ShortcutCommandId | null>(null)
 
@@ -88,7 +97,7 @@ export default function SettingsPage(): JSX.Element {
 
   const handleChangeWorkspace = async (): Promise<void> => {
     const selected: string | string[] | null = await open({
-      title: '选择数据保存路径',
+      title: t('workspace.choose'),
       directory: true,
       multiple: false
     })
@@ -135,7 +144,10 @@ export default function SettingsPage(): JSX.Element {
       )
 
       if (conflict) {
-        setShortcutConflict({ id, message: `与“${conflict.title}”的快捷键冲突` })
+        setShortcutConflict({
+          id,
+          message: t('settings.conflict', { title: t(conflict.titleKey) })
+        })
         return false
       }
 
@@ -143,7 +155,7 @@ export default function SettingsPage(): JSX.Element {
       setShortcuts(updateShortcutBinding(shortcuts, id, binding))
       return true
     },
-    [setShortcuts, shortcuts]
+    [setShortcuts, shortcuts, t]
   )
 
   function handleShortcutReset(id: ShortcutCommandId): void {
@@ -179,59 +191,77 @@ export default function SettingsPage(): JSX.Element {
   return (
     <div className="flex flex-col h-screen overflow-y-auto overscroll-none px-8 py-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
       <div className="w-full max-w-2xl space-y-1 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">数据存储</h2>
-        <p className="text-sm text-muted-foreground">管理项目数据与运行日志的保存位置。</p>
+        <h2 className="text-2xl font-semibold leading-tight">{t('settings.storage')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.storageDescription')}</p>
       </div>
 
       <div className="w-full max-w-2xl divide-y divide-border">
-        <SettingRow title="数据保存路径" description={workspaceDir ?? '未设置'}>
+        <SettingRow
+          title={t('settings.workspace')}
+          description={workspaceDir ?? t('common.missing')}
+        >
           <Button variant="outline" size="sm" onClick={handleChangeWorkspace}>
             <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
-            修改
+            {t('common.change')}
           </Button>
         </SettingRow>
-        <SettingRow title="运行日志" description={logPath}>
+        <SettingRow title={t('settings.logs')} description={logPath}>
           <Button variant="outline" size="sm" onClick={handleOpenLogDirectory}>
             <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
-            打开
+            {t('common.open')}
           </Button>
         </SettingRow>
       </div>
 
       <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">外观主题</h2>
-        <p className="text-sm text-muted-foreground">选择应用的外观主题。</p>
+        <h2 className="text-2xl font-semibold leading-tight">{t('settings.appearance')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.appearanceDescription')}</p>
       </div>
 
       <div className="w-full max-w-2xl divide-y divide-border">
-        <SettingRow title="深色模式" description="在跟随系统关闭时，手动切换深色或浅色。">
+        <SettingRow title={t('language.label')} description={t('language.description')}>
+          <select
+            value={language}
+            onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
+              setLanguage(event.target.value as AppLanguage)
+            }
+            className="border-input bg-background h-9 w-44 rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          >
+            <option value="system">{t('language.system')}</option>
+            <option value="zh-CN">{t('language.zhCN')}</option>
+            <option value="zh-HK">{t('language.zhHK')}</option>
+            <option value="en">{t('language.en')}</option>
+            <option value="ja">{t('language.ja')}</option>
+          </select>
+        </SettingRow>
+        <SettingRow title={t('settings.darkMode')} description={t('settings.darkModeDescription')}>
           <Switch
             checked={appearance.manualTheme === 'dark'}
             disabled={appearance.followSystem}
-            aria-label="切换深色模式"
+            aria-label={t('settings.darkModeAria')}
             onCheckedChange={(checked) => setManualTheme(checked ? 'dark' : 'light')}
           />
         </SettingRow>
 
-        <SettingRow title="跟随系统" description="打开后将自动根据系统外观切换深色模式。">
+        <SettingRow
+          title={t('settings.followSystem')}
+          description={t('settings.followSystemDescription')}
+        >
           <Switch
             checked={appearance.followSystem}
-            aria-label="切换是否跟随系统"
+            aria-label={t('settings.followSystemAria')}
             onCheckedChange={setFollowSystem}
           />
         </SettingRow>
       </div>
 
       <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">播放设定</h2>
-        <p className="text-sm text-muted-foreground">调整放映内存与渲染精度以获得更稳定的表现。</p>
+        <h2 className="text-2xl font-semibold leading-tight">{t('settings.playback')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.playbackDescription')}</p>
       </div>
 
       <div className="w-full max-w-2xl divide-y divide-border">
-        <SettingRow
-          title="内存大小 (MB)"
-          description="放映时使用的内存大小，越大支持的模型数越多，也会越流畅。最小 64 MB。"
-        >
+        <SettingRow title={t('settings.memory')} description={t('settings.memoryDescription')}>
           <Input
             type="number"
             min={64}
@@ -248,8 +278,8 @@ export default function SettingsPage(): JSX.Element {
         </SettingRow>
 
         <SettingRow
-          title="渲染精度"
-          description="放映时的分辨率，数值越大越清晰，资源消耗越大。推荐 0.5 ~ 2.0。"
+          title={t('settings.precision')}
+          description={t('settings.precisionDescription')}
         >
           <Input
             type="text"
@@ -274,22 +304,21 @@ export default function SettingsPage(): JSX.Element {
           />
         </SettingRow>
 
-        <SettingRow
-          title="字体"
-          description="放映文本使用的字体。自定义字体放在数据路径的 fonts 目录下。"
-        >
+        <SettingRow title={t('settings.font')} description={t('settings.fontDescription')}>
           <select
             value={fontValue}
             onChange={handleFontChange}
             className="border-input bg-background h-9 w-56 rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
           >
-            <optgroup label="默认字体">
-              <option value="default">默认字体 ({DEFAULT_PLAYBACK_FONT_FAMILY})</option>
+            <optgroup label={t('settings.defaultFont')}>
+              <option value="default">
+                {t('settings.defaultFont')} ({DEFAULT_PLAYBACK_FONT_FAMILY})
+              </option>
             </optgroup>
-            <optgroup label="数据路径 / fonts">
+            <optgroup label={t('settings.dataFonts')}>
               {missingDataFont ? (
                 <option value={playbackFontToSelectValue(missingDataFont)}>
-                  {missingDataFont.family} (未找到)
+                  {t('settings.fontMissing', { family: missingDataFont.family })}
                 </option>
               ) : null}
               {dataFonts.map(
@@ -305,12 +334,12 @@ export default function SettingsPage(): JSX.Element {
       </div>
 
       <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">快捷键</h2>
-        <p className="text-sm text-muted-foreground">自定义编辑器与播放器的键盘操作。</p>
+        <h2 className="text-2xl font-semibold leading-tight">{t('settings.shortcuts')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.shortcutsDescription')}</p>
       </div>
 
       <ShortcutGroup
-        title="编辑器"
+        title={t('settings.editor')}
         commands={EDITOR_SHORTCUT_COMMANDS}
         shortcuts={shortcuts}
         conflict={shortcutConflict}
@@ -319,7 +348,7 @@ export default function SettingsPage(): JSX.Element {
         onReset={handleShortcutReset}
       />
       <ShortcutGroup
-        title="播放器"
+        title={t('settings.player')}
         commands={PLAYER_SHORTCUT_COMMANDS}
         shortcuts={shortcuts}
         conflict={shortcutConflict}
@@ -329,33 +358,35 @@ export default function SettingsPage(): JSX.Element {
       />
 
       <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">新手教程</h2>
-        <p className="text-sm text-muted-foreground">重新查看主页或编辑器的操作引导。</p>
+        <h2 className="text-2xl font-semibold leading-tight">{t('settings.onboarding')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.onboardingDescription')}</p>
       </div>
 
       <div className="w-full max-w-2xl divide-y divide-border pb-4">
         <SettingRow
-          title="主页导览"
+          title={t('settings.mainTour')}
           description={
-            onboarding.mainTourVersion >= MAIN_TOUR_VERSION ? '已完成' : '将在主页自动显示'
+            onboarding.mainTourVersion >= MAIN_TOUR_VERSION
+              ? t('settings.completed')
+              : t('settings.mainTourPending')
           }
         >
           <Button variant="outline" size="sm" onClick={handleRestartMainTour}>
             <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-            重新开始
+            {t('settings.restart')}
           </Button>
         </SettingRow>
         <SettingRow
-          title="编辑器教程"
+          title={t('settings.editorTour')}
           description={
             onboarding.editorTourVersion >= EDITOR_TOUR_VERSION
-              ? '已完成；重置后将在下次打开编辑器时显示'
-              : '将在下次打开编辑器时自动显示'
+              ? t('settings.editorTourComplete')
+              : t('settings.editorTourPending')
           }
         >
           <Button variant="outline" size="sm" onClick={handleRestartEditorTour}>
             <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-            重新开始
+            {t('settings.restart')}
           </Button>
         </SettingRow>
       </div>
@@ -373,8 +404,8 @@ type ShortcutCommandId =
 type ShortcutCommandDefinition = {
   id: ShortcutCommandId
   scope: 'editor' | 'player'
-  title: string
-  description: string
+  titleKey: string
+  descriptionKey: string
 }
 
 type ShortcutConflict = {
@@ -386,8 +417,8 @@ const EDITOR_SHORTCUT_COMMANDS: readonly ShortcutCommandDefinition[] = [
   {
     id: 'editor.save',
     scope: 'editor',
-    title: '保存项目',
-    description: '立即保存当前项目'
+    titleKey: 'settings.saveProject',
+    descriptionKey: 'settings.saveProjectDescription'
   }
 ]
 
@@ -395,26 +426,26 @@ const PLAYER_SHORTCUT_COMMANDS: readonly ShortcutCommandDefinition[] = [
   {
     id: 'player.reload',
     scope: 'player',
-    title: '重新播放',
-    description: '重新读取已保存项目并从头播放'
+    titleKey: 'settings.reloadPlayer',
+    descriptionKey: 'settings.reloadPlayerDescription'
   },
   {
     id: 'player.enterFullscreen',
     scope: 'player',
-    title: '进入全屏',
-    description: '进入全屏放映'
+    titleKey: 'settings.enterFullscreen',
+    descriptionKey: 'settings.enterFullscreenDescription'
   },
   {
     id: 'player.exitFullscreen',
     scope: 'player',
-    title: '退出全屏',
-    description: '返回窗口模式'
+    titleKey: 'settings.exitFullscreen',
+    descriptionKey: 'settings.exitFullscreenDescription'
   },
   {
     id: 'player.close',
     scope: 'player',
-    title: '关闭播放器',
-    description: '关闭当前播放器窗口'
+    titleKey: 'settings.closePlayer',
+    descriptionKey: 'settings.closePlayerDescription'
   }
 ]
 
@@ -440,6 +471,7 @@ function ShortcutGroup({
   onRecordingShortcutIdChange: (id: ShortcutCommandId | null) => void
   onReset: (id: ShortcutCommandId) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <div className="mt-2 w-full max-w-2xl [&+&]:mt-5">
       <div className="border-b border-border pb-2 text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -450,7 +482,11 @@ function ShortcutGroup({
           const binding: ShortcutBinding = getShortcutBinding(shortcuts, command.id)
           const defaultBinding: ShortcutBinding = getShortcutBinding(DEFAULT_SHORTCUTS, command.id)
           return (
-            <SettingRow key={command.id} title={command.title} description={command.description}>
+            <SettingRow
+              key={command.id}
+              title={t(command.titleKey)}
+              description={t(command.descriptionKey)}
+            >
               <ShortcutBindingEditor
                 binding={binding}
                 isDefault={shortcutBindingsEqual(binding, defaultBinding)}
@@ -484,6 +520,7 @@ function ShortcutBindingEditor({
   onRecordingChange: (recording: boolean) => void
   onReset: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col items-end gap-1.5">
       <div className="flex items-center gap-1.5">
@@ -496,7 +533,7 @@ function ShortcutBindingEditor({
           onClick={(): void => onRecordingChange(!recording)}
         >
           {recording ? (
-            <span className="text-xs text-muted-foreground">录入中…</span>
+            <span className="text-xs text-muted-foreground">{t('settings.recording')}</span>
           ) : (
             <ShortcutKeys binding={binding} />
           )}
@@ -507,8 +544,8 @@ function ShortcutBindingEditor({
           size="icon"
           className="size-8"
           disabled={isDefault}
-          aria-label="恢复默认快捷键"
-          title="恢复默认快捷键"
+          aria-label={t('settings.resetShortcut')}
+          title={t('settings.resetShortcut')}
           onMouseDown={(event: ReactMouseEvent<HTMLButtonElement>): void => event.preventDefault()}
           onClick={onReset}
         >

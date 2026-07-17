@@ -45,6 +45,13 @@ import {
   type EditorNode,
   type EditorStory
 } from './editorDocument'
+import { useTranslation } from 'react-i18next'
+import {
+  localizeSnippetDescription,
+  localizeSnippetFieldLabel,
+  localizeSnippetOptionLabel,
+  localizeSnippetPlaceholder
+} from './editorLocalization'
 
 type ValueAtPath = unknown
 
@@ -71,6 +78,7 @@ export function EditorInspector({
   onDuplicate: () => void
   onDelete: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <aside
       data-tour="editor-inspector"
@@ -78,15 +86,15 @@ export function EditorInspector({
     >
       <div className="flex h-12 shrink-0 items-center border-b px-4">
         <SlidersHorizontal className="mr-2 size-4 text-muted-foreground" />
-        <span className="text-sm font-medium">属性</span>
+        <span className="text-sm font-medium">{t('editor.inspector')}</span>
         <div className="ml-auto flex items-center gap-1">
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-8"
-            aria-label="复制片段"
-            title="复制片段"
+            aria-label={t('editor.copySnippet')}
+            title={t('editor.copySnippet')}
             disabled={!selectedNode}
             onClick={onDuplicate}
           >
@@ -97,8 +105,8 @@ export function EditorInspector({
             variant="ghost"
             size="icon"
             className="size-8 text-destructive hover:text-destructive"
-            aria-label="删除片段"
-            title="删除片段"
+            aria-label={t('editor.deleteSnippet')}
+            title={t('editor.deleteSnippet')}
             disabled={!selectedNode}
             onClick={onDelete}
           >
@@ -143,6 +151,7 @@ function SnippetInspectorContent({
   onStoryChange: (story: EditorStory, mergeKey?: string) => void
   onInputBlur: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const definition = getBuiltinSnippetDefinition(node.type)
   const presentation = NODE_PRESENTATIONS[node.type]
   const Icon = presentation.icon
@@ -173,7 +182,9 @@ function SnippetInspectorContent({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{definition.label}</p>
             <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{path}</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">{definition.description}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              {localizeSnippetDescription(definition)}
+            </p>
           </div>
         </div>
       </div>
@@ -196,7 +207,7 @@ function SnippetInspectorContent({
           <details className="group overflow-hidden rounded-md border bg-muted/15">
             <summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 text-xs font-medium text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
               <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
-              高级选项
+              {t('editor.advanced')}
             </summary>
             <div className="space-y-4 border-t px-3 py-3">
               {advancedFields.map(
@@ -255,6 +266,7 @@ function SnippetField({
   onValueChange: (path: readonly string[], value: unknown, merge?: boolean) => void
   onInputBlur: () => void
 }): JSX.Element {
+  const localizedLabel: string = localizeSnippetFieldLabel(field.label)
   const value: ValueAtPath = getValueAtPath(node, field.path)
 
   if (field.kind === 'effect-reference') {
@@ -267,9 +279,9 @@ function SnippetField({
       )
 
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <select
-          aria-label={field.label}
+          aria-label={localizedLabel}
           className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
           value={selectedEffectId}
           disabled={availableEffects.length === 0 && !hasMissingSelection}
@@ -304,12 +316,12 @@ function SnippetField({
       field.catalog
     )
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <FuzzyCombobox
-          label={field.label}
+          label={localizedLabel}
           value={textValue}
           options={options}
-          placeholder={field.placeholder}
+          placeholder={localizeSnippetPlaceholder(field.placeholder)}
           emptyText={options.length === 0 ? '当前模型没有可用索引' : '没有匹配项，将保留自定义值'}
           onChange={(nextValue: string): void =>
             onValueChange(field.path, field.optional && !nextValue ? undefined : nextValue, true)
@@ -327,10 +339,10 @@ function SnippetField({
       onValueChange(field.path, field.optional && !nextValue ? undefined : nextValue, true)
     }
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         {field.kind === 'textarea' ? (
           <textarea
-            aria-label={field.label}
+            aria-label={localizedLabel}
             data-tour={
               node.type === 'Talk' && field.path.join('.') === 'data.content'
                 ? 'editor-talk-content'
@@ -338,14 +350,14 @@ function SnippetField({
             }
             className="min-h-24 w-full resize-y rounded-md border bg-transparent px-3 py-2 text-sm leading-6 shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
             value={textValue}
-            placeholder={field.placeholder}
+            placeholder={localizeSnippetPlaceholder(field.placeholder)}
             onChange={onChange}
             onBlur={onInputBlur}
           />
         ) : (
           <Input
             value={textValue}
-            placeholder={field.placeholder}
+            placeholder={localizeSnippetPlaceholder(field.placeholder)}
             readOnly={field.readOnly}
             className="h-8 text-sm"
             onChange={onChange}
@@ -358,7 +370,7 @@ function SnippetField({
 
   if (field.kind === 'number') {
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <NumberInput
           value={typeof value === 'number' ? value : 0}
           min={field.min}
@@ -373,9 +385,9 @@ function SnippetField({
 
   if (field.kind === 'select') {
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <select
-          aria-label={field.label}
+          aria-label={localizedLabel}
           className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
           value={typeof value === 'string' ? value : ''}
           onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
@@ -385,7 +397,7 @@ function SnippetField({
           {field.options.map(
             (option): JSX.Element => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {localizeSnippetOptionLabel(option.label)}
               </option>
             )
           )}
@@ -400,9 +412,9 @@ function SnippetField({
     const hasMissingSelection: boolean =
       Boolean(selectedKey) && !assetOptions.some((asset): boolean => asset.key === selectedKey)
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <select
-          aria-label={field.label}
+          aria-label={localizedLabel}
           className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
           value={selectedKey}
           onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
@@ -427,10 +439,10 @@ function SnippetField({
   if (field.kind === 'position') {
     const position = isPosition(value) ? value : { side: 'Center', offset: 0 }
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <div className="grid grid-cols-[1fr_88px] gap-2">
           <select
-            aria-label={`${field.label}位置`}
+            aria-label={localizedLabel}
             className="h-9 rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
             value={position.side}
             onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
@@ -440,7 +452,7 @@ function SnippetField({
             {storyFieldOptions.sides.map(
               (option): JSX.Element => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {localizeSnippetOptionLabel(option.label)}
                 </option>
               )
             )}
@@ -461,7 +473,7 @@ function SnippetField({
 
   if (field.kind === 'boolean') {
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <div className="flex h-9 items-center justify-between rounded-md border px-3">
           <span className="text-xs text-muted-foreground">{value ? '启用' : '关闭'}</span>
           <Switch
@@ -476,10 +488,10 @@ function SnippetField({
   if (field.kind === 'color') {
     const color: string = typeof value === 'string' ? value : '#000000'
     return (
-      <FieldGroup label={field.label}>
+      <FieldGroup label={localizedLabel}>
         <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2 shadow-xs">
           <input
-            aria-label={field.label}
+            aria-label={localizedLabel}
             type="color"
             value={color}
             className="size-5 cursor-pointer border-0 bg-transparent p-0"

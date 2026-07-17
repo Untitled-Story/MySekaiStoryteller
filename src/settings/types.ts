@@ -2,6 +2,8 @@ import type { OnboardingSettings } from '@/onboarding/types'
 
 export type SystemTheme = 'light' | 'dark'
 
+export type AppLanguage = 'system' | 'zh-CN' | 'zh-HK' | 'en' | 'ja'
+
 export type AppearanceSettings = {
   followSystem: boolean
   manualTheme: SystemTheme
@@ -47,6 +49,7 @@ export type ShortcutSettings = {
 }
 
 export type AppSettings = {
+  language: AppLanguage
   appearance: AppearanceSettings
   playback: PlaybackSettings
   shortcuts: ShortcutSettings

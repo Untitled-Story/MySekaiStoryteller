@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router'
 import logo from '@/assets/logo.png'
 import type { LucideIcon } from 'lucide-react'
 import { BadgeInfo, BookOpen, Folder, Settings } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 type SidebarNavItem = {
   to: string
@@ -11,13 +12,14 @@ type SidebarNavItem = {
 }
 
 export default function LeftSidebar(): JSX.Element {
+  const { t } = useTranslation()
   const location = useLocation()
 
   const navItems: readonly SidebarNavItem[] = [
-    { to: '/', icon: BookOpen, label: '主页' },
-    { to: '/projects', icon: Folder, label: '项目' },
-    { to: '/settings', icon: Settings, label: '设置' },
-    { to: '/about', icon: BadgeInfo, label: '关于与鸣谢' }
+    { to: '/', icon: BookOpen, label: t('nav.home') },
+    { to: '/projects', icon: Folder, label: t('nav.projects') },
+    { to: '/settings', icon: Settings, label: t('nav.settings') },
+    { to: '/about', icon: BadgeInfo, label: t('nav.about') }
   ]
 
   return (

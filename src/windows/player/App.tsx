@@ -28,6 +28,8 @@ import type { AppSettings, RenderPrecision, ShortcutSettings } from '@/settings/
 import { loadPlaybackFontFamily } from '@/settings/fonts'
 import { getDataPath } from '@/workspace/api'
 import { describeError, logger } from '@/lib/logger'
+import { applyAppLanguage } from '@/i18n'
+import { useTranslation } from 'react-i18next'
 
 export type PlayerStoryInput = {
   projectName: string
@@ -56,6 +58,7 @@ const PLAYER_STAGE_STYLE: CSSProperties = {
 }
 
 export default function App(): JSX.Element {
+  const { t } = useTranslation()
   const projectName = useWindowProjectName()
   const stageRef = useRef<HTMLDivElement | null>(null)
   const [storyInput, setStoryInput] = useState<PlayerStoryInput | null>(null)
@@ -74,7 +77,10 @@ export default function App(): JSX.Element {
     let unlisten: (() => void) | null = null
 
     void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
-      if (!disposed) setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
+      if (!disposed) {
+        setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
+        applyAppLanguage(event.payload.language)
+      }
     }).then((dispose: () => void): void => {
       if (disposed) dispose()
       else unlisten = dispose
@@ -154,6 +160,7 @@ export default function App(): JSX.Element {
     loadPlayerStoryInput(projectName)
       .then((input: PlayerStoryInput): void => {
         if (cancelled) return
+        applyAppLanguage(input.settings?.language ?? 'system')
         setStoryInput(input)
         setLoadState({ status: 'ready' })
         logger.info('player.project_load_completed', {
@@ -172,14 +179,14 @@ export default function App(): JSX.Element {
         })
         setLoadState({
           status: 'error',
-          error: error instanceof Error ? error.message : '加载 story.json 失败'
+          error: error instanceof Error ? error.message : t('player.storyLoadFailed')
         })
       })
 
     return () => {
       cancelled = true
     }
-  }, [projectName, reloadRequest])
+  }, [projectName, reloadRequest, t])
 
   useEffect(() => {
     if (loadState.status !== 'ready' || !storyInput || !stageRef.current) return
@@ -197,7 +204,7 @@ export default function App(): JSX.Element {
     const currentStoryInput = storyInput
     const startedAt: number = performance.now()
 
-    setModelLoadState({ status: 'loading', message: '初始化播放器' })
+    setModelLoadState({ status: 'loading', message: t('player.initialize') })
     logger.info('player.runtime_started', {
       projectName: currentStoryInput.projectName,
       snippetCount: currentStoryInput.story.snippets.length
@@ -253,14 +260,14 @@ export default function App(): JSX.Element {
         resolution: resolveRenderPrecision(currentStoryInput.settings)
       })
 
-      setModelLoadState({ status: 'loading', message: '加载字体资源' })
+      setModelLoadState({ status: 'loading', message: t('player.loadFont') })
       fontFamily = await loadPlaybackFontFamily(
         currentStoryInput.settings,
         currentStoryInput.dataPath
       )
       if (cancelled) return
 
-      setModelLoadState({ status: 'loading', message: '加载模型资源' })
+      setModelLoadState({ status: 'loading', message: t('player.loadModels') })
       preloadedModels = await preloadStoryModels({
         app: playerApp,
         dataPath: currentStoryInput.dataPath,
@@ -295,7 +302,7 @@ export default function App(): JSX.Element {
 
       setModelLoadState({
         status: 'ready',
-        message: `已加载 ${preloadedModels.length} 个模型`
+        message: t('player.loadedModels', { count: preloadedModels.length })
       })
       await dispatcher.run(currentStoryInput.story)
       if (!cancelled) {
@@ -332,7 +339,7 @@ export default function App(): JSX.Element {
       detachMountedCanvas()
       destroyInitializedApp()
     }
-  }, [loadState.status, storyInput])
+  }, [loadState.status, storyInput, t])
 
   return (
     <main

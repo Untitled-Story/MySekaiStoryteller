@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { FrontendErrorBoundary } from '@/components/FrontendErrorBoundary'
 import { initializeFrontendLogging, logger } from '@/lib/logger'
+import '@/i18n'
 
 initializeFrontendLogging('player')
 

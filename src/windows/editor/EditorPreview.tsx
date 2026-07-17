@@ -23,6 +23,7 @@ import {
   type StoryRuntime
 } from '@/story'
 import type { EditorStory } from './editorDocument'
+import { useTranslation } from 'react-i18next'
 
 export type EditorPreviewInput = {
   projectName: string
@@ -57,12 +58,13 @@ export function EditorPreview({
   onPreviewFromBeginning: () => void
   onActiveSnippetIdsChange: (ids: ReadonlySet<string>) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const stageRef = useRef<HTMLDivElement | null>(null)
   const sessionRef = useRef<PreviewSession | null>(null)
   const previousPreviewRequestRef = useRef<number>(previewRequest)
   const initialLoadRef = useRef<boolean>(true)
   const [status, setStatus] = useState<PreviewStatus>('idle')
-  const [message, setMessage] = useState<string>('等待预览')
+  const [message, setMessage] = useState<string>(() => t('editor.waitingPreview'))
 
   useEffect((): (() => void) | undefined => {
     const currentStageElement: HTMLDivElement | null = stageRef.current
@@ -137,7 +139,7 @@ export function EditorPreview({
       activeSnippetIdsRef.clear()
       onActiveSnippetIdsChange(new Set())
       setStatus('loading')
-      setMessage('初始化 Pixi 预览')
+      setMessage(t('editor.initializingPreview'))
       logger.info('editor.preview_started', {
         projectName: input.projectName,
         snippetCount: story.snippets.length,
@@ -172,7 +174,7 @@ export function EditorPreview({
           resolution: resolveRenderPrecision(input.settings)
         })
 
-        setMessage('加载字体和模型')
+        setMessage(t('editor.loadingResources'))
         const fontFamily: string = await loadPlaybackFontFamily(input.settings, input.dataPath)
         if (disposed) return
         preloadedModels = await preloadStoryModels({
@@ -209,7 +211,7 @@ export function EditorPreview({
             ? '正在恢复选中片段前状态'
             : preloadedModels.length > 0
               ? `已加载 ${preloadedModels.length} 个模型`
-              : '播放中'
+              : t('editor.playing')
         )
         if (previewTargetNodeId) {
           await dispatcher.runFrom(
@@ -222,7 +224,7 @@ export function EditorPreview({
         }
         if (!disposed) {
           setStatus('completed')
-          setMessage('预览完成')
+          setMessage(t('editor.completed'))
           logger.info('editor.preview_completed', {
             projectName: input.projectName,
             durationMs: Math.round(performance.now() - startedAt)
@@ -249,7 +251,7 @@ export function EditorPreview({
           activeSnippetIdsRef.add(snippetId)
           onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
         }
-        setMessage('播放中')
+        setMessage(t('editor.playing'))
       }
       if (event.type === 'snippet:complete' || event.type === 'snippet:error') {
         const snippetId: string | undefined = event.snippet.id
@@ -267,7 +269,7 @@ export function EditorPreview({
       }
       if (event.type === 'story:pause') {
         setStatus('paused')
-        setMessage('已暂停')
+        setMessage(t('editor.paused'))
         if (targetPausedRef.current && previewTargetNodeId) {
           activeSnippetIdsRef.add(previewTargetNodeId)
           onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
@@ -275,7 +277,7 @@ export function EditorPreview({
       }
       if (event.type === 'story:resume') {
         setStatus('running')
-        setMessage('继续播放')
+        setMessage(t('editor.resume'))
         if (targetPausedRef.current && previewTargetNodeId) {
           targetPausedRef.current = false
           activeSnippetIdsRef.delete(previewTargetNodeId)
@@ -308,7 +310,8 @@ export function EditorPreview({
     pauseAfterPreviewTarget,
     previewRequest,
     previewTargetNodeId,
-    story
+    story,
+    t
   ])
 
   function restart(): void {
@@ -331,7 +334,7 @@ export function EditorPreview({
   function stop(): void {
     sessionRef.current?.dispose()
     setStatus('stopped')
-    setMessage('预览已停止')
+    setMessage(t('editor.stopped'))
   }
 
   const playing: boolean = status === 'running'
@@ -344,7 +347,7 @@ export function EditorPreview({
     >
       <div className="flex h-12 shrink-0 items-center border-b bg-background/70 px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm font-medium">画面预览</span>
+          <span className="text-sm font-medium">{t('editor.previewPanel')}</span>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {status === 'loading' ? (
@@ -385,8 +388,8 @@ export function EditorPreview({
             variant="ghost"
             size="icon"
             className="size-8"
-            aria-label="从头重播"
-            title="从头重播"
+            aria-label={t('editor.replay')}
+            title={t('editor.replay')}
             onClick={restart}
           >
             <RotateCcw className="size-3.5" />
@@ -396,8 +399,8 @@ export function EditorPreview({
             variant="ghost"
             size="icon"
             className="size-8"
-            aria-label={paused ? '继续预览' : '暂停预览'}
-            title={paused ? '继续预览' : '暂停预览'}
+            aria-label={paused ? t('editor.resume') : t('editor.pause')}
+            title={paused ? t('editor.resume') : t('editor.pause')}
             disabled={!playing && !paused}
             onClick={togglePause}
           >
@@ -412,8 +415,8 @@ export function EditorPreview({
             variant="ghost"
             size="icon"
             className="size-8"
-            aria-label="停止预览"
-            title="停止预览"
+            aria-label={t('editor.stop')}
+            title={t('editor.stop')}
             disabled={status === 'stopped' || status === 'idle'}
             onClick={stop}
           >

@@ -10,8 +10,10 @@ import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { useSettings } from '@/settings/useSettings'
 import { MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { MainProductTour } from '@/onboarding/MainProductTour'
+import { useTranslation } from 'react-i18next'
 
 export default function HomePage(): JSX.Element {
+  const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const navigate = useNavigate()
@@ -28,7 +30,11 @@ export default function HomePage(): JSX.Element {
     try {
       await openEditorWindow(title)
     } catch (error) {
-      alert('打开编辑器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.openEditorFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     }
   }
 
@@ -36,7 +42,11 @@ export default function HomePage(): JSX.Element {
     try {
       await openPlayerWindow(title)
     } catch (error) {
-      alert('打开播放器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.openPlayerFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     }
   }
 
@@ -48,14 +58,14 @@ export default function HomePage(): JSX.Element {
   return (
     <div className="flex flex-col h-screen select-none px-8 py-8">
       <div className="mb-8">
-        <h2 className="font-semibold text-2xl">欢迎回来</h2>
+        <h2 className="font-semibold text-2xl">{t('home.welcome')}</h2>
       </div>
 
       <div className="flex gap-8">
         {/* 左栏：最近项目 */}
         <div className="flex-1 min-w-0">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
-            上次编辑
+            {t('home.recent')}
           </h3>
           {latest ? (
             <div className="space-y-4">
@@ -72,26 +82,26 @@ export default function HomePage(): JSX.Element {
                   className="flex items-center gap-2 px-4 py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  继续编辑
+                  {t('home.continueEditing')}
                 </button>
                 <button
                   onClick={() => handleOpenPlayer(latest.title)}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  播放
+                  {t('common.play')}
                 </button>
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">还没有编辑过项目。</p>
+            <p className="text-sm text-muted-foreground">{t('home.noRecent')}</p>
           )}
         </div>
 
         {/* 右栏：快捷操作 */}
         <div className="w-48 flex-shrink-0">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
-            快捷操作
+            {t('home.quickActions')}
           </h3>
           <nav className="space-y-1">
             <button
@@ -100,21 +110,21 @@ export default function HomePage(): JSX.Element {
               className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm hover:bg-accent transition-colors text-left"
             >
               <Plus className="w-4 h-4 text-muted-foreground" />
-              新建项目
+              {t('project.new')}
             </button>
             <button
               onClick={() => navigate('/projects')}
               className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm hover:bg-accent transition-colors text-left"
             >
               <Folder className="w-4 h-4 text-muted-foreground" />
-              所有项目
+              {t('home.allProjects')}
             </button>
             <button
               onClick={() => navigate('/settings')}
               className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm hover:bg-accent transition-colors text-left"
             >
               <Settings className="w-4 h-4 text-muted-foreground" />
-              设置
+              {t('nav.settings')}
             </button>
           </nav>
         </div>

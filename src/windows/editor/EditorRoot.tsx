@@ -9,6 +9,7 @@ import type { AppSettings, SystemTheme } from '@/settings/types'
 import { useSystemTheme } from '@/settings/useSystemTheme'
 import App from './App'
 import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
+import { applyAppLanguage } from '@/i18n'
 
 export function EditorRoot(): JSX.Element {
   const systemTheme: SystemTheme = useSystemTheme()
@@ -51,6 +52,10 @@ export function EditorRoot(): JSX.Element {
     root.classList.toggle('dark', activeTheme === 'dark')
     root.style.colorScheme = activeTheme
   }, [activeTheme])
+
+  useEffect((): void => {
+    applyAppLanguage(settings?.language ?? 'system')
+  }, [settings?.language])
 
   const completeEditorTour = useCallback((): void => {
     void getSettings()

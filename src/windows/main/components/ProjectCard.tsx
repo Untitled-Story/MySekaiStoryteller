@@ -5,7 +5,7 @@ import { timeAgo } from '@/windows/main/utils/time'
 import type { ProjectMetadata } from '@/project/metadata'
 import { deleteProject, renameProject } from '@/project/api'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -30,6 +30,7 @@ import {
   DialogFooter
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
+import { useTranslation } from 'react-i18next'
 
 interface ProjectCardProps {
   metadata: ProjectMetadata
@@ -37,7 +38,8 @@ interface ProjectCardProps {
   onRename?: () => void
 }
 
-export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) {
+export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps): JSX.Element {
+  const { t } = useTranslation()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showRenameDialog, setShowRenameDialog] = useState(false)
   const [newName, setNewName] = useState(metadata.title)
@@ -53,7 +55,11 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
       await deleteProject(metadata.title)
       onDelete?.()
     } catch (error) {
-      alert('删除失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.deleteFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     } finally {
       setIsDeleting(false)
       setShowDeleteDialog(false)
@@ -71,7 +77,11 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
       await renameProject(metadata.title, newName.trim())
       onRename?.()
     } catch (error) {
-      alert('重命名失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.renameFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     } finally {
       setIsRenaming(false)
       setShowRenameDialog(false)
@@ -84,7 +94,11 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
     try {
       await openEditorWindow(metadata.title)
     } catch (error) {
-      alert('打开编辑器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.openEditorFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     } finally {
       setOpeningEditor(false)
     }
@@ -96,7 +110,11 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
     try {
       await openPlayerWindow(metadata.title)
     } catch (error) {
-      alert('打开播放器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.openPlayerFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     } finally {
       setOpeningPlayer(false)
     }
@@ -128,7 +146,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
                 disabled={openingEditor}
               >
                 <Edit3 className="w-3.5 h-3.5 mr-1" />
-                编辑
+                {t('common.edit')}
               </Button>
               <Button
                 size="sm"
@@ -138,7 +156,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
                 disabled={openingPlayer}
               >
                 <Play className="w-3.5 h-3.5 mr-1" />
-                播放
+                {t('common.play')}
               </Button>
             </div>
           </Card>
@@ -151,11 +169,11 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
             }}
           >
             <FileEdit className="w-4 h-4 mr-2" />
-            重命名
+            {t('common.rename')}
           </ContextMenuItem>
           <ContextMenuItem variant="destructive" onClick={() => setShowDeleteDialog(true)}>
             <Trash2 className="w-4 h-4 mr-2" />
-            删除
+            {t('common.delete')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -163,19 +181,19 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent className="select-none">
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogTitle>{t('project.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除项目「{metadata.title}」吗？此操作无法撤销。
+              {t('project.deleteDescription', { name: metadata.title })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? '删除中...' : '删除'}
+              {isDeleting ? t('common.deleting') : t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -184,12 +202,12 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
       <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
         <DialogContent className="select-none">
           <DialogHeader>
-            <DialogTitle>重命名项目</DialogTitle>
+            <DialogTitle>{t('project.renameTitle')}</DialogTitle>
           </DialogHeader>
           <Input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="输入新的项目名称"
+            placeholder={t('project.renamePlaceholder')}
             disabled={isRenaming}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !isRenaming) setTimeout(() => handleRename())
@@ -201,10 +219,10 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps) 
               onClick={() => setShowRenameDialog(false)}
               disabled={isRenaming}
             >
-              取消
+              {t('common.cancel')}
             </Button>
             <Button onClick={handleRename} disabled={isRenaming || !newName.trim()}>
-              {isRenaming ? '重命名中...' : '确认'}
+              {isRenaming ? t('common.renaming') : t('common.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

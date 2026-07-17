@@ -6,6 +6,7 @@ import guangChenAvatar from '@/assets/avatars/guang-chen.jpg'
 import hotwindAvatar from '@/assets/avatars/hotwind.jpg'
 import whiteMistAvatar from '@/assets/avatars/white-mist.jpg'
 import xiaocaooooAvatar from '@/assets/avatars/xiaocaoooo.jpg'
+import { useTranslation } from 'react-i18next'
 
 type Acknowledgement = {
   nickname: string
@@ -42,6 +43,7 @@ const SPECIAL_THANKS: readonly Acknowledgement[] = [
 ]
 
 export default function AboutPage(): JSX.Element {
+  const { t } = useTranslation()
   return (
     <div className="relative h-screen overflow-y-auto overscroll-none bg-background select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
       <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col px-10 py-12">
@@ -72,9 +74,11 @@ export default function AboutPage(): JSX.Element {
                 <Heart className="size-3.5 fill-rose-400 text-rose-400" />
                 Special Thanks
               </div>
-              <h2 className="text-2xl font-semibold tracking-[-0.025em]">特别鸣谢</h2>
+              <h2 className="text-2xl font-semibold tracking-[-0.025em]">
+                {t('about.specialThanks')}
+              </h2>
             </div>
-            <p className="hidden text-xs text-muted-foreground sm:block">排名不分先后</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">{t('about.unordered')}</p>
           </div>
 
           <div className="space-y-3">
@@ -89,7 +93,7 @@ export default function AboutPage(): JSX.Element {
                   <img
                     src={person.avatar}
                     draggable={false}
-                    alt={`${person.nickname} 的头像`}
+                    alt={t('about.avatarAlt', { name: person.nickname })}
                     className="size-14 shrink-0 rounded-full object-cover shadow-lg ring-4 ring-background"
                   />
                   <div className="min-w-0">
@@ -110,10 +114,10 @@ export default function AboutPage(): JSX.Element {
               </div>
               <div className="min-w-0">
                 <h3 className="truncate text-base font-semibold tracking-[-0.015em]">
-                  还有使用这个程序的你
+                  {t('about.you')}
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  谢谢你让每一个故事正在发生。
+                  {t('about.youDescription')}
                 </p>
               </div>
             </article>

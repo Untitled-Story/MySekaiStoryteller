@@ -101,6 +101,8 @@ pub enum PlaybackFontSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default = "default_language")]
+    pub language: String,
     #[serde(default)]
     pub appearance: AppearanceSettings,
     #[serde(default)]
@@ -165,6 +167,10 @@ impl Default for PlaybackFontSettings {
 
 fn default_follow_system() -> bool {
     true
+}
+
+fn default_language() -> String {
+    "system".to_string()
 }
 
 fn default_manual_theme() -> String {
@@ -291,6 +297,7 @@ mod tests {
         assert_eq!(settings.shortcuts.player.enter_fullscreen.key, "F11");
         assert_eq!(settings.shortcuts.player.exit_fullscreen.key, "Escape");
         assert_eq!(settings.shortcuts.player.close.key, "w");
+        assert_eq!(settings.language, "system");
         assert_eq!(settings.onboarding.main_tour_version, 0);
         assert_eq!(settings.onboarding.editor_tour_version, 0);
     }

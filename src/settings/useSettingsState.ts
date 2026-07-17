@@ -3,6 +3,7 @@ import { getSettings, saveSettings } from './api'
 import { useSystemTheme } from './useSystemTheme'
 import type {
   AppSettings,
+  AppLanguage,
   AppearanceSettings,
   PlaybackFontSettings,
   PlaybackSettings,
@@ -16,14 +17,17 @@ import { defaultPlaybackFont, normalizePlaybackFont } from './fonts'
 import { defaultShortcutSettings, normalizeShortcutSettings } from './shortcuts'
 import { describeError, logger } from '@/lib/logger'
 import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
+import { applyAppLanguage, normalizeAppLanguage } from '@/i18n'
 
 export type SettingsHook = {
   loaded: boolean
+  language: AppLanguage
   appearance: AppearanceSettings & { activeTheme: SystemTheme }
   playback: PlaybackSettings
   shortcuts: ShortcutSettings
   onboarding: OnboardingSettings
   workspaceDir: string | null
+  setLanguage: (language: AppLanguage) => void
   setFollowSystem: (follow: boolean) => void
   setManualTheme: (theme: SystemTheme) => void
   setMemorySizeMb: (value: number) => void
@@ -42,6 +46,7 @@ const DEFAULT_PLAYBACK: PlaybackSettings = {
 
 export function useSettingsState(): SettingsHook {
   const systemTheme = useSystemTheme()
+  const [language, setLanguage] = useState<AppLanguage>('system')
 
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => ({
     followSystem: true,
@@ -56,6 +61,7 @@ export function useSettingsState(): SettingsHook {
   const [shortcuts, setShortcuts] = useState<ShortcutSettings>(defaultShortcutSettings)
   const [onboarding, setOnboarding] = useState<OnboardingSettings>(DEFAULT_ONBOARDING)
   const [loaded, setLoaded] = useState(false)
+  const [persistenceReady, setPersistenceReady] = useState(false)
 
   const activeTheme = useMemo<SystemTheme>(
     () => (appearance.followSystem ? systemTheme : appearance.manualTheme),
@@ -70,13 +76,14 @@ export function useSettingsState(): SettingsHook {
 
     getSettings()
       .then((stored: AppSettings | null): void => {
-        if (cancelled || !stored) {
-          if (!cancelled) {
-            logger.info('settings.load_completed', {
-              durationMs: Math.round(performance.now() - startedAt),
-              found: false
-            })
-          }
+        if (cancelled) return
+
+        if (!stored) {
+          logger.info('settings.load_completed', {
+            durationMs: Math.round(performance.now() - startedAt),
+            found: false
+          })
+          setPersistenceReady(true)
           setLoaded(true)
           return
         }
@@ -84,6 +91,7 @@ export function useSettingsState(): SettingsHook {
           followSystem: stored.appearance?.followSystem ?? true,
           manualTheme: stored.appearance?.manualTheme ?? systemTheme
         })
+        setLanguage(normalizeAppLanguage(stored.language))
         setPlayback({
           memorySizeMb: stored.playback?.memorySizeMb ?? DEFAULT_PLAYBACK.memorySizeMb,
           renderPrecision: normalizeRenderPrecision(stored.playback?.renderPrecision),
@@ -92,6 +100,7 @@ export function useSettingsState(): SettingsHook {
         setShortcuts(normalizeShortcutSettings(stored.shortcuts))
         setOnboarding(normalizeOnboardingSettings(stored.onboarding))
         setWorkspaceDirState(stored.workspaceDir ?? null)
+        setPersistenceReady(true)
         setLoaded(true)
         logger.info('settings.load_completed', {
           durationMs: Math.round(performance.now() - startedAt),
@@ -100,6 +109,7 @@ export function useSettingsState(): SettingsHook {
         })
       })
       .catch((error: unknown): void => {
+        if (cancelled) return
         logger.error('settings.load_failed', {
           durationMs: Math.round(performance.now() - startedAt),
           error: describeError(error)
@@ -121,6 +131,7 @@ export function useSettingsState(): SettingsHook {
       const nextOnboarding: OnboardingSettings = normalizeOnboardingSettings(
         event.payload.onboarding
       )
+      setLanguage(normalizeAppLanguage(event.payload.language))
       setOnboarding((current: OnboardingSettings): OnboardingSettings => {
         if (
           current.mainTourVersion === nextOnboarding.mainTourVersion &&
@@ -141,11 +152,16 @@ export function useSettingsState(): SettingsHook {
     }
   }, [])
 
+  useEffect((): void => {
+    applyAppLanguage(language)
+  }, [language])
+
   // Save settings when they change
   useEffect(() => {
-    if (!loaded) return
+    if (!loaded || !persistenceReady) return
 
     const payload: AppSettings = {
+      language,
       appearance: {
         followSystem: appearance.followSystem,
         manualTheme: appearance.manualTheme
@@ -166,16 +182,20 @@ export function useSettingsState(): SettingsHook {
     shortcuts,
     onboarding,
     workspaceDir,
-    loaded
+    loaded,
+    persistenceReady,
+    language
   ])
 
   return {
     loaded,
+    language,
     appearance: { ...appearance, activeTheme },
     playback,
     shortcuts,
     onboarding,
     workspaceDir,
+    setLanguage,
     setFollowSystem: (follow) =>
       setAppearance((prev) => ({
         ...prev,

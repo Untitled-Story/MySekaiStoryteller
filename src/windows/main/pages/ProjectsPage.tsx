@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { useTranslation } from 'react-i18next'
 import {
   FolderOpen,
   Plus,
@@ -48,6 +49,7 @@ import {
 type SortMode = 'recent' | 'name'
 
 export default function ProjectsPage(): JSX.Element {
+  const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -77,21 +79,30 @@ export default function ProjectsPage(): JSX.Element {
     return result
   }, [projects, search, sortMode])
 
-  const toggleSort = () => setSortMode((prev) => (prev === 'recent' ? 'name' : 'recent'))
+  const toggleSort = (): void =>
+    setSortMode((prev: SortMode): SortMode => (prev === 'recent' ? 'name' : 'recent'))
 
-  const handleOpenEditor = async (title: string) => {
+  const handleOpenEditor = async (title: string): Promise<void> => {
     try {
       await openEditorWindow(title)
     } catch (error) {
-      alert('打开编辑器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.openEditorFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     }
   }
 
-  const handleOpenPlayer = async (title: string) => {
+  const handleOpenPlayer = async (title: string): Promise<void> => {
     try {
       await openPlayerWindow(title)
     } catch (error) {
-      alert('打开播放器失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.openPlayerFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     }
   }
 
@@ -100,21 +111,25 @@ export default function ProjectsPage(): JSX.Element {
     void handleOpenEditor(projectName)
   }
 
-  const handleDelete = async () => {
+  const handleDelete = async (): Promise<void> => {
     if (!deleteTarget) return
     setIsDeleting(true)
     try {
       await deleteProject(deleteTarget)
       spin(fetchProjects)
     } catch (error) {
-      alert('删除失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.deleteFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     } finally {
       setIsDeleting(false)
       setDeleteTarget(null)
     }
   }
 
-  const handleRename = async () => {
+  const handleRename = async (): Promise<void> => {
     if (!renameTarget || !newName.trim()) return
     if (newName.trim() === renameTarget) {
       setRenameTarget(null)
@@ -125,7 +140,11 @@ export default function ProjectsPage(): JSX.Element {
       await renameProject(renameTarget, newName.trim())
       spin(fetchProjects)
     } catch (error) {
-      alert('重命名失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert(
+        t('project.renameFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     } finally {
       setIsRenaming(false)
       setRenameTarget(null)
@@ -137,14 +156,16 @@ export default function ProjectsPage(): JSX.Element {
       <div className="px-8 pt-8 pb-6 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-2xl">所有项目</h2>
+            <h2 className="font-semibold text-2xl">{t('projects.title')}</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              {projects.length > 0 ? `共 ${projects.length} 个项目` : '管理你的所有项目。'}
+              {projects.length > 0
+                ? t('projects.count', { count: projects.length })
+                : t('projects.description')}
             </p>
           </div>
           <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
             <Plus className="w-4 h-4 mr-1" />
-            新建项目
+            {t('project.new')}
           </Button>
         </div>
       </div>
@@ -154,7 +175,7 @@ export default function ProjectsPage(): JSX.Element {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="搜索项目..."
+              placeholder={t('projects.search')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
@@ -163,8 +184,8 @@ export default function ProjectsPage(): JSX.Element {
           <Button
             variant="outline"
             size="icon"
-            aria-label={sortMode === 'recent' ? '按名称排序' : '按时间排序'}
-            title={sortMode === 'recent' ? '当前: 按时间' : '当前: 按名称'}
+            aria-label={sortMode === 'recent' ? t('projects.sortByName') : t('projects.sortByTime')}
+            title={sortMode === 'recent' ? t('projects.currentTime') : t('projects.currentName')}
             onClick={toggleSort}
           >
             <ArrowUpDown className="w-4 h-4" />
@@ -172,7 +193,7 @@ export default function ProjectsPage(): JSX.Element {
           <Button
             variant="outline"
             size="icon"
-            aria-label="刷新项目列表"
+            aria-label={t('projects.refresh')}
             onClick={() => spin(fetchProjects)}
           >
             <RefreshCw className={`w-4 h-4 ${spinning ? 'spin-once' : ''}`} />
@@ -199,7 +220,7 @@ export default function ProjectsPage(): JSX.Element {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        aria-label="编辑"
+                        aria-label={t('common.edit')}
                         onClick={() => handleOpenEditor(metadata.title)}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
@@ -208,7 +229,7 @@ export default function ProjectsPage(): JSX.Element {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        aria-label="播放"
+                        aria-label={t('common.play')}
                         onClick={() => handleOpenPlayer(metadata.title)}
                       >
                         <Play className="w-3.5 h-3.5" />
@@ -219,7 +240,7 @@ export default function ProjectsPage(): JSX.Element {
                 <ContextMenuContent className="font-medium select-none">
                   <ContextMenuItem onClick={() => handleOpenEditor(metadata.title)}>
                     <Edit3 className="w-4 h-4 mr-2" />
-                    编辑
+                    {t('common.edit')}
                   </ContextMenuItem>
                   <ContextMenuItem
                     onClick={() => {
@@ -228,14 +249,14 @@ export default function ProjectsPage(): JSX.Element {
                     }}
                   >
                     <FileEdit className="w-4 h-4 mr-2" />
-                    重命名
+                    {t('common.rename')}
                   </ContextMenuItem>
                   <ContextMenuItem
                     variant="destructive"
                     onClick={() => setDeleteTarget(metadata.title)}
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
-                    删除
+                    {t('common.delete')}
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
@@ -245,12 +266,12 @@ export default function ProjectsPage(): JSX.Element {
           <div className="flex flex-col items-center justify-center h-full text-center pb-16">
             <FolderOpen className="w-12 h-12 text-muted-foreground/60 mb-4" />
             <p className="text-sm text-muted-foreground mb-4">
-              {search.trim() ? '没有找到匹配的项目' : '还没有项目，新建一个开始吧'}
+              {search.trim() ? t('projects.noMatch') : t('projects.empty')}
             </p>
             {!search.trim() && (
               <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
                 <Plus className="w-4 h-4 mr-1" />
-                新建项目
+                {t('project.new')}
               </Button>
             )}
           </div>
@@ -266,19 +287,19 @@ export default function ProjectsPage(): JSX.Element {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent className="select-none">
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogTitle>{t('project.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除项目 &ldquo;{deleteTarget}&rdquo; 吗？此操作无法撤销。
+              {t('project.deleteDescription', { name: deleteTarget })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? '删除中...' : '删除'}
+              {isDeleting ? t('common.deleting') : t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -287,12 +308,12 @@ export default function ProjectsPage(): JSX.Element {
       <Dialog open={!!renameTarget} onOpenChange={(open) => !open && setRenameTarget(null)}>
         <DialogContent className="select-none">
           <DialogHeader>
-            <DialogTitle>重命名项目</DialogTitle>
+            <DialogTitle>{t('project.renameTitle')}</DialogTitle>
           </DialogHeader>
           <Input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="输入新的项目名称"
+            placeholder={t('project.renamePlaceholder')}
             disabled={isRenaming}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !isRenaming) setTimeout(() => handleRename())
@@ -300,10 +321,10 @@ export default function ProjectsPage(): JSX.Element {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setRenameTarget(null)} disabled={isRenaming}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button onClick={handleRename} disabled={isRenaming || !newName.trim()}>
-              {isRenaming ? '重命名中...' : '确认'}
+              {isRenaming ? t('common.renaming') : t('common.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

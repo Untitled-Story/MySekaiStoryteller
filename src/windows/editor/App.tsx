@@ -104,6 +104,7 @@ import {
 import { moveSnippetSubtree, type SnippetDropPlacement } from './editorTree'
 import { EditorProductTour } from '@/onboarding/EditorProductTour'
 import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
+import { useTranslation } from 'react-i18next'
 
 type LoadedEditorProject = {
   metadata: ProjectMetadata
@@ -158,6 +159,7 @@ export default function App({
   settings: AppSettings | null
   onCompleteEditorTour: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const requestedProjectName = useWindowProjectName()
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
@@ -1110,17 +1112,17 @@ export default function App({
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
-            预览
+            {t('editor.preview')}
           </Button>
           <Button
             type="button"
             size="sm"
             data-tour="editor-player-button"
-            title="使用 Player 播放已保存内容"
+            title={t('editor.playSavedTitle')}
             onClick={(): void => void playSavedProject()}
           >
             <Play className="size-3.5 fill-current" />
-            播放
+            {t('editor.playSaved')}
           </Button>
         </div>
       </header>

@@ -6,6 +6,7 @@ import App from './App'
 import { HashRouter } from 'react-router'
 import { FrontendErrorBoundary } from '@/components/FrontendErrorBoundary'
 import { initializeFrontendLogging, logger } from '@/lib/logger'
+import '@/i18n'
 
 initializeFrontendLogging('main')
 

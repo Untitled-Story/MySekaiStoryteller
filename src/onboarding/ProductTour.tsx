@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 import { driver, type DriveStep, type Driver } from 'driver.js'
 import 'driver.js/dist/driver.css'
+import { useTranslation } from 'react-i18next'
 
 export function ProductTour({
   active,
@@ -14,6 +15,7 @@ export function ProductTour({
   onComplete: () => void
   startDelayMs?: number
 }): JSX.Element | null {
+  const { t } = useTranslation()
   const onCompleteRef = useRef<() => void>(onComplete)
 
   useEffect((): void => {
@@ -50,7 +52,7 @@ export function ProductTour({
             popover: {
               ...step.popover,
               showButtons: ['next', 'close'],
-              nextBtnText: '完成输入',
+              nextBtnText: t('onboarding.finishInput'),
               onPopoverRender: (popover, options): void => {
                 step.popover?.onPopoverRender?.(popover, options)
                 const input: Element | undefined = options.driver.getActiveElement()
@@ -126,12 +128,12 @@ export function ProductTour({
         disableActiveInteraction: true,
         showProgress: true,
         progressText: '{{current}} / {{total}}',
-        nextBtnText: '下一步',
-        prevBtnText: '上一步',
-        doneBtnText: '开始创作',
+        nextBtnText: t('onboarding.next'),
+        prevBtnText: t('onboarding.previous'),
+        doneBtnText: t('onboarding.done'),
         onPopoverRender: (popover): void => {
-          popover.closeButton.title = '跳过教程'
-          popover.closeButton.setAttribute('aria-label', '跳过教程')
+          popover.closeButton.title = t('onboarding.skip')
+          popover.closeButton.setAttribute('aria-label', t('onboarding.skip'))
         },
         onDoneClick: finish,
         onCloseClick: finish,
@@ -145,7 +147,7 @@ export function ProductTour({
       window.clearTimeout(timeoutId)
       tour?.destroy()
     }
-  }, [active, startDelayMs, steps])
+  }, [active, startDelayMs, steps, t])
 
   return null
 }

@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { describeError, logger } from '@/lib/logger'
+import { i18n } from '@/i18n'
 
 type FrontendErrorBoundaryProps = {
   children: ReactNode
@@ -31,10 +32,8 @@ export class FrontendErrorBoundary extends Component<
       return (
         <main className="flex h-screen w-screen items-center justify-center bg-background p-8 text-foreground">
           <div className="max-w-lg space-y-2 text-center">
-            <h1 className="text-lg font-semibold">界面启动失败</h1>
-            <p className="text-sm text-muted-foreground">
-              错误已经写入日志文件。请重启应用；如果问题持续，请提供日志目录中的 frontend.log。
-            </p>
+            <h1 className="text-lg font-semibold">{i18n.t('errorBoundary.title')}</h1>
+            <p className="text-sm text-muted-foreground">{i18n.t('errorBoundary.description')}</p>
           </div>
         </main>
       )

@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { useTranslation } from 'react-i18next'
 
 interface CreateProjectDialogProps {
   open: boolean
@@ -23,6 +24,7 @@ export function CreateProjectDialog({
   onOpenChange,
   onSuccess
 }: CreateProjectDialogProps): JSX.Element | null {
+  const { t } = useTranslation()
   const [projectName, setProjectName] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [isCreating, setIsCreating] = useState<boolean>(false)
@@ -35,7 +37,7 @@ export function CreateProjectDialog({
   const handleCreate = async (): Promise<void> => {
     const normalizedProjectName: string = projectName.trim()
     if (!normalizedProjectName) {
-      setError('请输入项目名称')
+      setError(t('project.nameRequired'))
       return
     }
     setIsCreating(true)
@@ -47,7 +49,7 @@ export function CreateProjectDialog({
       onOpenChange(false)
       onSuccess(normalizedProjectName)
     } catch (err: unknown) {
-      setError('创建项目时发生错误')
+      setError(t('project.createFailed'))
       console.error('Failed to create project:', err)
     } finally {
       setIsCreating(false)
@@ -70,8 +72,8 @@ export function CreateProjectDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="select-none">
         <DialogHeader>
-          <DialogTitle>新建项目</DialogTitle>
-          <DialogDescription>为您的新项目输入一个名称</DialogDescription>
+          <DialogTitle>{t('project.new')}</DialogTitle>
+          <DialogDescription>{t('project.namePrompt')}</DialogDescription>
         </DialogHeader>
 
         <form
@@ -83,7 +85,7 @@ export function CreateProjectDialog({
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Input
-                placeholder="项目名称"
+                placeholder={t('project.namePlaceholder')}
                 value={projectName}
                 onChange={(event: ChangeEvent<HTMLInputElement>): void => {
                   setProjectName(event.currentTarget.value)
@@ -99,10 +101,10 @@ export function CreateProjectDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => handleOpenChange(false)} disabled={isCreating}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleCreate} disabled={isCreating}>
-            {isCreating ? '创建中...' : '创建'}
+            {isCreating ? t('common.creating') : t('common.create')}
           </Button>
         </DialogFooter>
       </DialogContent>
