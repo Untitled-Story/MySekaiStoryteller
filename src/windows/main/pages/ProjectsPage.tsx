@@ -175,9 +175,20 @@ export default function ProjectsPage(): JSX.Element {
       title: t('projectArchive.chooseImport'),
       multiple: false,
       directory: false,
-      filters: [{ name: t('projectArchive.fileType'), extensions: ['sest'] }]
+      filters: [
+        { name: t('projectArchive.fileType'), extensions: ['sest'] },
+        // Android dialog filters are MIME-oriented; keep a broad fallback.
+        { name: 'All', extensions: ['*/*'] }
+      ]
     })
-    if (typeof selected === 'string') requestProjectImport(selected)
+    const selectedPath: string | null = Array.isArray(selected)
+      ? typeof selected[0] === 'string'
+        ? selected[0]
+        : null
+      : typeof selected === 'string'
+        ? selected
+        : null
+    if (selectedPath) requestProjectImport(selectedPath)
   }
 
   const handleExport = async (projectName: string): Promise<void> => {
@@ -268,7 +279,6 @@ export default function ProjectsPage(): JSX.Element {
         {loading ? (
           <ProjectListSkeleton />
         ) : filtered.length > 0 ? (
-
           <div className="divide-y divide-border">
             {filtered.map((metadata) => (
               <ContextMenu key={metadata.title}>

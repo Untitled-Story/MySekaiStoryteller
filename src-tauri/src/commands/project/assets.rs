@@ -95,12 +95,18 @@ pub fn import_project_asset(
     let allowed_extensions = asset_kind
         .allowed_extensions()
         .ok_or_else(|| "资源类型不支持导入".to_string())?;
-    let source = PathBuf::from(source_path);
+    let preferred_extension = allowed_extensions.first().copied();
+    let source = super::materialize_picked_file(&app, &source_path, preferred_extension)?;
     if !source.is_file() {
         return Err("选择的文件不存在或不是普通文件".into());
     }
 
-    let extension = file_extension(&source)?;
+    let extension = file_extension(&source).or_else(|_| {
+        // Content URIs may not preserve the original filename; fall back to the first allowed type.
+        preferred_extension
+            .map(str::to_string)
+            .ok_or_else(|| "无法识别资源扩展名".to_string())
+    })?;
     if !allowed_extensions.contains(&extension.as_str()) {
         return Err(format!("不支持 .{extension} 文件"));
     }

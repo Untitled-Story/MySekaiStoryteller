@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use zip::ZipArchive;
@@ -127,8 +127,12 @@ pub fn get_model_registry(app: AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub fn inspect_model_archive(source_path: String) -> Result<ModelArchiveInspection, String> {
-    inspect_archive(Path::new(&source_path))
+pub fn inspect_model_archive(
+    app: AppHandle,
+    source_path: String,
+) -> Result<ModelArchiveInspection, String> {
+    let source = super::materialize_picked_file(&app, &source_path, Some("zip"))?;
+    inspect_archive(&source)
 }
 
 #[tauri::command]
@@ -138,7 +142,7 @@ pub fn import_global_model(
     name: Option<String>,
     archive_entry: Option<String>,
 ) -> Result<ImportedModelResult, String> {
-    let source_entry = PathBuf::from(source_path);
+    let source_entry = super::materialize_picked_file(&app, &source_path, Some("zip"))?;
     if !source_entry.is_file() {
         return Err("选择的模型入口不存在或不是普通文件".into());
     }

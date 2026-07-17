@@ -5,15 +5,15 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::assets::validate_assets;
 use super::model_registry::{find_model_entry_file, is_model_entry_json};
 use super::{
-    data_dir, now_millis, project_path, projects_dir, read_json_file, read_metadata,
-    validate_project_name, write_metadata, AssetsSummary, ProjectMetadata,
+    data_dir, materialize_picked_file, now_millis, project_path, projects_dir, read_json_file,
+    read_metadata, validate_project_name, write_metadata, AssetsSummary, ProjectMetadata,
 };
 
 const ARCHIVE_FORMAT: &str = "my-sekai-storyteller-project";
@@ -73,21 +73,45 @@ pub fn inspect_project_archive(
     app: AppHandle,
     source_path: String,
 ) -> Result<ProjectArchiveInspection, String> {
-    let source = validate_archive_source(&source_path)?;
-    let mut archive = open_archive(&source)?;
-    validate_archive_entries(&mut archive)?;
-    let manifest = read_manifest(&mut archive)?;
-    validate_manifest(&manifest)?;
-    validate_project_name(&manifest.project.title)?;
-    validate_project_documents(&mut archive)?;
+    (|| -> Result<ProjectArchiveInspection, String> {
+        let source = resolve_archive_source(&app, &source_path)?;
+        log::info!(
+            target: "backend::project",
+            "archive.inspect begin source={} materialized={}",
+            source_path,
+            source.display()
+        );
+        let mut archive = open_archive(&source)?;
+        validate_archive_entries(&mut archive)?;
+        let manifest = read_manifest(&mut archive)?;
+        validate_manifest(&manifest)?;
+        validate_project_name(&manifest.project.title)?;
+        validate_project_documents(&mut archive)?;
 
-    let project_exists = projects_dir(&app)?.join(&manifest.project.title).exists();
-    let suggested_title = next_project_name(&app, &manifest.project.title)?;
-    Ok(ProjectArchiveInspection {
-        title: manifest.project.title,
-        suggested_title,
-        project_exists,
-        model_count: manifest.models.len(),
+        let project_exists = projects_dir(&app)?.join(&manifest.project.title).exists();
+        let suggested_title = next_project_name(&app, &manifest.project.title)?;
+        log::info!(
+            target: "backend::project",
+            "archive.inspect completed title={} exists={} models={}",
+            manifest.project.title,
+            project_exists,
+            manifest.models.len()
+        );
+        Ok(ProjectArchiveInspection {
+            title: manifest.project.title,
+            suggested_title,
+            project_exists,
+            model_count: manifest.models.len(),
+        })
+    })()
+    .map_err(|error| {
+        log::error!(
+            target: "backend::project",
+            "archive.inspect failed source={} error={}",
+            source_path,
+            error
+        );
+        error
     })
 }
 
@@ -98,14 +122,22 @@ pub fn export_project_archive(
     destination_path: String,
 ) -> Result<(), String> {
     let source_project = project_path(&app, &project_name)?;
-    let destination = normalized_sest_path(&destination_path)?;
-    if destination.starts_with(&source_project) {
-        return Err("导出文件不能保存在项目目录内".into());
+    let destination_raw = destination_path.trim();
+    if destination_raw.is_empty() {
+        return Err("导出路径不能为空".into());
     }
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "导出路径缺少父目录".to_string())?;
-    fs::create_dir_all(parent).map_err(|error| format!("创建导出目录失败: {error}"))?;
+
+    // Local filesystem destinations still get a normalized .sest path.
+    // Android save dialogs return content:// URIs and must be written via the FS plugin.
+    let local_destination = if looks_like_uri(destination_raw) {
+        None
+    } else {
+        let destination = normalized_sest_path(destination_raw)?;
+        if destination.starts_with(&source_project) {
+            return Err("导出文件不能保存在项目目录内".into());
+        }
+        Some(destination)
+    };
 
     let assets = read_json_file(&source_project.join("assets.json"))?;
     validate_assets(&assets)?;
@@ -137,20 +169,65 @@ pub fn export_project_archive(
         models,
     };
 
-    let temporary = temporary_sibling(&destination, "export")?;
-    let result = write_archive(&temporary, &manifest, &source_project, &models_root);
-    if let Err(error) = result {
+    let temporary = export_temp_path(&app, &project_name)?;
+    if let Err(error) = write_archive(&temporary, &manifest, &source_project, &models_root) {
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
-    replace_export_file(&temporary, &destination)?;
+
+    let publish_result = if let Some(destination) = local_destination.as_ref() {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建导出目录失败: {error}"))?;
+        }
+        replace_export_file(&temporary, destination)
+    } else {
+        let result = super::write_picked_destination(&app, destination_raw, &temporary);
+        let _ = fs::remove_file(&temporary);
+        result
+    };
+
+    if let Err(error) = publish_result {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+
     log::info!(
         target: "backend::project",
         "project.export completed project={} path={}",
         project_name,
-        destination.display()
+        destination_raw
     );
     Ok(())
+}
+
+fn looks_like_uri(path: &str) -> bool {
+    let lowered = path.to_ascii_lowercase();
+    lowered.starts_with("content://")
+        || lowered.starts_with("file://")
+        || (lowered.contains("://") && !Path::new(path).exists())
+}
+
+fn export_temp_path(app: &AppHandle, project_name: &str) -> Result<PathBuf, String> {
+    let cache_root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("获取缓存目录失败: {error}"))?
+        .join("exports");
+    fs::create_dir_all(&cache_root).map_err(|error| format!("创建导出缓存目录失败: {error}"))?;
+    let safe_name: String = project_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    Ok(cache_root.join(format!(
+        "{safe_name}-{}.sest",
+        super::unique_write_suffix()
+    )))
 }
 
 #[tauri::command]
@@ -159,7 +236,7 @@ pub fn import_project_archive(
     source_path: String,
     conflict: ProjectImportConflict,
 ) -> Result<ImportedProjectResult, String> {
-    let source = validate_archive_source(&source_path)?;
+    let source = resolve_archive_source(&app, &source_path)?;
     let mut archive = open_archive(&source)?;
     validate_archive_entries(&mut archive)?;
     let manifest = read_manifest(&mut archive)?;
@@ -380,19 +457,52 @@ fn add_directory(
     Ok(())
 }
 
-fn validate_archive_source(source_path: &str) -> Result<PathBuf, String> {
-    let source = PathBuf::from(source_path);
-    if !source.is_file() {
-        return Err("选择的 .sest 文件不存在".into());
+fn resolve_archive_source(app: &AppHandle, source_path: &str) -> Result<PathBuf, String> {
+    // Android document pickers usually return content:// URIs (sometimes without a
+    // filename extension, e.g. .../document/msf%3A11372). Materialize first, then
+    // validate that the bytes are a real .sest zip archive.
+    log::info!(
+        target: "backend::project",
+        "archive.resolve_source source={}",
+        source_path
+    );
+    if !looks_like_possible_archive_source(source_path) {
+        return Err(format!("请选择 .sest 项目归档 (source={source_path})"));
     }
-    let is_sest = source
+    let source = materialize_picked_file(app, source_path, Some("sest")).map_err(|error| {
+        log::error!(
+            target: "backend::project",
+            "archive.resolve_source materialize_failed source={} error={}",
+            source_path,
+            error
+        );
+        format!("选择的 .sest 文件不存在: {error}")
+    })?;
+    if !source.is_file() {
+        return Err(format!(
+            "选择的 .sest 文件不存在 (materialized={})",
+            source.display()
+        ));
+    }
+    // Do not open the zip here. ZipArchive holds the file handle, and calling
+    // open_archive again immediately after can fail on some Android filesystems.
+    // Callers validate the archive contents after materialization.
+    Ok(source)
+}
+
+fn looks_like_possible_archive_source(source_path: &str) -> bool {
+    let lowered = source_path.to_ascii_lowercase();
+    // SAF / MediaStore URIs often omit the original file name.
+    if lowered.starts_with("content://") || lowered.starts_with("file://") {
+        return true;
+    }
+    if lowered.contains(".sest") {
+        return true;
+    }
+    Path::new(source_path)
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("sest"));
-    if !is_sest {
-        return Err("请选择 .sest 项目归档".into());
-    }
-    Ok(source)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("sest"))
 }
 
 fn normalized_sest_path(destination_path: &str) -> Result<PathBuf, String> {
@@ -754,14 +864,17 @@ fn temporary_sibling(path: &Path, label: &str) -> Result<PathBuf, String> {
 }
 
 fn replace_export_file(temporary: &Path, destination: &Path) -> Result<(), String> {
+    // Prefer rename, but Android/app-cache -> shared storage often crosses mount points
+    // (EXDEV). Fall back to copy+remove in that case.
     if !destination.exists() {
-        return fs::rename(temporary, destination)
+        return move_or_copy_file(temporary, destination)
             .map_err(|error| format!("完成导出失败: {error}"));
     }
     let backup = temporary_sibling(destination, "backup")?;
-    fs::rename(destination, &backup).map_err(|error| format!("备份已有导出文件失败: {error}"))?;
-    if let Err(error) = fs::rename(temporary, destination) {
-        let restore_error = fs::rename(&backup, destination).err();
+    move_or_copy_file(destination, &backup)
+        .map_err(|error| format!("备份已有导出文件失败: {error}"))?;
+    if let Err(error) = move_or_copy_file(temporary, destination) {
+        let restore_error = move_or_copy_file(&backup, destination).err();
         return match restore_error {
             Some(restore_error) => Err(format!(
                 "完成导出失败: {error}; 恢复原文件也失败: {restore_error}"
@@ -777,6 +890,219 @@ fn replace_export_file(temporary: &Path, destination: &Path) -> Result<(), Strin
         );
     }
     Ok(())
+}
+
+fn move_or_copy_file(from: &Path, to: &Path) -> Result<(), String> {
+    match fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::CrossesDevices
+                || error.raw_os_error() == Some(18) =>
+        {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent).map_err(|e| format!("创建目标目录失败: {e}"))?;
+            }
+            fs::copy(from, to).map_err(|e| format!("复制导出文件失败: {e}"))?;
+            let _ = fs::remove_file(from);
+            Ok(())
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+
+
+#[cfg(all(debug_assertions, target_os = "android"))]
+pub fn run_android_debug_sest_smoke(app: &AppHandle) -> Result<(), String> {
+    use std::fs;
+    use tauri::Manager;
+
+    let files_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("resolve app data dir: {error}"))?
+        .join("files");
+    // On Android, app_data_dir is usually the package root; files/ may also be a sibling.
+    let marker_candidates = [
+        files_dir.join("debug-run-sest-import"),
+        app.path()
+            .app_data_dir()
+            .map_err(|error| format!("resolve app data dir: {error}"))?
+            .join("debug-run-sest-import"),
+        PathBuf::from("/data/data/org.untitled_story.storyteller.android/files/debug-run-sest-import"),
+        PathBuf::from("/data/user/0/org.untitled_story.storyteller.android/files/debug-run-sest-import"),
+    ];
+    let marker = marker_candidates.into_iter().find(|path| path.exists());
+    let Some(marker) = marker else {
+        return Ok(());
+    };
+    let _ = fs::remove_file(&marker);
+
+    let source_path = {
+        let source_file_candidates = [
+            marker.with_file_name("debug-sest-source.txt"),
+            PathBuf::from("/data/data/org.untitled_story.storyteller.android/files/debug-sest-source.txt"),
+            PathBuf::from("/data/user/0/org.untitled_story.storyteller.android/files/debug-sest-source.txt"),
+        ];
+        source_file_candidates
+            .into_iter()
+            .find_map(|path| fs::read_to_string(path).ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "/sdcard/Download/Test.sest".to_string())
+    };
+
+    // data_dir() already falls back to app_data_dir when workspaceDir is unset.
+
+    log::info!(
+        target: "backend::project",
+        "android_debug_sest_smoke inspect begin source={source_path}"
+    );
+    let inspection = inspect_project_archive(app.clone(), source_path.clone())?;
+    log::info!(
+        target: "backend::project",
+        "android_debug_sest_smoke inspect ok title={} models={} exists={}",
+        inspection.title,
+        inspection.model_count,
+        inspection.project_exists
+    );
+
+    let imported = import_project_archive(
+        app.clone(),
+        source_path.clone(),
+        if inspection.project_exists {
+            ProjectImportConflict::Rename
+        } else {
+            ProjectImportConflict::Rename
+        },
+    )?;
+    log::info!(
+        target: "backend::project",
+        "android_debug_sest_smoke import ok project={}",
+        imported.project_name
+    );
+
+    let export_path = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("export cache: {error}"))?
+        .join(format!(
+            "mss-export-{}.sest",
+            super::unique_write_suffix()
+        ));
+    export_project_archive(
+        app.clone(),
+        imported.project_name.clone(),
+        export_path.to_string_lossy().to_string(),
+    )?;
+    // Best-effort publish to shared Download for manual inspection.
+    let shared = PathBuf::from("/sdcard/Download").join(
+        export_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "mss-export.sest".into()),
+    );
+    if let Err(error) = fs::copy(&export_path, &shared) {
+        log::warn!(
+            target: "backend::project",
+            "android_debug_sest_smoke shared copy failed path={} error={}",
+            shared.display(),
+            error
+        );
+    }
+    let export_size = fs::metadata(&export_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if export_size == 0 {
+        return Err(format!(
+            "export produced empty file: {}",
+            export_path.display()
+        ));
+    }
+    log::info!(
+        target: "backend::project",
+        "android_debug_sest_smoke export ok path={} bytes={}",
+        export_path.display(),
+        export_size
+    );
+
+    // re-import exported archive to prove round-trip
+    let reimport = import_project_archive(
+        app.clone(),
+        export_path.to_string_lossy().to_string(),
+        ProjectImportConflict::Rename,
+    )?;
+    log::info!(
+        target: "backend::project",
+        "android_debug_sest_smoke reimport ok project={}",
+        reimport.project_name
+    );
+
+    let result_path = marker.with_file_name("debug-sest-result.txt");
+    fs::write(
+        &result_path,
+        format!(
+            "ok\nimport={}\nexport={}\nexport_bytes={}\nreimport={}\n",
+            imported.project_name,
+            export_path.display(),
+            export_size,
+            reimport.project_name
+        ),
+    )
+    .map_err(|error| format!("write result: {error}"))?;
+    log::info!(
+        target: "backend::project",
+        "android_debug_sest_smoke completed result={}",
+        result_path.display()
+    );
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn debug_import_sest_from_path(
+    app: AppHandle,
+    source_path: String,
+    conflict: Option<ProjectImportConflict>,
+) -> Result<ImportedProjectResult, String> {
+    let conflict = conflict.unwrap_or(ProjectImportConflict::Rename);
+    log::info!(
+        target: "backend::project",
+        "debug_import_sest_from_path source={} conflict={:?}",
+        source_path,
+        conflict
+    );
+    import_project_archive(app, source_path, conflict)
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn debug_export_sest_to_path(
+    app: AppHandle,
+    project_name: String,
+    destination_path: String,
+) -> Result<(), String> {
+    log::info!(
+        target: "backend::project",
+        "debug_export_sest_to_path project={} destination={}",
+        project_name,
+        destination_path
+    );
+    export_project_archive(app, project_name, destination_path)
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn debug_inspect_sest_from_path(
+    app: AppHandle,
+    source_path: String,
+) -> Result<ProjectArchiveInspection, String> {
+    log::info!(
+        target: "backend::project",
+        "debug_inspect_sest_from_path source={}",
+        source_path
+    );
+    inspect_project_archive(app, source_path)
 }
 
 #[cfg(test)]

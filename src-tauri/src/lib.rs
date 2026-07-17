@@ -3,7 +3,9 @@ mod protocol;
 
 use commands::{file_open, project, settings, window};
 use log::LevelFilter;
+#[cfg(desktop)]
 use std::path::PathBuf;
+#[cfg(desktop)]
 use tauri::Manager;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, WEBVIEW_TARGET};
 
@@ -39,22 +41,24 @@ pub fn run() {
         .build();
 
     let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            let paths = file_open::project_paths_from_args(&args, &PathBuf::from(cwd));
-            file_open::queue_paths(app, paths);
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }))
         .plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(file_open::PendingProjectImports::default());
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+        builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+                let paths = file_open::project_paths_from_args(&args, &PathBuf::from(cwd));
+                file_open::queue_paths(app, paths);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }))
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build());
     }
 
     builder = builder
@@ -71,10 +75,31 @@ pub fn run() {
                 log::error!(target: "backend::panic", "unhandled panic: {panic_info}");
                 default_panic_hook(panic_info);
             }));
-            let args: Vec<String> = std::env::args().collect();
-            let current_dir = std::env::current_dir().unwrap_or_default();
-            let paths = file_open::project_paths_from_args(&args, &current_dir);
-            file_open::queue_paths(app.handle(), paths);
+            #[cfg(desktop)]
+            {
+                let args: Vec<String> = std::env::args().collect();
+                let current_dir = std::env::current_dir().unwrap_or_default();
+                let paths = file_open::project_paths_from_args(&args, &current_dir);
+                file_open::queue_paths(app.handle(), paths);
+            }
+            #[cfg(all(debug_assertions, target_os = "android"))]
+            {
+                // Automated AVD/device smoke test:
+                // push a marker file to app files dir before launch:
+                //   files/debug-run-sest-import
+                // optional source path file:
+                //   files/debug-sest-source.txt  (absolute path, default /sdcard/Download/Test.sest)
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                    if let Err(error) = project::archive::run_android_debug_sest_smoke(&handle) {
+                        log::error!(
+                            target: "backend::project",
+                            "android_debug_sest_smoke failed error={error}"
+                        );
+                    }
+                });
+            }
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -107,6 +132,12 @@ pub fn run() {
             project::archive::inspect_project_archive,
             project::archive::export_project_archive,
             project::archive::import_project_archive,
+            #[cfg(debug_assertions)]
+            project::archive::debug_import_sest_from_path,
+            #[cfg(debug_assertions)]
+            project::archive::debug_export_sest_to_path,
+            #[cfg(debug_assertions)]
+            project::archive::debug_inspect_sest_from_path,
             project::paths::get_project_path,
             project::assets::get_project_assets,
             project::assets::set_project_assets,

@@ -26,6 +26,23 @@ import { openEditorWindow } from '@/windows/api'
 
 const TAURI_IMPORT_EVENT = 'project-import-requested'
 
+function describeImportError(reason: unknown): string {
+  if (reason instanceof Error) return reason.message
+  if (typeof reason === 'string') return reason
+  if (reason && typeof reason === 'object') {
+    const record = reason as { message?: unknown; error?: unknown; data?: unknown }
+    if (typeof record.message === 'string' && record.message.trim()) return record.message
+    if (typeof record.error === 'string' && record.error.trim()) return record.error
+    if (typeof record.data === 'string' && record.data.trim()) return record.data
+    try {
+      return JSON.stringify(reason)
+    } catch {
+      return String(reason)
+    }
+  }
+  return String(reason)
+}
+
 export function ProjectImportCoordinator(): JSX.Element {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -37,10 +54,36 @@ export function ProjectImportCoordinator(): JSX.Element {
   const sourcePath: string | null = queue[0] ?? null
 
   const enqueue = useCallback((path: string): void => {
-    if (!path.toLocaleLowerCase().endsWith('.sest')) return
-    setQueue((current: string[]): string[] =>
-      current.includes(path) ? current : [...current, path]
-    )
+    const normalized: string = path.toLocaleLowerCase()
+    // Android document pickers often return content:// URIs that do not end with .sest.
+    const looksLikeSest: boolean =
+      normalized.endsWith('.sest') ||
+      normalized.includes('.sest') ||
+      normalized.startsWith('content://')
+    if (!looksLikeSest) return
+    setQueue((current: string[]): string[] => {
+      // Same content URI can be re-selected after a failed inspect; force re-run.
+      if (current[0] === path) {
+        setInspection(null)
+        setError(null)
+        setLoading(true)
+        void inspectProjectArchive(path)
+          .then((value: ProjectArchiveInspection): void => {
+            setInspection(value)
+          })
+          .catch((reason: unknown): void => {
+            setError(`${describeImportError(reason)}\npath: ${path}`)
+            setInspection(null)
+            console.error('inspectProjectArchive failed', { sourcePath: path, reason })
+          })
+          .finally((): void => {
+            setLoading(false)
+          })
+        return current
+      }
+      if (current.includes(path)) return current
+      return [...current, path]
+    })
   }, [])
 
   useEffect((): (() => void) => {
@@ -95,8 +138,10 @@ export function ProjectImportCoordinator(): JSX.Element {
       })
       .catch((reason: unknown): void => {
         if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : String(reason))
+          const message: string = describeImportError(reason)
+          setError(`${message}\npath: ${sourcePath}`)
           setInspection(null)
+          console.error('inspectProjectArchive failed', { sourcePath, reason })
         }
       })
       .finally((): void => {
@@ -123,7 +168,7 @@ export function ProjectImportCoordinator(): JSX.Element {
       navigate('/projects')
       await openEditorWindow(result.projectName)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(describeImportError(reason))
     } finally {
       setImporting(false)
     }

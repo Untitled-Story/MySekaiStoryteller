@@ -242,7 +242,31 @@ export function useSettingsState(): SettingsHook {
         ...prev,
         touchMode: value
       })),
-    setWorkspaceDir: (dir) => setWorkspaceDirState(dir)
+    setWorkspaceDir: (dir: string): void => {
+      // Persist immediately so backend project commands never race with the
+      // debounced settings effect (critical on first-run / clear-data mobile).
+      setWorkspaceDirState(dir)
+      setPersistenceReady(true)
+      const payload: AppSettings = {
+        language,
+        appearance: {
+          followSystem: appearance.followSystem,
+          manualTheme: appearance.manualTheme
+        },
+        playback,
+        shortcuts,
+        onboarding,
+        interaction,
+        workspaceDir: dir
+      }
+      void saveSettings(payload)
+        .then((): void => {
+          setLoaded(true)
+        })
+        .catch((error: unknown): void => {
+          logger.error('settings.workspace_save_failed', { error: describeError(error) })
+        })
+    }
   }
 }
 
