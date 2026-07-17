@@ -1,6 +1,6 @@
 import type { ChangeEvent, JSX } from 'react'
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
+import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog'
 import {
   getCurrentWindow,
   type CloseRequestedEvent,
@@ -13,6 +13,7 @@ import {
   FileJson,
   FileArchive,
   LoaderCircle,
+  Package,
   Play,
   Redo2,
   Save,
@@ -29,6 +30,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/AlertDialog'
 import { Button } from '@/components/ui/Button'
+import { Toast, type ToastVariant } from '@/components/ui/Toast'
 import {
   Dialog,
   DialogContent,
@@ -67,6 +69,7 @@ import type {
   VoiceAsset
 } from '@/project/assets'
 import type { ProjectMetadata } from '@/project/metadata'
+import { exportProjectArchive } from '@/project/archive'
 import { getSettings } from '@/settings/api'
 import { matchesShortcut, normalizeShortcutSettings } from '@/settings/shortcuts'
 import type { AppSettings, ShortcutBinding } from '@/settings/types'
@@ -123,6 +126,12 @@ type AssetDeletePrompt = {
 }
 
 type StorySaveStatus = 'saved' | 'dirty' | 'saving' | 'error'
+
+type EditorNotice = {
+  id: number
+  message: string
+  variant: ToastVariant
+}
 
 type PersistedStorySnapshot = {
   projectName: string
@@ -191,6 +200,8 @@ export default function App({
   const [storySaveStatus, setStorySaveStatus] = useState<StorySaveStatus>('saved')
   const [storySaveError, setStorySaveError] = useState<string | null>(null)
   const [projectMutationInProgress, setProjectMutationInProgress] = useState<boolean>(false)
+  const [exportingProject, setExportingProject] = useState<boolean>(false)
+  const [editorNotice, setEditorNotice] = useState<EditorNotice | null>(null)
   const [registerModelOpen, setRegisterModelOpen] = useState<boolean>(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const inputMergeTimerRef = useRef<number | null>(null)
@@ -675,6 +686,42 @@ export default function App({
     }
   }
 
+  async function exportCurrentProject(): Promise<void> {
+    if (!loadedProject || exportingProject) return
+    const projectName: string = loadedProject.previewInput.projectName
+    const destination = await saveFileDialog({
+      title: t('projectArchive.chooseExport'),
+      defaultPath: `${loadedProject.metadata.title}.sest`,
+      filters: [{ name: t('projectArchive.fileType'), extensions: ['sest'] }]
+    })
+    if (!destination) return
+
+    setExportingProject(true)
+    setActionError(null)
+    try {
+      const saved: boolean = await flushEditorWrites()
+      if (!saved) return
+      await runProjectMutation(
+        async (): Promise<void> => exportProjectArchive(projectName, destination)
+      )
+      setEditorNotice({
+        id: Date.now(),
+        message: t('projectArchive.exportComplete'),
+        variant: 'success'
+      })
+    } catch (error: unknown) {
+      setEditorNotice({
+        id: Date.now(),
+        message: t('projectArchive.exportFailed', {
+          error: error instanceof Error ? error.message : String(error)
+        }),
+        variant: 'error'
+      })
+    } finally {
+      setExportingProject(false)
+    }
+  }
+
   function flushInputMerge(): void {
     if (inputMergeTimerRef.current !== null) {
       window.clearTimeout(inputMergeTimerRef.current)
@@ -1106,6 +1153,22 @@ export default function App({
           <Button
             type="button"
             variant="outline"
+            size="icon"
+            className="size-8"
+            aria-label={t('projectArchive.export')}
+            title={t('projectArchive.export')}
+            disabled={exportingProject || editorSaving}
+            onClick={(): void => void exportCurrentProject()}
+          >
+            {exportingProject ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Package className="size-4" />
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
             size="sm"
             data-tour="editor-preview-button"
             disabled={!selectedNode}
@@ -1221,6 +1284,16 @@ export default function App({
         }
         onComplete={onCompleteEditorTour}
       />
+
+      {editorNotice && (
+        <Toast
+          key={editorNotice.id}
+          message={editorNotice.message}
+          variant={editorNotice.variant}
+          closeLabel={t('common.close')}
+          onDismiss={(): void => setEditorNotice(null)}
+        />
+      )}
 
       <AlertDialog
         open={deleteSnippetNode !== null}
