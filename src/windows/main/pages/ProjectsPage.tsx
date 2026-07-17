@@ -19,7 +19,8 @@ import {
   Upload
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
-import { useViewportMode } from '@/hooks/useViewportMode'
+import { useSettings } from '@/settings/useSettings'
+
 import { cn } from '@/lib/style'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
@@ -63,10 +64,11 @@ type ExportNotice = {
 
 export default function ProjectsPage(): JSX.Element {
   const { t } = useTranslation()
-  const viewportMode = useViewportMode()
-  const alwaysShowRowActions = viewportMode !== 'desktop'
   const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
+  const { interaction } = useSettings()
+  const alwaysShowRowActions: boolean = interaction.touchMode
+
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('recent')
@@ -262,10 +264,11 @@ export default function ProjectsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto overscroll-none px-5 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent sm:px-8">
+      <div className="flex-1 overflow-auto overscroll-none px-5 pb-6 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent sm:px-8">
         {loading ? (
           <ProjectListSkeleton />
         ) : filtered.length > 0 ? (
+
           <div className="divide-y divide-border">
             {filtered.map((metadata) => (
               <ContextMenu key={metadata.title}>

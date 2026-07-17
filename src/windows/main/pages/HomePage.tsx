@@ -13,20 +13,48 @@ import { MainProductTour } from '@/onboarding/MainProductTour'
 import { useTranslation } from 'react-i18next'
 import { useViewportMode } from '@/hooks/useViewportMode'
 import { cn } from '@/lib/style'
+import { detectPreferTouchMode } from '@/lib/touchMode'
+import { Button } from '@/components/ui/Button'
+import { Switch } from '@/components/ui/Switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/Dialog'
 
 
 export default function HomePage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [touchPromptOpen, setTouchPromptOpen] = useState(false)
+  const [touchPromptValue, setTouchPromptValue] = useState(false)
   const navigate = useNavigate()
-  const { onboarding, setOnboarding } = useSettings()
+  const { onboarding, interaction, setOnboarding, setInteraction } = useSettings()
   const viewportMode = useViewportMode()
   const stackSections: boolean = viewportMode === 'phone'
 
   const completeMainTour = useCallback((): void => {
     setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
-  }, [onboarding, setOnboarding])
+    if (!interaction.touchModePromptSeen) {
+      setTouchPromptValue(detectPreferTouchMode())
+      setTouchPromptOpen(true)
+    }
+  }, [interaction.touchModePromptSeen, onboarding, setOnboarding])
+
+  const finishTouchPrompt = useCallback(
+    (enabled: boolean): void => {
+      setInteraction({
+        touchMode: enabled,
+        touchModePromptSeen: true
+      })
+      setTouchPromptOpen(false)
+    },
+    [setInteraction]
+  )
 
   const latest: ProjectMetadata | null =
     projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
@@ -61,7 +89,7 @@ export default function HomePage(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full select-none flex-col overflow-auto px-5 py-6 sm:px-8 sm:py-8">
+    <div className="flex h-full select-none flex-col overflow-auto px-5 py-6 pb-8 sm:px-8 sm:py-8">
       <div className="mb-8">
         <h2 className="text-2xl font-semibold">{t('home.welcome')}</h2>
       </div>
@@ -149,6 +177,41 @@ export default function HomePage(): JSX.Element {
         active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}
         onComplete={completeMainTour}
       />
+
+      <Dialog
+        open={touchPromptOpen}
+        onOpenChange={(open: boolean): void => {
+          if (!open) finishTouchPrompt(touchPromptValue)
+        }}
+      >
+        <DialogContent className="max-w-md select-none">
+          <DialogHeader>
+            <DialogTitle>开启触控模式？</DialogTitle>
+            <DialogDescription>
+              触控模式下会减少对鼠标悬停的依赖，例如项目列表的操作按钮会始终显示，更适合手指操作。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-3">
+            <div className="pr-4">
+              <p className="text-sm font-medium">触控模式</p>
+              <p className="text-xs text-muted-foreground">可随时在设置里修改</p>
+            </div>
+            <Switch
+              checked={touchPromptValue}
+              aria-label="切换触控模式"
+              onCheckedChange={setTouchPromptValue}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={(): void => finishTouchPrompt(false)}>
+              暂不开启
+            </Button>
+            <Button type="button" onClick={(): void => finishTouchPrompt(touchPromptValue)}>
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

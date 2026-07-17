@@ -377,12 +377,10 @@ export function EditorPreview({
         <div className="relative w-full max-w-[960px] overflow-hidden rounded-md border bg-black shadow-sm">
           <div className="relative aspect-video overflow-hidden">
             <div ref={stageRef} className="absolute inset-0" />
-            {!compact ? (
-              <div className="pointer-events-none absolute inset-[7%] border border-white/12">
-                <div className="absolute inset-y-0 left-1/3 border-l border-white/10" />
-                <div className="absolute inset-y-0 left-2/3 border-l border-white/10" />
-              </div>
-            ) : null}
+            <div className="pointer-events-none absolute inset-[7%] border border-white/12">
+              <div className="absolute inset-y-0 left-1/3 border-l border-white/10" />
+              <div className="absolute inset-y-0 left-2/3 border-l border-white/10" />
+            </div>
             {status === 'error' && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/65 px-8 text-center text-sm leading-6 text-white/80">
                 {message}

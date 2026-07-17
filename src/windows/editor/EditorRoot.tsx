@@ -72,6 +72,10 @@ export function EditorRoot({
           onboarding: {
             ...normalizeOnboardingSettings(stored.onboarding),
             editorTourVersion: EDITOR_TOUR_VERSION
+          },
+          interaction: {
+            touchMode: stored.interaction?.touchMode ?? false,
+            touchModePromptSeen: stored.interaction?.touchModePromptSeen ?? false
           }
         }
         setSettings(nextSettings)

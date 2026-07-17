@@ -45,8 +45,8 @@ const SPECIAL_THANKS: readonly Acknowledgement[] = [
 export default function AboutPage(): JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="relative h-screen overflow-y-auto overscroll-none bg-background select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
-      <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col px-10 py-12">
+    <div className="relative h-full overflow-y-auto overscroll-none bg-background select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+      <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 py-10 pb-12 sm:px-10 sm:py-12">
         <section className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="relative mb-5">
             <div className="absolute inset-2 rounded-[28%] bg-cyan-400/20 blur-2xl" />

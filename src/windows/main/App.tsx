@@ -95,7 +95,7 @@ function AppContent(): React.JSX.Element {
           showCollapsedSidebar &&
             'left-0 right-0 bottom-0 top-[calc(3rem+env(safe-area-inset-top))]',
           showBottomNav &&
-            'left-0 right-0 top-0 pt-[env(safe-area-inset-top)] bottom-[calc(4rem+env(safe-area-inset-bottom))]'
+            'left-0 right-0 top-0 pt-[env(safe-area-inset-top)] bottom-[calc(4.25rem+env(safe-area-inset-bottom))]'
         )}
       >
 

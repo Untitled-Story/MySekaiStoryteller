@@ -1859,67 +1859,6 @@
     "permission_sets": {},
     "global_scope_schema": null
   },
-  "global-shortcut": {
-    "default_permission": {
-      "identifier": "default",
-      "description": "No features are enabled by default, as we believe\nthe shortcuts can be inherently dangerous and it is\napplication specific if specific shortcuts should be\nregistered or unregistered.\n",
-      "permissions": []
-    },
-    "permissions": {
-      "allow-is-registered": {
-        "identifier": "allow-is-registered",
-        "description": "Enables the is_registered command without any pre-configured scope.",
-        "commands": { "allow": ["is_registered"], "deny": [] }
-      },
-      "allow-register": {
-        "identifier": "allow-register",
-        "description": "Enables the register command without any pre-configured scope.",
-        "commands": { "allow": ["register"], "deny": [] }
-      },
-      "allow-register-all": {
-        "identifier": "allow-register-all",
-        "description": "Enables the register_all command without any pre-configured scope.",
-        "commands": { "allow": ["register_all"], "deny": [] }
-      },
-      "allow-unregister": {
-        "identifier": "allow-unregister",
-        "description": "Enables the unregister command without any pre-configured scope.",
-        "commands": { "allow": ["unregister"], "deny": [] }
-      },
-      "allow-unregister-all": {
-        "identifier": "allow-unregister-all",
-        "description": "Enables the unregister_all command without any pre-configured scope.",
-        "commands": { "allow": ["unregister_all"], "deny": [] }
-      },
-      "deny-is-registered": {
-        "identifier": "deny-is-registered",
-        "description": "Denies the is_registered command without any pre-configured scope.",
-        "commands": { "allow": [], "deny": ["is_registered"] }
-      },
-      "deny-register": {
-        "identifier": "deny-register",
-        "description": "Denies the register command without any pre-configured scope.",
-        "commands": { "allow": [], "deny": ["register"] }
-      },
-      "deny-register-all": {
-        "identifier": "deny-register-all",
-        "description": "Denies the register_all command without any pre-configured scope.",
-        "commands": { "allow": [], "deny": ["register_all"] }
-      },
-      "deny-unregister": {
-        "identifier": "deny-unregister",
-        "description": "Denies the unregister command without any pre-configured scope.",
-        "commands": { "allow": [], "deny": ["unregister"] }
-      },
-      "deny-unregister-all": {
-        "identifier": "deny-unregister-all",
-        "description": "Denies the unregister_all command without any pre-configured scope.",
-        "commands": { "allow": [], "deny": ["unregister_all"] }
-      }
-    },
-    "permission_sets": {},
-    "global_scope_schema": null
-  },
   "log": {
     "default_permission": {
       "identifier": "default",

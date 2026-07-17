@@ -40,6 +40,7 @@ export default function SettingsPage(): JSX.Element {
     playback,
     shortcuts,
     onboarding,
+    interaction,
     workspaceDir,
     setLanguage,
     setFollowSystem,
@@ -49,6 +50,7 @@ export default function SettingsPage(): JSX.Element {
     setPlaybackFont,
     setShortcuts,
     setOnboarding,
+    setTouchMode,
     setWorkspaceDir
   } = useSettings()
   const navigate = useNavigate()
@@ -189,10 +191,11 @@ export default function SettingsPage(): JSX.Element {
   }, [handleShortcutChange, recordingShortcutId])
 
   return (
-    <div className="flex flex-col h-screen overflow-y-auto overscroll-none px-8 py-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
-      <div className="w-full max-w-2xl space-y-1 mb-2">
+    <div className="flex h-full flex-col overflow-y-auto overscroll-none px-5 py-6 pb-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent sm:px-8 sm:py-8">
+      <div className="mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.storage')}</h2>
         <p className="text-sm text-muted-foreground">{t('settings.storageDescription')}</p>
+
       </div>
 
       <div className="w-full max-w-2xl divide-y divide-border">
@@ -201,21 +204,42 @@ export default function SettingsPage(): JSX.Element {
           description={workspaceDir ?? t('common.missing')}
         >
           <Button variant="outline" size="sm" onClick={handleChangeWorkspace}>
-            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+            <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
             {t('common.change')}
+
           </Button>
         </SettingRow>
         <SettingRow title={t('settings.logs')} description={logPath}>
           <Button variant="outline" size="sm" onClick={handleOpenLogDirectory}>
-            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+            <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
             {t('common.open')}
+
           </Button>
         </SettingRow>
       </div>
 
-      <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+      <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
+        <h2 className="text-2xl leading-tight font-semibold">交互</h2>
+        <p className="text-sm text-muted-foreground">针对触控设备优化按钮与操作入口的显示方式。</p>
+      </div>
+
+      <div className="w-full max-w-2xl divide-y divide-border">
+        <SettingRow
+          title="触控模式"
+          description="开启后不依赖鼠标悬停，列表操作按钮会始终显示，更适合手指操作。"
+        >
+          <Switch
+            checked={interaction.touchMode}
+            aria-label="切换触控模式"
+            onCheckedChange={setTouchMode}
+          />
+        </SettingRow>
+      </div>
+
+      <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.appearance')}</h2>
         <p className="text-sm text-muted-foreground">{t('settings.appearanceDescription')}</p>
+
       </div>
 
       <div className="w-full max-w-2xl divide-y divide-border">
