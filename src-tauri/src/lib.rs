@@ -49,9 +49,15 @@ pub fn run() {
         }))
         .plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .manage(file_open::PendingProjectImports::default())
+        .manage(file_open::PendingProjectImports::default());
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    }
+
+    builder = builder
         .setup(|app| {
             log::info!(
                 target: "backend::lifecycle",

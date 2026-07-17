@@ -1,9 +1,20 @@
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { Application } from 'pixi.js'
+import { ArrowLeft, RotateCcw } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { prefersInAppNavigation } from '@/lib/platform'
+import {
+  enterImmersiveFullscreen,
+  exitImmersiveFullscreen,
+  lockLandscapeOrientation,
+  unlockOrientation
+} from '@/lib/orientation'
+import { closePlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
+import { cn } from '@/lib/style'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
 import {
   createStoryRuntime,
@@ -29,7 +40,6 @@ import { loadPlaybackFontFamily } from '@/settings/fonts'
 import { getDataPath } from '@/workspace/api'
 import { describeError, logger } from '@/lib/logger'
 import { applyAppLanguage } from '@/i18n'
-import { useTranslation } from 'react-i18next'
 
 export type PlayerStoryInput = {
   projectName: string
@@ -54,33 +64,62 @@ type ModelLoadState =
 
 const PLAYER_STAGE_STYLE: CSSProperties = {
   width: 'min(100vw, 177.77777778vh)',
-  height: 'min(100vh, 56.25vw)'
+  height: 'min(100dvh, 56.25vw)'
 }
 
-export default function App(): JSX.Element {
-  const { t } = useTranslation()
-  const projectName = useWindowProjectName()
+const PLAYER_STAGE_STYLE_MOBILE: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  maxHeight: '100dvh'
+}
+
+const MOBILE_CONTROLS_HIDE_MS: number = 2600
+
+export default function App({
+  preferredProjectName = null
+}: {
+  preferredProjectName?: string | null
+} = {}): JSX.Element {
+  const projectName = useWindowProjectName(preferredProjectName)
+  const inAppNavigation: boolean = prefersInAppNavigation()
   const stageRef = useRef<HTMLDivElement | null>(null)
+  const rootRef = useRef<HTMLElement | null>(null)
+  const controlsHideTimerRef = useRef<number | null>(null)
   const [storyInput, setStoryInput] = useState<PlayerStoryInput | null>(null)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
   const [modelLoadState, setModelLoadState] = useState<ModelLoadState>({ status: 'idle' })
   const [reloadRequest, setReloadRequest] = useState<number>(0)
   const [shortcutOverride, setShortcutOverride] = useState<ShortcutSettings | null>(null)
+  const [mobileControlsVisible, setMobileControlsVisible] = useState<boolean>(false)
   const shortcuts: ShortcutSettings = useMemo(
     (): ShortcutSettings =>
       normalizeShortcutSettings(shortcutOverride ?? storyInput?.settings?.shortcuts),
     [shortcutOverride, storyInput?.settings?.shortcuts]
   )
 
+  const clearControlsHideTimer = useCallback((): void => {
+    if (controlsHideTimerRef.current === null) return
+    window.clearTimeout(controlsHideTimerRef.current)
+    controlsHideTimerRef.current = null
+  }, [])
+
+  const revealMobileControls = useCallback((): void => {
+    if (!inAppNavigation) return
+    setMobileControlsVisible(true)
+    clearControlsHideTimer()
+    controlsHideTimerRef.current = window.setTimeout((): void => {
+      setMobileControlsVisible(false)
+      controlsHideTimerRef.current = null
+    }, MOBILE_CONTROLS_HIDE_MS)
+  }, [clearControlsHideTimer, inAppNavigation])
+
   useEffect((): (() => void) => {
     let disposed = false
     let unlisten: (() => void) | null = null
 
     void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
-      if (!disposed) {
-        setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
+      if (!disposed) setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
         applyAppLanguage(event.payload.language)
-      }
     }).then((dispose: () => void): void => {
       if (disposed) dispose()
       else unlisten = dispose
@@ -91,6 +130,33 @@ export default function App(): JSX.Element {
       unlisten?.()
     }
   }, [])
+
+  useEffect((): (() => void) | undefined => {
+    if (!inAppNavigation) return undefined
+
+    let cancelled: boolean = false
+    const rootElement: HTMLElement | null = rootRef.current
+
+    void (async (): Promise<void> => {
+      const locked: boolean = await lockLandscapeOrientation()
+      if (cancelled) return
+      if (locked) logger.info('player.orientation_locked', { orientation: 'landscape' })
+
+      if (rootElement) {
+        const fullscreen: boolean = await enterImmersiveFullscreen(rootElement)
+        if (cancelled) return
+        logger.info('player.immersive_fullscreen', { entered: fullscreen })
+      }
+    })()
+
+    return (): void => {
+      cancelled = true
+      clearControlsHideTimer()
+      void exitImmersiveFullscreen()
+      unlockOrientation()
+      logger.info('player.orientation_unlocked')
+    }
+  }, [clearControlsHideTimer, inAppNavigation])
 
   useEffect((): (() => void) => {
     const currentWindow = getCurrentWindow()
@@ -139,6 +205,10 @@ export default function App(): JSX.Element {
       if (!matchesShortcut(event, shortcuts.player.close)) return
 
       event.preventDefault()
+      if (inAppNavigation) {
+        void closePlayerWindow()
+        return
+      }
       void currentWindow.close().catch((error: unknown) => {
         console.error('Failed to close player window', error)
       })
@@ -146,7 +216,7 @@ export default function App(): JSX.Element {
 
     window.addEventListener('keydown', handlePlayerShortcut, true)
     return (): void => window.removeEventListener('keydown', handlePlayerShortcut, true)
-  }, [projectName, shortcuts.player])
+  }, [inAppNavigation, projectName, shortcuts.player])
 
   useEffect(() => {
     if (!projectName) return
@@ -160,7 +230,6 @@ export default function App(): JSX.Element {
     loadPlayerStoryInput(projectName)
       .then((input: PlayerStoryInput): void => {
         if (cancelled) return
-        applyAppLanguage(input.settings?.language ?? 'system')
         setStoryInput(input)
         setLoadState({ status: 'ready' })
         logger.info('player.project_load_completed', {
@@ -179,14 +248,14 @@ export default function App(): JSX.Element {
         })
         setLoadState({
           status: 'error',
-          error: error instanceof Error ? error.message : t('player.storyLoadFailed')
+          error: error instanceof Error ? error.message : '加载 story.json 失败'
         })
       })
 
     return () => {
       cancelled = true
     }
-  }, [projectName, reloadRequest, t])
+  }, [projectName, reloadRequest])
 
   useEffect(() => {
     if (loadState.status !== 'ready' || !storyInput || !stageRef.current) return
@@ -204,7 +273,7 @@ export default function App(): JSX.Element {
     const currentStoryInput = storyInput
     const startedAt: number = performance.now()
 
-    setModelLoadState({ status: 'loading', message: t('player.initialize') })
+    setModelLoadState({ status: 'loading', message: '初始化播放器' })
     logger.info('player.runtime_started', {
       projectName: currentStoryInput.projectName,
       snippetCount: currentStoryInput.story.snippets.length
@@ -260,14 +329,14 @@ export default function App(): JSX.Element {
         resolution: resolveRenderPrecision(currentStoryInput.settings)
       })
 
-      setModelLoadState({ status: 'loading', message: t('player.loadFont') })
+      setModelLoadState({ status: 'loading', message: '加载字体资源' })
       fontFamily = await loadPlaybackFontFamily(
         currentStoryInput.settings,
         currentStoryInput.dataPath
       )
       if (cancelled) return
 
-      setModelLoadState({ status: 'loading', message: t('player.loadModels') })
+      setModelLoadState({ status: 'loading', message: '加载模型资源' })
       preloadedModels = await preloadStoryModels({
         app: playerApp,
         dataPath: currentStoryInput.dataPath,
@@ -302,7 +371,7 @@ export default function App(): JSX.Element {
 
       setModelLoadState({
         status: 'ready',
-        message: t('player.loadedModels', { count: preloadedModels.length })
+        message: `已加载 ${preloadedModels.length} 个模型`
       })
       await dispatcher.run(currentStoryInput.story)
       if (!cancelled) {
@@ -339,21 +408,68 @@ export default function App(): JSX.Element {
       detachMountedCanvas()
       destroyInitializedApp()
     }
-  }, [loadState.status, storyInput, t])
+  }, [loadState.status, storyInput])
 
   return (
     <main
-      className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-black text-white select-none"
+      ref={rootRef}
+      className="relative flex h-[100dvh] w-screen items-center justify-center overflow-hidden bg-black text-white select-none"
       data-player-entry="story-json"
       data-status={loadState.status}
       data-project={storyInput?.projectName ?? projectName ?? ''}
       data-snippet-count={storyInput?.story.snippets.length ?? 0}
       data-model-status={modelLoadState.status}
+      onClick={inAppNavigation ? revealMobileControls : undefined}
     >
-      <div className="absolute inset-x-0 top-0 z-20 h-8" onMouseDown={startWindowDrag} />
+      {!inAppNavigation ? (
+        <div className="absolute inset-x-0 top-0 z-20 h-8" onMouseDown={startWindowDrag} />
+      ) : (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center gap-2 bg-gradient-to-b from-black/75 to-transparent px-3 pb-10 pt-[max(0.5rem,env(safe-area-inset-top))] transition-opacity duration-200',
+            mobileControlsVisible ? 'opacity-100' : 'opacity-0'
+          )}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
+            aria-label="返回"
+            title="返回"
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+              event.stopPropagation()
+              void closePlayerWindow()
+            }}
+          >
+            <ArrowLeft className="size-5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
+            aria-label="重新加载"
+            title="重新加载"
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+              event.stopPropagation()
+              setReloadRequest((current: number): number => current + 1)
+              revealMobileControls()
+            }}
+          >
+            <RotateCcw className="size-5" />
+          </Button>
+          <span className="min-w-0 truncate text-sm text-white/80">
+            {storyInput?.metadata.title ?? projectName ?? '播放器'}
+          </span>
+        </div>
+      )}
       <div
-        className="relative shrink-0 overflow-hidden bg-black"
-        style={PLAYER_STAGE_STYLE}
+        className={cn(
+          'relative overflow-hidden bg-black',
+          inAppNavigation ? 'h-full w-full shrink-0' : 'shrink-0'
+        )}
+        style={inAppNavigation ? PLAYER_STAGE_STYLE_MOBILE : PLAYER_STAGE_STYLE}
         data-player-stage="16:9"
       >
         <div ref={stageRef} className="absolute inset-0 overflow-hidden" />

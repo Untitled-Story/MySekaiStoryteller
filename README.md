@@ -15,13 +15,14 @@
 
 ## About
 
-MySekaiStoryteller is a desktop editor for building stories out of snippets, Live2D models, backgrounds, voices, transitions, and visual effects.
+MySekaiStoryteller is an editor for building stories out of snippets, Live2D models, backgrounds, voices, transitions, and visual effects. Desktop keeps a multi-window workflow; Android uses a single-webview in-app router with phone/tablet responsive layouts.
 
 ## Features
 
 - Visual story editing with nested Parallel snippets and drag-and-drop ordering
 - Live2D models from multiple games, not just Project SEKAI
 - Lip-sync support
+- Android-first mobile UI: phone portrait “preview on top + outline/properties tabs”, tablet near-desktop with touch-friendly chrome
 
 ## Download
 
@@ -53,9 +54,33 @@ Build native bundles with:
 pnpm tauri build
 ```
 
+### Android (supported first; iOS later)
+
+Requires Android SDK/NDK, JDK, and the matching Rust Android targets.
+
+```bash
+# First-time Android project init (skip if gen/android already exists)
+pnpm android:init
+
+# Dev on a device/emulator
+pnpm android:dev
+
+# Production APK/AAB (optionally limit ABI, e.g. arm64 only)
+pnpm tauri android build --apk --target aarch64
+```
+
+> The first build downloads the Gradle distribution and Android dependencies. On restricted networks, download Gradle via a local proxy and/or use Aliyun Maven mirrors (configured in `src-tauri/gen/android/build.gradle.kts`). If Java HTTPS through an HTTP proxy fails TLS handshake, prefer SOCKS or direct mirror access. The Rust `aarch64-linux-android` release build and frontend typecheck/lint should pass first.
+
+Mobile notes:
+
+- Navigation uses in-app routes `#/editor/:project` and `#/player/:project` (no multi-window)
+- Workspace defaults to the app private data directory; imports still use the system file picker
+- Player keeps automatic timeline playback (no click-to-advance)
+- For desktop browser shell preview: `localStorage.setItem('mss.mobileShell','1')` or `?mobileShell=1`
+
 ## Project Data
 
-Settings live in the system application-data directory. Projects live in the workspace you choose on first launch, and each one holds its own story, asset registry, metadata, and managed files.
+Settings live in the system application-data directory. On desktop, projects live in the workspace you choose on first launch; on Android they default to the app private directory. Each project holds its own story, asset registry, metadata, and managed files.
 
 ## Community
 

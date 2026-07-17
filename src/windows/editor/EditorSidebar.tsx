@@ -1,5 +1,6 @@
 import type { ChangeEvent, JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useRef, useState } from 'react'
+import { useLongPressContextMenu } from '@/hooks/useLongPressContextMenu'
 import type { LucideIcon } from 'lucide-react'
 import {
   ArrowDown,
@@ -227,7 +228,7 @@ function TabButton({
     <button
       type="button"
       className={cn(
-        'h-7 rounded-sm px-3 text-xs transition-colors',
+        'h-8 rounded-sm px-3 text-xs transition-colors sm:h-7',
         active
           ? 'bg-background font-medium shadow-xs'
           : 'text-muted-foreground hover:text-foreground'
@@ -501,6 +502,12 @@ function StoryNodeRow({
     if (target) onMove(node.id, target.nodeId, target.placement)
   }
 
+  const longPressHandlers = useLongPressContextMenu({
+    onOpen: (): void => {
+      onContextSelect(node.id)
+    }
+  })
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild onContextMenu={(): void => onContextSelect(node.id)}>
@@ -508,6 +515,7 @@ function StoryNodeRow({
           className={cn('relative transition-opacity', dragging && 'opacity-35')}
           style={{ paddingLeft: `${flatNode.depth * 18}px` }}
           data-snippet-id={node.id}
+          {...longPressHandlers}
         >
           {dropPlacement === 'before' && (
             <span

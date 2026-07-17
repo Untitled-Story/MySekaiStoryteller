@@ -11,7 +11,13 @@ import App from './App'
 import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
 import { applyAppLanguage } from '@/i18n'
 
-export function EditorRoot(): JSX.Element {
+export function EditorRoot({
+  preferredProjectName = null,
+  embedInShell = false
+}: {
+  preferredProjectName?: string | null
+  embedInShell?: boolean
+} = {}): JSX.Element {
   const systemTheme: SystemTheme = useSystemTheme()
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const activeTheme: SystemTheme =
@@ -76,10 +82,21 @@ export function EditorRoot(): JSX.Element {
       })
   }, [])
 
-  return (
-    <HashRouter>
-      <App settings={settings} onCompleteEditorTour={completeEditorTour} />
+  const editorApp: JSX.Element = (
+    <>
+      <App
+        settings={settings}
+        onCompleteEditorTour={completeEditorTour}
+        preferredProjectName={preferredProjectName}
+        embedInShell={embedInShell}
+      />
       {import.meta.env.DEV && <Agentation />}
-    </HashRouter>
+    </>
   )
+
+  if (embedInShell) {
+    return editorApp
+  }
+
+  return <HashRouter>{editorApp}</HashRouter>
 }

@@ -19,6 +19,8 @@ import {
   Upload
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
+import { useViewportMode } from '@/hooks/useViewportMode'
+import { cn } from '@/lib/style'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
@@ -61,6 +63,8 @@ type ExportNotice = {
 
 export default function ProjectsPage(): JSX.Element {
   const { t } = useTranslation()
+  const viewportMode = useViewportMode()
+  const alwaysShowRowActions = viewportMode !== 'desktop'
   const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -203,10 +207,10 @@ export default function ProjectsPage(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-screen select-none">
-      <div className="px-8 pt-8 pb-6 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
+    <div className="flex h-full select-none flex-col">
+      <div className="shrink-0 px-5 pt-6 pb-6 sm:px-8 sm:pt-8">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
             <h2 className="font-semibold text-2xl">{t('projects.title')}</h2>
             <p className="text-sm text-muted-foreground mt-1">
               {projects.length > 0
@@ -258,7 +262,7 @@ export default function ProjectsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="flex-1 px-8 overflow-auto overscroll-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+      <div className="flex-1 overflow-auto overscroll-none px-5 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent sm:px-8">
         {loading ? (
           <ProjectListSkeleton />
         ) : filtered.length > 0 ? (
@@ -274,11 +278,16 @@ export default function ProjectsPage(): JSX.Element {
                         <span>{timeAgo(metadata.lastModified)}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div
+                      className={cn(
+                        'flex items-center gap-1 transition-opacity',
+                        alwaysShowRowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      )}
+                    >
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-9 w-9"
                         aria-label={t('common.edit')}
                         onClick={() => handleOpenEditor(metadata.title)}
                       >
@@ -287,7 +296,7 @@ export default function ProjectsPage(): JSX.Element {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-9 w-9"
                         aria-label={t('common.play')}
                         onClick={() => handleOpenPlayer(metadata.title)}
                       >

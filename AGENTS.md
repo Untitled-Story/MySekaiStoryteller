@@ -4,16 +4,20 @@
 
 - Tauri v2 app with two layers: `src-tauri/` (Rust backend: commands, custom protocol, window management) and `src/` (React frontend).
 - Frontend is a multi-window Vite app with three entry points under `src/windows/`: `main/` (welcome page + settings), `editor/`, and `player/`.
+- On mobile (Android first), `main` becomes a single-webview AppShell and navigates to `#/editor/:project` / `#/player/:project` instead of opening extra windows.
+- Responsive helpers: `src/lib/platform.ts`, `src/hooks/useViewportMode.ts` (`phone` <768, `tablet` 768–1023, `desktop` ≥1024).
 - Shared code lives in `src/components/` (UI), `src/hooks/`, `src/providers/`, `src/lib/`, and `src/types/`.
-- Rust commands in `src-tauri/src/commands/` replace Electron IPC: `project.rs` (CRUD), `settings.rs` (app config), `window.rs` (multi-window management).
+- Rust commands in `src-tauri/src/commands/` replace Electron IPC: `project.rs` (CRUD), `settings.rs` (app config), `window.rs` (multi-window management; mobile no-ops).
+- Desktop-only plugins (e.g. global-shortcut) are cfg-gated; capabilities split desktop extras into `capabilities/desktop.json`.
 - `mss://` custom URI protocol in `src-tauri/src/protocol.rs` serves local files to the webview.
-- Settings stored in system app data dir; project data stored in user-selected workspace directory.
+- Settings stored in system app data dir; desktop project data uses user-selected workspace; Android defaults to app private storage.
 
 ## Build, Test, and Development Commands
 
 - Install: `pnpm install` (uses `pnpm@10`).
 - Dev: `pnpm tauri dev` to run Tauri with Vite HMR.
 - Build: `pnpm tauri build` for production.
+- Android: `pnpm android:dev`, `pnpm android:build` (init with `pnpm android:init` if needed).
 - Frontend only: `pnpm dev` (Vite), `pnpm build` (Vite build).
 - Lint/format/typecheck: `pnpm lint`, `pnpm format`, `pnpm typecheck`.
 - Rust check: `cd src-tauri && cargo check`.

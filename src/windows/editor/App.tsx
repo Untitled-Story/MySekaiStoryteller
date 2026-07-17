@@ -7,6 +7,7 @@ import {
   type Window as TauriWindow
 } from '@tauri-apps/api/window'
 import {
+  ArrowLeft,
   ChevronRight,
   CirclePlay,
   Clapperboard,
@@ -19,6 +20,8 @@ import {
   Save,
   Undo2
 } from 'lucide-react'
+import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
+import { closeEditorWindow } from '@/windows/api'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +43,7 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
+import { Switch } from '@/components/ui/Switch'
 import { cn } from '@/lib/style'
 import { describeError as describeLogError, logger } from '@/lib/logger'
 import type {
@@ -163,13 +167,21 @@ const SAVE_RETRY_DELAY_MS: number = 600
 
 export default function App({
   settings,
-  onCompleteEditorTour
+  onCompleteEditorTour,
+  preferredProjectName = null,
+  embedInShell = false
 }: {
   settings: AppSettings | null
   onCompleteEditorTour: () => void
+  preferredProjectName?: string | null
+  embedInShell?: boolean
 }): JSX.Element {
   const { t } = useTranslation()
-  const requestedProjectName = useWindowProjectName()
+  const requestedProjectName = useWindowProjectName(preferredProjectName)
+  const viewportMode: ViewportMode = useViewportMode()
+  const [mobileBottomTab, setMobileBottomTab] = useState<'outline' | 'properties'>('outline')
+  const [pinOutlineTab, setPinOutlineTab] = useState<boolean>(false)
+
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
     createDocumentHistory(INITIAL_STORY)
@@ -292,7 +304,9 @@ export default function App({
     return (): void => window.removeEventListener('keydown', saveOnShortcut, true)
   }, [saveShortcut])
 
-  useEffect((): (() => void) => {
+  useEffect((): (() => void) | undefined => {
+    if (embedInShell) return undefined
+
     const currentWindow: TauriWindow = getCurrentWindow()
     let unlisten: (() => void) | null = null
     let disposed: boolean = false
@@ -325,7 +339,7 @@ export default function App({
       disposed = true
       unlisten?.()
     }
-  }, [])
+  }, [embedInShell])
 
   useEffect((): void => {
     if (!requestedProjectName || requestedProjectName === activeProjectName) return
@@ -1091,10 +1105,134 @@ export default function App({
     )
   }
 
+  const phoneLayout: boolean = viewportMode === 'phone'
+  const tabletLayout: boolean = viewportMode === 'tablet'
+  const compactChrome: boolean = phoneLayout || tabletLayout
+
+  const sidebarNode: JSX.Element = (
+    <EditorSidebar
+      activePanel={activePanel}
+      searchQuery={searchQuery}
+      treeNodes={treeNodes}
+      selectedNodeId={selectedNode?.id ?? null}
+      activeSnippetIds={activeSnippetIds}
+      expandedParallelIds={expandedParallelIds}
+      assets={previewInput.assets}
+      selectedAsset={selectedAsset}
+      addDialogOpen={addDialogOpen}
+      onActivePanelChange={setActivePanel}
+      onSearchQueryChange={setSearchQuery}
+      onSelectNode={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setActivePanel('story')
+        if (phoneLayout && !pinOutlineTab) setMobileBottomTab('properties')
+        requestPreview(nodeId, true)
+      }}
+      onContextSelectSnippet={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setActivePanel('story')
+        if (phoneLayout && !pinOutlineTab) setMobileBottomTab('properties')
+      }}
+      onPreviewSnippet={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setActivePanel('story')
+        requestPreview(nodeId, false)
+      }}
+      onDuplicateSnippet={duplicateSnippet}
+      onDeleteSnippet={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setDeleteSnippetId(nodeId)
+      }}
+      onToggleParallel={toggleParallel}
+      onMoveSnippet={moveSnippet}
+      onSelectAsset={(selection: EditorAssetSelection): void => {
+        setSelectedAsset(selection)
+        setActivePanel('assets')
+        if (phoneLayout && !pinOutlineTab) setMobileBottomTab('properties')
+      }}
+      onAddDialogOpenChange={setAddDialogOpen}
+      onAddSnippet={addSnippet}
+      onImportAsset={(kind: Exclude<ProjectAssetKind, 'models'>): void => {
+        void importAsset(kind)
+      }}
+      onRegisterModel={(): void => setRegisterModelOpen(true)}
+    />
+  )
+
+  const inspectorNode: JSX.Element =
+    activePanel === 'assets' ? (
+      <EditorAssetInspector
+        assets={previewInput.assets}
+        selectedAsset={selectedAsset}
+        onModelChange={updateModelAsset}
+        onFileAssetChange={updateFileAsset}
+        onRename={(selection: EditorAssetSelection, key: string): void => {
+          void renameAsset(selection, key)
+        }}
+        onDelete={(selection: EditorAssetSelection): void => {
+          void requestDeleteAsset(selection)
+        }}
+      />
+    ) : (
+      <EditorInspector
+        story={story}
+        selectedNode={selectedNode}
+        selectedNodePath={displayedNodePath}
+        assets={previewInput.assets}
+        modelRegistry={previewInput.modelRegistry}
+        onStoryChange={commitStory}
+        onInputBlur={flushInputMerge}
+        onDuplicate={duplicateSelectedSnippet}
+        onDelete={(): void => setDeleteSnippetId(selectedNode?.id ?? null)}
+      />
+    )
+
+  const previewNode: JSX.Element = (
+    <EditorPreview
+      input={previewInput}
+      story={story}
+      previewRequest={previewRequest}
+      previewTargetNodeId={previewTargetNode?.id ?? null}
+      pauseAfterPreviewTarget={pauseAfterPreviewTarget}
+      onActiveSnippetIdsChange={setActiveSnippetIds}
+      onPreviewFromBeginning={(): void => requestPreview(null, false)}
+      compact={compactChrome}
+    />
+  )
+
   return (
-    <main className="flex h-screen min-w-0 flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-[52px] shrink-0 items-center border-b bg-background px-3">
-        <div className="flex min-w-0 items-center gap-2">
+    <main
+      className={cn(
+        'flex min-w-0 flex-col overflow-hidden bg-background text-foreground',
+        embedInShell ? 'h-full' : 'h-screen'
+      )}
+    >
+      <header
+        className={cn(
+          'flex shrink-0 items-center border-b bg-background px-2 sm:px-3',
+          embedInShell
+            ? 'h-[calc(52px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]'
+            : 'h-[52px]'
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+          {embedInShell ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0"
+              aria-label="返回"
+              title="返回"
+              onClick={(): void => {
+                void flushEditorWrites().finally((): void => {
+                  void closeEditorWindow()
+                })
+              }}
+            >
+              <ArrowLeft className="size-4" />
+            </Button>
+          ) : null}
           <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
             <Clapperboard className="size-4" />
           </div>
@@ -1108,11 +1246,12 @@ export default function App({
           />
         </div>
 
-        <div className="ml-5 flex items-center gap-1 border-l pl-4">
+        <div className={cn('ml-2 flex items-center gap-0.5 sm:ml-5 sm:gap-1 sm:border-l sm:pl-4')}>
           <Button
             type="button"
             variant="ghost"
             size="icon"
+            className="size-9"
             aria-label="撤销"
             title="撤销"
             disabled={history.past.length === 0}
@@ -1124,6 +1263,7 @@ export default function App({
             type="button"
             variant="ghost"
             size="icon"
+            className="size-9"
             aria-label="重做"
             title="重做"
             disabled={history.future.length === 0}
@@ -1135,7 +1275,7 @@ export default function App({
             type="button"
             variant="ghost"
             size="icon"
-            className={cn('ml-1', storySaveStatus === 'error' && 'text-destructive')}
+            className={cn('size-9', storySaveStatus === 'error' && 'text-destructive')}
             aria-label={saveButtonTitle}
             title={saveButtonTitle}
             onClick={(): void => {
@@ -1146,15 +1286,17 @@ export default function App({
           </Button>
         </div>
 
-        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+        <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5">
           {visibleError && (
-            <span className="max-w-72 truncate text-xs text-destructive">{visibleError}</span>
+            <span className="hidden max-w-40 truncate text-xs text-destructive sm:inline sm:max-w-72">
+              {visibleError}
+            </span>
           )}
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="size-8"
+            className={compactChrome ? 'size-9' : 'size-8'}
             aria-label={t('projectArchive.export')}
             title={t('projectArchive.export')}
             disabled={exportingProject || editorSaving}
@@ -1169,113 +1311,107 @@ export default function App({
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size={compactChrome ? 'icon' : 'sm'}
+            className={compactChrome ? 'size-9' : undefined}
+
             data-tour="editor-preview-button"
             disabled={!selectedNode}
+            aria-label="预览"
+            title="预览"
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
-            {t('editor.preview')}
+            {!compactChrome ? t('editor.preview') : null}
+
           </Button>
           <Button
             type="button"
-            size="sm"
+            size={compactChrome ? 'icon' : 'sm'}
+            className={compactChrome ? 'size-9' : undefined}
             data-tour="editor-player-button"
             title={t('editor.playSavedTitle')}
+            aria-label={t('editor.playSaved')}
             onClick={(): void => void playSavedProject()}
           >
             <Play className="size-3.5 fill-current" />
-            {t('editor.playSaved')}
+            {!compactChrome ? t('editor.playSaved') : null}
+
           </Button>
         </div>
       </header>
 
-      <div
-        className="grid min-h-0 flex-1 grid-cols-[minmax(240px,0.86fr)_minmax(420px,1.72fr)_minmax(300px,1fr)] overflow-hidden"
-        inert={projectMutationInProgress}
-      >
-        <EditorSidebar
-          activePanel={activePanel}
-          searchQuery={searchQuery}
-          treeNodes={treeNodes}
-          selectedNodeId={selectedNode?.id ?? null}
-          activeSnippetIds={activeSnippetIds}
-          expandedParallelIds={expandedParallelIds}
-          assets={previewInput.assets}
-          selectedAsset={selectedAsset}
-          addDialogOpen={addDialogOpen}
-          onActivePanelChange={setActivePanel}
-          onSearchQueryChange={setSearchQuery}
-          onSelectNode={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setActivePanel('story')
-            requestPreview(nodeId, true)
-          }}
-          onContextSelectSnippet={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setActivePanel('story')
-          }}
-          onPreviewSnippet={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setActivePanel('story')
-            requestPreview(nodeId, false)
-          }}
-          onDuplicateSnippet={duplicateSnippet}
-          onDeleteSnippet={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setDeleteSnippetId(nodeId)
-          }}
-          onToggleParallel={toggleParallel}
-          onMoveSnippet={moveSnippet}
-          onSelectAsset={(selection: EditorAssetSelection): void => {
-            setSelectedAsset(selection)
-            setActivePanel('assets')
-          }}
-          onAddDialogOpenChange={setAddDialogOpen}
-          onAddSnippet={addSnippet}
-          onImportAsset={(kind: Exclude<ProjectAssetKind, 'models'>): void => {
-            void importAsset(kind)
-          }}
-          onRegisterModel={(): void => setRegisterModelOpen(true)}
-        />
-
-        <EditorPreview
-          input={previewInput}
-          story={story}
-          previewRequest={previewRequest}
-          previewTargetNodeId={previewTargetNode?.id ?? null}
-          pauseAfterPreviewTarget={pauseAfterPreviewTarget}
-          onActiveSnippetIdsChange={setActiveSnippetIds}
-          onPreviewFromBeginning={(): void => requestPreview(null, false)}
-        />
-
-        {activePanel === 'assets' ? (
-          <EditorAssetInspector
-            assets={previewInput.assets}
-            selectedAsset={selectedAsset}
-            onModelChange={updateModelAsset}
-            onFileAssetChange={updateFileAsset}
-            onRename={(selection: EditorAssetSelection, key: string): void => {
-              void renameAsset(selection, key)
-            }}
-            onDelete={(selection: EditorAssetSelection): void => {
-              void requestDeleteAsset(selection)
-            }}
-          />
-        ) : (
-          <EditorInspector
-            story={story}
-            selectedNode={selectedNode}
-            selectedNodePath={displayedNodePath}
-            assets={previewInput.assets}
-            modelRegistry={previewInput.modelRegistry}
-            onStoryChange={commitStory}
-            onInputBlur={flushInputMerge}
-            onDuplicate={duplicateSelectedSnippet}
-            onDelete={(): void => setDeleteSnippetId(selectedNode?.id ?? null)}
-          />
-        )}
-      </div>
+      {phoneLayout ? (
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          inert={projectMutationInProgress}
+        >
+          <div className="min-h-0 basis-[42%] shrink-0 grow-0 overflow-hidden border-b">
+            {previewNode}
+          </div>
+          <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-muted/30 px-2">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-md bg-muted p-1">
+              <button
+                type="button"
+                className={cn(
+                  'h-8 rounded-sm text-sm font-medium transition-colors',
+                  mobileBottomTab === 'outline'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground'
+                )}
+                onClick={(): void => setMobileBottomTab('outline')}
+              >
+                大纲
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'h-8 rounded-sm text-sm font-medium transition-colors',
+                  mobileBottomTab === 'properties'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground'
+                )}
+                onClick={(): void => setMobileBottomTab('properties')}
+              >
+                属性
+              </button>
+            </div>
+            <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Switch
+                checked={pinOutlineTab}
+                onCheckedChange={(checked: boolean): void => {
+                  setPinOutlineTab(checked)
+                  if (checked) setMobileBottomTab('outline')
+                }}
+                aria-label="固定大纲"
+              />
+              <span className="whitespace-nowrap">固定大纲</span>
+            </label>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {mobileBottomTab === 'outline' ? sidebarNode : inspectorNode}
+          </div>
+        </div>
+      ) : tabletLayout ? (
+        <div
+          className="grid min-h-0 flex-1 grid-cols-[minmax(220px,0.9fr)_minmax(320px,1.4fr)] overflow-hidden"
+          inert={projectMutationInProgress}
+        >
+          <div className="min-h-0 overflow-hidden border-r">{sidebarNode}</div>
+          <div className="grid min-h-0 grid-rows-[minmax(240px,1.1fr)_minmax(220px,0.9fr)] overflow-hidden">
+            <div className="min-h-0 overflow-hidden border-b">{previewNode}</div>
+            <div className="min-h-0 overflow-hidden">{inspectorNode}</div>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="grid min-h-0 flex-1 grid-cols-[minmax(240px,0.86fr)_minmax(420px,1.72fr)_minmax(300px,1fr)] overflow-hidden"
+          inert={projectMutationInProgress}
+        >
+          {sidebarNode}
+          {previewNode}
+          {inspectorNode}
+        </div>
+      )}
 
       <EditorProductTour
         active={

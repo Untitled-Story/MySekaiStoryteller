@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-shortcuts",
+  "description": "Desktop-only global shortcut permissions",
+  "windows": ["main", "editor", "player"],
+  "platforms": ["linux", "macOS", "windows"],
+  "permissions": [
+    "global-shortcut:allow-is-registered",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-unregister-all"
+  ]
+}

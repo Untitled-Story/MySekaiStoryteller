@@ -48,7 +48,8 @@ export function EditorPreview({
   previewTargetNodeId,
   pauseAfterPreviewTarget,
   onPreviewFromBeginning,
-  onActiveSnippetIdsChange
+  onActiveSnippetIdsChange,
+  compact = false
 }: {
   input: EditorPreviewInput
   story: EditorStory
@@ -57,6 +58,7 @@ export function EditorPreview({
   pauseAfterPreviewTarget: boolean
   onPreviewFromBeginning: () => void
   onActiveSnippetIdsChange: (ids: ReadonlySet<string>) => void
+  compact?: boolean
 }): JSX.Element {
   const { t } = useTranslation()
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -345,7 +347,12 @@ export function EditorPreview({
       data-tour="editor-preview-stage"
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-muted/15"
     >
-      <div className="flex h-12 shrink-0 items-center border-b bg-background/70 px-4">
+      <div
+        className={cn(
+          'flex shrink-0 items-center border-b bg-background/70',
+          compact ? 'h-10 px-2' : 'h-12 px-4'
+        )}
+      >
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm font-medium">{t('editor.previewPanel')}</span>
         </div>
@@ -364,14 +371,18 @@ export function EditorPreview({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center p-5">
+      <div
+        className={cn('flex min-h-0 flex-1 items-center justify-center', compact ? 'p-2' : 'p-5')}
+      >
         <div className="relative w-full max-w-[960px] overflow-hidden rounded-md border bg-black shadow-sm">
           <div className="relative aspect-video overflow-hidden">
             <div ref={stageRef} className="absolute inset-0" />
-            <div className="pointer-events-none absolute inset-[7%] border border-white/12">
-              <div className="absolute inset-y-0 left-1/3 border-l border-white/10" />
-              <div className="absolute inset-y-0 left-2/3 border-l border-white/10" />
-            </div>
+            {!compact ? (
+              <div className="pointer-events-none absolute inset-[7%] border border-white/12">
+                <div className="absolute inset-y-0 left-1/3 border-l border-white/10" />
+                <div className="absolute inset-y-0 left-2/3 border-l border-white/10" />
+              </div>
+            ) : null}
             {status === 'error' && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/65 px-8 text-center text-sm leading-6 text-white/80">
                 {message}
@@ -381,13 +392,18 @@ export function EditorPreview({
         </div>
       </div>
 
-      <div className="flex h-12 shrink-0 items-center border-t bg-background px-4">
+      <div
+        className={cn(
+          'flex shrink-0 items-center border-t bg-background',
+          compact ? 'h-11 px-2' : 'h-12 px-4'
+        )}
+      >
         <div className="flex items-center gap-1">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8"
+            className={compact ? 'size-9' : 'size-8'}
             aria-label={t('editor.replay')}
             title={t('editor.replay')}
             onClick={restart}
@@ -398,7 +414,7 @@ export function EditorPreview({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8"
+            className={compact ? 'size-9' : 'size-8'}
             aria-label={paused ? t('editor.resume') : t('editor.pause')}
             title={paused ? t('editor.resume') : t('editor.pause')}
             disabled={!playing && !paused}
@@ -414,7 +430,7 @@ export function EditorPreview({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8"
+            className={compact ? 'size-9' : 'size-8'}
             aria-label={t('editor.stop')}
             title={t('editor.stop')}
             disabled={status === 'stopped' || status === 'idle'}
