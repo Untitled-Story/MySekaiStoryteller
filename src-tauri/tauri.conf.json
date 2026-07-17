@@ -34,6 +34,19 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["sest"],
+        "name": "MySekaiStoryteller Project",
+        "description": "MySekaiStoryteller Project Archive",
+        "role": "Editor",
+        "mimeType": "application/x-my-sekai-storyteller-project",
+        "exportedType": {
+          "identifier": "org.untitled-story.storyteller.sest",
+          "conformsTo": ["public.archive"]
+        }
+      }
     ]
   }
 }

@@ -21,7 +21,8 @@ export const zhHK: LocaleShape = {
     register: '註冊',
     import: '匯入',
     unknownError: '未知錯誤',
-    missing: '未設定'
+    missing: '未設定',
+    close: '關閉'
   },
   language: {
     label: '介面語言',
@@ -56,6 +57,24 @@ export const zhHK: LocaleShape = {
     openPlayerFailed: '開啟播放器失敗：{{error}}',
     deleteFailed: '刪除失敗：{{error}}',
     renameFailed: '重新命名失敗：{{error}}'
+  },
+  projectArchive: {
+    import: '匯入專案',
+    export: '匯出專案',
+    importing: '匯入中...',
+    exporting: '匯出中...',
+    importTitle: '匯入專案封存檔',
+    importDescription: '確認內容後，將專案及其 Live2D 模型匯入目前的資料目錄。',
+    inspecting: '正在檢查封存檔...',
+    projectName: '專案名稱',
+    includedModels: '包含模型',
+    conflictHint: '已有同名專案。直接匯入會儲存為「{{name}}」，也可以取代原專案。',
+    replace: '取代原專案',
+    chooseImport: '選擇專案封存檔',
+    chooseExport: '匯出專案封存檔',
+    fileType: 'MySekaiStoryteller 專案',
+    exportComplete: '專案匯出完成',
+    exportFailed: '專案匯出失敗：{{error}}'
   },
   home: {
     welcome: '歡迎回來',

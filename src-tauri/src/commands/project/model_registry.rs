@@ -56,7 +56,7 @@ fn model_registry_from_dirs(models_dir: &Path) -> Result<Value, String> {
     ])))
 }
 
-fn find_model_entry_file(model_dir: &Path) -> Result<Option<String>, String> {
+pub(crate) fn find_model_entry_file(model_dir: &Path) -> Result<Option<String>, String> {
     let entries = fs::read_dir(model_dir).map_err(|error| error.to_string())?;
     let mut model_entries: Vec<String> = entries
         .filter_map(|entry| entry.ok())
@@ -491,7 +491,7 @@ fn is_model_entry_name(file_name: &str) -> bool {
         || normalized.ends_with(".model.json")
 }
 
-fn is_model_entry_json(entry: &Value) -> bool {
+pub(crate) fn is_model_entry_json(entry: &Value) -> bool {
     entry
         .get("FileReferences")
         .and_then(|references| references.get("Moc"))

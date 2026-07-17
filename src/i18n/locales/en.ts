@@ -20,7 +20,8 @@ export const en: LocaleShape = {
     register: 'Register',
     import: 'Import',
     unknownError: 'Unknown error',
-    missing: 'Not set'
+    missing: 'Not set',
+    close: 'Close'
   },
   language: {
     label: 'Interface language',
@@ -55,6 +56,26 @@ export const en: LocaleShape = {
     openPlayerFailed: 'Could not open player: {{error}}',
     deleteFailed: 'Delete failed: {{error}}',
     renameFailed: 'Rename failed: {{error}}'
+  },
+  projectArchive: {
+    import: 'Import project',
+    export: 'Export project',
+    importing: 'Importing...',
+    exporting: 'Exporting...',
+    importTitle: 'Import project archive',
+    importDescription:
+      'Review the archive before importing the project and its Live2D models into this data folder.',
+    inspecting: 'Inspecting archive...',
+    projectName: 'Project name',
+    includedModels: 'Included models',
+    conflictHint:
+      'A project with this name already exists. Import it as “{{name}}” or replace the existing project.',
+    replace: 'Replace existing',
+    chooseImport: 'Choose project archive',
+    chooseExport: 'Export project archive',
+    fileType: 'MySekaiStoryteller Project',
+    exportComplete: 'Project exported',
+    exportFailed: 'Failed to export project: {{error}}'
   },
   home: {
     welcome: 'Welcome back',

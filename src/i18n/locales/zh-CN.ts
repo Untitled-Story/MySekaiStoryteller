@@ -16,7 +16,8 @@ export const zhCN = {
     register: '注册',
     import: '导入',
     unknownError: '未知错误',
-    missing: '未设置'
+    missing: '未设置',
+    close: '关闭'
   },
   language: {
     label: '界面语言',
@@ -51,6 +52,24 @@ export const zhCN = {
     openPlayerFailed: '打开播放器失败: {{error}}',
     deleteFailed: '删除失败: {{error}}',
     renameFailed: '重命名失败: {{error}}'
+  },
+  projectArchive: {
+    import: '导入项目',
+    export: '导出项目',
+    importing: '导入中...',
+    exporting: '导出中...',
+    importTitle: '导入项目归档',
+    importDescription: '确认归档内容后，将项目及其 Live2D 模型导入当前数据目录。',
+    inspecting: '正在检查归档...',
+    projectName: '项目名称',
+    includedModels: '包含模型',
+    conflictHint: '已有同名项目。直接导入将保存为“{{name}}”，也可以替换原项目。',
+    replace: '替换原项目',
+    chooseImport: '选择项目归档',
+    chooseExport: '导出项目归档',
+    fileType: 'MySekaiStoryteller 项目',
+    exportComplete: '项目导出完成',
+    exportFailed: '项目导出失败: {{error}}'
   },
   home: {
     welcome: '欢迎回来',

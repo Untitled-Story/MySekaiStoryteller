@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getProjectsMetadata } from '@/project/api'
 import type { ProjectMetadata } from '@/project/metadata'
 import { describeError, logger } from '@/lib/logger'
+import { PROJECTS_CHANGED_BROWSER_EVENT } from '@/project/archive'
 
 type ProjectsMetadataHook = {
   projects: ProjectMetadata[]
@@ -32,6 +33,14 @@ export function useProjectsMetadata(): ProjectsMetadataHook {
 
   useEffect((): void => {
     void fetchProjects().catch(console.error)
+  }, [fetchProjects])
+
+  useEffect((): (() => void) => {
+    const refresh = (): void => {
+      void fetchProjects().catch(console.error)
+    }
+    window.addEventListener(PROJECTS_CHANGED_BROWSER_EVENT, refresh)
+    return (): void => window.removeEventListener(PROJECTS_CHANGED_BROWSER_EVENT, refresh)
   }, [fetchProjects])
 
   return { projects, fetchProjects }

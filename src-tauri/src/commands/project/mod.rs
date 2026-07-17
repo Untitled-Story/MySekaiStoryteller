@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod assets;
 pub mod metadata;
 pub mod model_registry;

@@ -325,7 +325,7 @@ fn read_assets(project_path: &Path) -> Result<Value, String> {
     Ok(assets)
 }
 
-fn validate_assets(assets: &Value) -> Result<(), String> {
+pub(crate) fn validate_assets(assets: &Value) -> Result<(), String> {
     let root = assets
         .as_object()
         .ok_or_else(|| "assets.json 必须是对象".to_string())?;

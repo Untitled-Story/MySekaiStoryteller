@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Toast, type ToastVariant } from '@/components/ui/Toast'
 import { useTranslation } from 'react-i18next'
 import {
   FolderOpen,
@@ -13,8 +14,11 @@ import {
   Play,
   FileEdit,
   Trash2,
-  Clock
+  Clock,
+  Download,
+  Upload
 } from 'lucide-react'
+import { open, save } from '@tauri-apps/plugin-dialog'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
@@ -22,6 +26,7 @@ import type { ProjectMetadata } from '@/project/metadata'
 import { deleteProject, renameProject } from '@/project/api'
 import { timeAgo } from '@/windows/main/utils/time'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
+import { exportProjectArchive, requestProjectImport } from '@/project/archive'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -48,6 +53,12 @@ import {
 
 type SortMode = 'recent' | 'name'
 
+type ExportNotice = {
+  id: number
+  message: string
+  variant: ToastVariant
+}
+
 export default function ProjectsPage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
@@ -61,6 +72,8 @@ export default function ProjectsPage(): JSX.Element {
   const [renameTarget, setRenameTarget] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [isRenaming, setIsRenaming] = useState(false)
+  const [exportingProject, setExportingProject] = useState<string | null>(null)
+  const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null)
 
   const filtered = useMemo(() => {
     let result: ProjectMetadata[] = [...projects]
@@ -151,6 +164,44 @@ export default function ProjectsPage(): JSX.Element {
     }
   }
 
+  const handleChooseImport = async (): Promise<void> => {
+    const selected = await open({
+      title: t('projectArchive.chooseImport'),
+      multiple: false,
+      directory: false,
+      filters: [{ name: t('projectArchive.fileType'), extensions: ['sest'] }]
+    })
+    if (typeof selected === 'string') requestProjectImport(selected)
+  }
+
+  const handleExport = async (projectName: string): Promise<void> => {
+    const destination = await save({
+      title: t('projectArchive.chooseExport'),
+      defaultPath: `${projectName}.sest`,
+      filters: [{ name: t('projectArchive.fileType'), extensions: ['sest'] }]
+    })
+    if (!destination) return
+    setExportingProject(projectName)
+    try {
+      await exportProjectArchive(projectName, destination)
+      setExportNotice({
+        id: Date.now(),
+        message: t('projectArchive.exportComplete'),
+        variant: 'success'
+      })
+    } catch (error) {
+      setExportNotice({
+        id: Date.now(),
+        message: t('projectArchive.exportFailed', {
+          error: error instanceof Error ? error.message : String(error)
+        }),
+        variant: 'error'
+      })
+    } finally {
+      setExportingProject(null)
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen select-none">
       <div className="px-8 pt-8 pb-6 flex-shrink-0">
@@ -163,10 +214,16 @@ export default function ProjectsPage(): JSX.Element {
                 : t('projects.description')}
             </p>
           </div>
-          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="w-4 h-4 mr-1" />
-            {t('project.new')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={(): void => void handleChooseImport()}>
+              <Upload className="w-4 h-4 mr-1" />
+              {t('projectArchive.import')}
+            </Button>
+            <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="w-4 h-4 mr-1" />
+              {t('project.new')}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -252,6 +309,15 @@ export default function ProjectsPage(): JSX.Element {
                     {t('common.rename')}
                   </ContextMenuItem>
                   <ContextMenuItem
+                    disabled={exportingProject === metadata.title}
+                    onClick={(): void => void handleExport(metadata.title)}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {exportingProject === metadata.title
+                      ? t('projectArchive.exporting')
+                      : t('projectArchive.export')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
                     variant="destructive"
                     onClick={() => setDeleteTarget(metadata.title)}
                   >
@@ -329,6 +395,16 @@ export default function ProjectsPage(): JSX.Element {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {exportNotice && (
+        <Toast
+          key={exportNotice.id}
+          message={exportNotice.message}
+          variant={exportNotice.variant}
+          closeLabel={t('common.close')}
+          onDismiss={(): void => setExportNotice(null)}
+        />
+      )}
     </div>
   )
 }

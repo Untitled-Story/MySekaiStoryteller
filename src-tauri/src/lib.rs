@@ -1,8 +1,10 @@
 mod commands;
 mod protocol;
 
-use commands::{project, settings, window};
+use commands::{file_open, project, settings, window};
 use log::LevelFilter;
+use std::path::PathBuf;
+use tauri::Manager;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, WEBVIEW_TARGET};
 
 const LOG_FILE_SIZE_BYTES: u128 = 5 * 1024 * 1024;
@@ -37,10 +39,19 @@ pub fn run() {
         .build();
 
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let paths = file_open::project_paths_from_args(&args, &PathBuf::from(cwd));
+            file_open::queue_paths(app, paths);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .manage(file_open::PendingProjectImports::default())
         .setup(|app| {
             log::info!(
                 target: "backend::lifecycle",
@@ -54,6 +65,10 @@ pub fn run() {
                 log::error!(target: "backend::panic", "unhandled panic: {panic_info}");
                 default_panic_hook(panic_info);
             }));
+            let args: Vec<String> = std::env::args().collect();
+            let current_dir = std::env::current_dir().unwrap_or_default();
+            let paths = file_open::project_paths_from_args(&args, &current_dir);
+            file_open::queue_paths(app.handle(), paths);
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -68,6 +83,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::save_settings,
+            file_open::get_pending_project_imports,
             project::paths::get_default_workspace_dir,
             project::paths::get_workspace,
             project::paths::get_data_path,
@@ -82,6 +98,9 @@ pub fn run() {
             project::metadata::create_project,
             project::metadata::delete_project,
             project::metadata::rename_project,
+            project::archive::inspect_project_archive,
+            project::archive::export_project_archive,
+            project::archive::import_project_archive,
             project::paths::get_project_path,
             project::assets::get_project_assets,
             project::assets::set_project_assets,
@@ -98,7 +117,23 @@ pub fn run() {
 
     builder = protocol::register_story_protocol(builder);
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = event {
+            let paths = urls
+                .into_iter()
+                .filter_map(|url| url.to_file_path().ok())
+                .collect::<Vec<PathBuf>>();
+            file_open::queue_paths(app, paths);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
+    });
 }

@@ -9,6 +9,7 @@ import { SettingsProvider } from '@/settings/SettingsProvider'
 import { useSettings } from '@/settings/useSettings'
 import { WorkspaceSetup } from '@/windows/main/components/WorkspaceSetup'
 import { Agentation } from 'agentation'
+import { ProjectImportCoordinator } from '@/windows/main/components/ProjectImportCoordinator'
 
 export default function App(): React.JSX.Element {
   return (
@@ -52,6 +53,7 @@ function AppContent(): React.JSX.Element {
           <Route path="/about" element={<AboutPage />} />
         </Routes>
       </main>
+      <ProjectImportCoordinator />
     </>
   )
 }

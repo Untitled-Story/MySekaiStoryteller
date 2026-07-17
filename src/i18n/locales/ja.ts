@@ -19,7 +19,8 @@ export const ja: typeof en = {
     register: '登録',
     import: 'インポート',
     unknownError: '不明なエラー',
-    missing: '未設定'
+    missing: '未設定',
+    close: '閉じる'
   },
   language: {
     label: '表示言語',
@@ -55,6 +56,26 @@ export const ja: typeof en = {
     openPlayerFailed: 'プレイヤーを開けませんでした: {{error}}',
     deleteFailed: '削除に失敗しました: {{error}}',
     renameFailed: '名前の変更に失敗しました: {{error}}'
+  },
+  projectArchive: {
+    import: 'プロジェクトをインポート',
+    export: 'プロジェクトをエクスポート',
+    importing: 'インポート中...',
+    exporting: 'エクスポート中...',
+    importTitle: 'プロジェクトアーカイブをインポート',
+    importDescription:
+      '内容を確認してから、プロジェクトとLive2Dモデルを現在のデータフォルダーに取り込みます。',
+    inspecting: 'アーカイブを確認中...',
+    projectName: 'プロジェクト名',
+    includedModels: '含まれるモデル',
+    conflictHint:
+      '同名のプロジェクトがあります。「{{name}}」として取り込むか、既存のプロジェクトを置き換えてください。',
+    replace: '既存を置き換える',
+    chooseImport: 'プロジェクトアーカイブを選択',
+    chooseExport: 'プロジェクトアーカイブを出力',
+    fileType: 'MySekaiStoryteller プロジェクト',
+    exportComplete: 'プロジェクトをエクスポートしました',
+    exportFailed: 'プロジェクトのエクスポートに失敗しました: {{error}}'
   },
   home: {
     welcome: 'おかえりなさい',
