@@ -75,6 +75,13 @@ pub fn run_mobile_encode_worker(
             );
         }
         let hw_result = if crate::commands::mobile_hw_encoder::java_vm_ready() {
+            log::info!(
+                target: "backend::render",
+                "mobile MediaCodec create begin {}x{}@{} bitrate={bitrate}",
+                width,
+                height,
+                fps
+            );
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 crate::commands::mobile_hw_encoder::hw_encoder_create(
                     &export_path,

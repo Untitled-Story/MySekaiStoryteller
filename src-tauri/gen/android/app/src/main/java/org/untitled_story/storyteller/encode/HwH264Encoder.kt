@@ -40,61 +40,98 @@ object HwH264Encoder {
     val h = height - (height % 2)
     val frameRate = max(1, fps)
     val bitRate = bitrate.coerceIn(250_000, 25_000_000)
+    Log.i(TAG, "create begin path=$path ${w}x${h}@$frameRate bitrate=$bitRate")
 
     val codecName = pickAvcEncoderName()
-    val codec =
-      if (codecName != null) {
-        MediaCodec.createByCodecName(codecName)
-      } else {
-        MediaCodec.createEncoderByType(MIME)
-      }
+    var codec: MediaCodec? = null
+    var muxer: MediaMuxer? = null
+    try {
+      codec =
+        if (codecName != null) {
+          Log.i(TAG, "createByCodecName $codecName")
+          MediaCodec.createByCodecName(codecName)
+        } else {
+          Log.i(TAG, "createEncoderByType $MIME")
+          MediaCodec.createEncoderByType(MIME)
+        }
 
-    val colorFormat = pickColorFormat(codec.codecInfo)
-    val format =
-      MediaFormat.createVideoFormat(MIME, w, h).apply {
-        setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat)
-        setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
-        setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
-        setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
-        setInteger(
-          MediaFormat.KEY_BITRATE_MODE,
-          MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR
-        )
-        if (Build.VERSION.SDK_INT >= 23) {
-          setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-          setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
+      val colorFormats = colorFormatCandidates(codec!!.codecInfo)
+      var started = false
+      var colorFormat = colorFormats.first()
+      var lastError: Throwable? = null
+      for (fmt in colorFormats) {
+        val format =
+          MediaFormat.createVideoFormat(MIME, w, h).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, fmt)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+            // Avoid KEY_PROFILE/KEY_LEVEL — some OEM stacks native-crash on invalid combos.
+          }
+        try {
+          Log.i(TAG, "configure color=$fmt")
+          codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+          codec.start()
+          colorFormat = fmt
+          started = true
+          Log.i(TAG, "start ok color=$fmt")
+          break
+        } catch (t: Throwable) {
+          lastError = t
+          Log.w(TAG, "configure/start failed color=$fmt err=$t")
+          try {
+            codec.reset()
+          } catch (_: Throwable) {
+            try {
+              codec.release()
+            } catch (_: Throwable) {
+            }
+            codec =
+              if (codecName != null) MediaCodec.createByCodecName(codecName)
+              else MediaCodec.createEncoderByType(MIME)
+          }
         }
       }
-
-    try {
-      codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-      codec.start()
-    } catch (e: Exception) {
-      try {
-        codec.release()
-      } catch (_: Exception) {
+      if (!started) {
+        throw (lastError as? Exception)
+          ?: IllegalStateException("MediaCodec configure failed: $lastError")
       }
-      throw e
-    }
 
-    val muxer = MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-    val session =
-      Session(
-        codec = codec,
-        muxer = muxer,
-        width = w,
-        height = h,
-        fps = frameRate,
-        colorFormat = colorFormat,
-        nv12 = ByteArray(w * h * 3 / 2)
+      muxer = MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+      val session =
+        Session(
+          codec = codec!!,
+          muxer = muxer!!,
+          width = w,
+          height = h,
+          fps = frameRate,
+          colorFormat = colorFormat,
+          nv12 = ByteArray(w * h * 3 / 2)
+        )
+      val id = nextId.getAndIncrement()
+      sessions[id] = session
+      Log.i(
+        TAG,
+        "created id=$id path=$path ${w}x${h}@${frameRate} bitrate=$bitRate color=$colorFormat codec=${codecName ?: "default"}"
       )
-    val id = nextId.getAndIncrement()
-    sessions[id] = session
-    Log.i(
-      TAG,
-      "created id=$id path=$path ${w}x${h}@${frameRate} bitrate=$bitRate color=$colorFormat codec=${codecName ?: "default"}"
-    )
-    return id
+      return id
+    } catch (t: Throwable) {
+      // Never throw across JNI — uncaught Java exceptions from native threads can kill the app.
+      Log.e(TAG, "create failed: $t", t)
+      try {
+        muxer?.release()
+      } catch (_: Throwable) {
+      }
+      try {
+        codec?.stop()
+      } catch (_: Throwable) {
+      }
+      try {
+        codec?.release()
+      } catch (_: Throwable) {
+      }
+      return -1L
+    }
   }
 
   @JvmStatic
@@ -272,19 +309,25 @@ object HwH264Encoder {
     return fallback
   }
 
-  private fun pickColorFormat(info: MediaCodecInfo): Int {
+  private fun colorFormatCandidates(info: MediaCodecInfo): List<Int> {
     val caps = info.getCapabilitiesForType(MIME)
     val preferred =
-      intArrayOf(
+      listOf(
         MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar,
         MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
         MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
       )
+    val out = ArrayList<Int>()
     for (fmt in preferred) {
-      if (caps.colorFormats.contains(fmt)) return fmt
+      if (caps.colorFormats.contains(fmt)) out.add(fmt)
     }
-    return caps.colorFormats.firstOrNull()
-      ?: MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar
+    for (fmt in caps.colorFormats) {
+      if (!out.contains(fmt)) out.add(fmt)
+    }
+    if (out.isEmpty()) {
+      out.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
+    }
+    return out
   }
 
   /** BT.601 full-range-ish RGBA → NV12 (YUV420 semi-planar). */

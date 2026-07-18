@@ -63,17 +63,21 @@ pub fn hw_encoder_create(
                 JValue::Int(fps as i32),
                 JValue::Int(bitrate as i32),
             ],
-        )
-        .map_err(|e| {
-            let _ = env.exception_describe();
-            let _ = env.exception_clear();
-            format!("HwH264Encoder.create: {e}")
-        })?;
+        );
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+        return Err("HwH264Encoder.create threw Java exception".into());
+    }
+    let result = result.map_err(|e| {
+        let _ = env.exception_clear();
+        format!("HwH264Encoder.create: {e}")
+    })?;
     let id = result
         .j()
         .map_err(|e| format!("create result not jlong: {e}"))?;
     if id <= 0 {
-        return Err("HwH264Encoder.create returned invalid session id".into());
+        return Err("HwH264Encoder.create failed (returned -1); see logcat HwH264Encoder".into());
     }
     Ok(id)
 }
