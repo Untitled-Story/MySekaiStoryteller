@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/icon_gb@wh512.png" width="128" height="128" alt="MySekaiStoryteller logo" />
   <h1>MySekaiStoryteller</h1>
-  <p>A fan-made story editor for Project SEKAI with Live2D playback.</p>
+  <p>A fan story editor for Project SEKAI — Live2D, voices, effects, and more.</p>
 
   <p>
     <img src="https://img.shields.io/badge/Tauri-24C8D8?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri" />
@@ -13,33 +13,40 @@
 
 **English** | [简体中文](README-ZH.md)
 
-## About
+---
 
-MySekaiStoryteller is an editor for building stories out of snippets, Live2D models, backgrounds, voices, transitions, and visual effects. Desktop keeps a multi-window workflow; Android uses a single-webview in-app router with phone/tablet responsive layouts.
+MySekaiStoryteller lets you build fan stories using Live2D models, backgrounds, voices, transitions, and visual effects — then preview them in real time. Available on desktop and Android.
+
+> This project is in beta. Back up your project data before upgrading.
 
 ## Features
 
-- Visual story editing with nested Parallel snippets and drag-and-drop ordering
-- Live2D models from multiple games, not just Project SEKAI
+- Compose stories from snippets: dialogue, scene changes, motions, effects, and more
+- Live2D support — works with models from multiple games, not just Project SEKAI
+- Parallel snippets for running animations simultaneously
+- Drag-and-drop snippet ordering
 - Lip-sync support
-- Android-first mobile UI: phone portrait “preview on top + outline/properties tabs”, tablet near-desktop with touch-friendly chrome
+- Real-time preview in the editor; full playback via a dedicated player window
 
 ## Download
 
-Download the latest build from [GitHub Releases](https://github.com/Untitled-Story/MySekaiStoryteller/releases).
+Get the latest release from [GitHub Releases](https://github.com/Untitled-Story/MySekaiStoryteller/releases).
 
-> This project is still in beta, so please back up important project data before upgrading.
+## Community
+
+- Discord: [Join the server](https://discord.gg/cGWNG6fFdP)
+- QQ group: [753850881](https://qm.qq.com/q/TIFODIZkKk)
 
 ## Development
 
-Requirements: Node.js 22, pnpm 10, Rust, and the platform dependencies required by Tauri v2.
+Requirements: Node.js 22, pnpm 10, Rust, and the [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform.
 
 ```bash
 pnpm install
 pnpm tauri dev
 ```
 
-Useful checks:
+Common checks:
 
 ```bash
 pnpm typecheck
@@ -48,51 +55,40 @@ pnpm build
 cd src-tauri && cargo check
 ```
 
-Build native bundles with:
+Build native installers:
 
 ```bash
 pnpm tauri build
 ```
 
-### Android (supported first; iOS later)
+### Android
 
-Requires Android SDK/NDK, JDK, and the matching Rust Android targets.
+Requires Android SDK/NDK, JDK, and the Rust Android targets.
 
 ```bash
-# First-time Android project init (skip if gen/android already exists)
+# First-time setup (skip if gen/android already exists)
 pnpm android:init
 
-# Dev on a device/emulator
+# Run on a device or emulator
 pnpm android:dev
 
-# Production APK/AAB (optionally limit ABI, e.g. arm64 only)
+# Production APK/AAB
 pnpm tauri android build --apk --target aarch64
 ```
 
-> The first build downloads the Gradle distribution and Android dependencies. On restricted networks, download Gradle via a local proxy and/or use Aliyun Maven mirrors (configured in `src-tauri/gen/android/build.gradle.kts`). If Java HTTPS through an HTTP proxy fails TLS handshake, prefer SOCKS or direct mirror access. The Rust `aarch64-linux-android` release build and frontend typecheck/lint should pass first.
+Notes:
 
-Mobile notes:
-
-- Navigation uses in-app routes `#/editor/:project` and `#/player/:project` (no multi-window)
-- Workspace defaults to the app private data directory; imports still use the system file picker
-- Player keeps automatic timeline playback (no click-to-advance)
-- For desktop browser shell preview: `localStorage.setItem('mss.mobileShell','1')` or `?mobileShell=1`
-
-## Project Data
-
-Settings live in the system application-data directory. On desktop, projects live in the workspace you choose on first launch; on Android they default to the app private directory. Each project holds its own story, asset registry, metadata, and managed files.
-
-## Community
-
-- Discord: [Join the server](https://discord.gg/cGWNG6fFdP)
-- QQ group: [753850881](https://qm.qq.com/q/TIFODIZkKk)
+- The first build downloads Gradle and Android dependencies. On restricted networks, use a local proxy for Gradle and/or the Aliyun Maven mirrors already configured in `src-tauri/gen/android/build.gradle.kts`.
+- Navigation is handled in-app via `#/editor/:project` and `#/player/:project` — no multi-window.
+- The player uses automatic timeline playback, no tap-to-advance.
+- To preview the mobile shell in a desktop browser: `localStorage.setItem('mss.mobileShell','1')` or append `?mobileShell=1`.
 
 ## Acknowledgements
 
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
-- Everyone who tests, contributes to, and creates stories with MySekaiStoryteller
+- Everyone who tests, contributes, and creates stories with MySekaiStoryteller
 
 ## Support
 
-You can support development through [Afdian](https://afdian.com/a/devguangchen). Donation or not, thanks for using the project and helping it grow.
+If you'd like to support development, you can do so on [Afdian](https://afdian.com/a/devguangchen). Either way, thanks for being here.
