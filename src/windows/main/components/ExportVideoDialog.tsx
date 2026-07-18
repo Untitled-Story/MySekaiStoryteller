@@ -159,11 +159,24 @@ export function ExportVideoDialog({
                 }
                 placeholder="选择渲染路径..."
                 className="flex-1"
+                readOnly={mobileRuntime}
               />
-              <Button variant="outline" size="icon" onClick={() => void handleBrowse()} aria-label="浏览">
-                <FolderSearch className="w-4 h-4" />
-              </Button>
+              {!mobileRuntime ? (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => void handleBrowse()}
+                  aria-label="浏览"
+                >
+                  <FolderSearch className="w-4 h-4" />
+                </Button>
+              ) : null}
             </div>
+            {mobileRuntime ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                移动端写入应用私有目录，完成后可分享到系统相册/文件。
+              </p>
+            ) : null}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
