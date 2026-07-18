@@ -13,6 +13,17 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val releaseKeystorePath: String? = System.getenv("ANDROID_KEYSTORE_PATH")
+val releaseKeystorePassword: String? = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias: String? = System.getenv("ANDROID_KEY_ALIAS")
+val releaseKeyPassword: String? = System.getenv("ANDROID_KEY_PASSWORD")
+val hasReleaseSigningConfig: Boolean = listOf(
+    releaseKeystorePath,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     compileSdk = 36
     // Keep the namespace and install identity aligned with the package Tauri launches.
@@ -24,6 +35,16 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (hasReleaseSigningConfig) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseKeystorePath))
+                storePassword = requireNotNull(releaseKeystorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -40,6 +61,9 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
+            if (hasReleaseSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))

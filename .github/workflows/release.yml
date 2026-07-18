@@ -95,9 +95,106 @@ jobs:
             src-tauri/target/release/bundle/**/*.exe
           if-no-files-found: error
 
+  build-android:
+    name: Build (android-arm64)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.15729638"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: android-aarch64
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Android signing key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            echo "Android release signing secrets are not configured." >&2
+            echo "Required: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD." >&2
+            exit 1
+          fi
+
+          keystore_path="$RUNNER_TEMP/my-sekai-storyteller-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "ANDROID_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
+
+      - name: Build signed Android APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/30.0.15729638"
+          pnpm tauri android build --apk --target aarch64 --ci
+
+      - name: Collect Android APK
+        shell: bash
+        run: |
+          apk_path="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release*.apk' -print -quit)"
+          if [[ -z "$apk_path" ]]; then
+            echo "Android release APK was not generated." >&2
+            exit 1
+          fi
+
+          mkdir -p android-artifacts
+          cp "$apk_path" "android-artifacts/MySekaiStoryteller-${RELEASE_TAG}-android-arm64.apk"
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MySekaiStoryteller-android-arm64
+          path: android-artifacts/*.apk
+          if-no-files-found: error
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs:
+      - build
+      - build-android
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -133,4 +230,5 @@ jobs:
             build-artifacts/**/*.dmg
             build-artifacts/**/*.msi
             build-artifacts/**/*.exe
+            build-artifacts/**/*.apk
           fail_on_unmatched_files: true
