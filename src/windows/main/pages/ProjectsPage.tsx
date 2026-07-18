@@ -21,6 +21,7 @@ import {
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { useSettings } from '@/settings/useSettings'
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
+import { isMobileRuntime } from '@/lib/platform'
 
 import { cn } from '@/lib/style'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
@@ -70,6 +71,7 @@ export default function ProjectsPage(): JSX.Element {
   const { interaction } = useSettings()
   const viewportMode: ViewportMode = useViewportMode()
   const phoneLayout: boolean = viewportMode === 'phone'
+  const mobileRuntime: boolean = isMobileRuntime()
   const alwaysShowRowActions: boolean = phoneLayout || interaction.touchMode
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -297,6 +299,7 @@ export default function ProjectsPage(): JSX.Element {
       <div
         className={cn(
           'flex-1 overflow-auto overscroll-none px-8 pb-6 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent',
+          mobileRuntime && 'mobile-page-scrollbar',
           phoneLayout && 'px-4 pb-5'
         )}
       >

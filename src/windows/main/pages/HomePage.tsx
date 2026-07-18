@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next'
 import { useViewportMode } from '@/hooks/useViewportMode'
 import { cn } from '@/lib/style'
 import { detectPreferTouchMode } from '@/lib/touchMode'
+import { isMobileRuntime } from '@/lib/platform'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import {
@@ -35,6 +36,7 @@ export default function HomePage(): JSX.Element {
   const { onboarding, interaction, setOnboarding, setInteraction } = useSettings()
   const viewportMode = useViewportMode()
   const stackSections: boolean = viewportMode === 'phone'
+  const mobileRuntime: boolean = isMobileRuntime()
 
   const completeMainTour = useCallback((): void => {
     setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
@@ -90,7 +92,8 @@ export default function HomePage(): JSX.Element {
   return (
     <div
       className={cn(
-        'flex h-full select-none flex-col overflow-auto px-8 py-8 pb-8',
+        'flex h-full select-none flex-col overflow-auto px-8 py-8 pb-8 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent',
+        mobileRuntime && 'mobile-page-scrollbar',
         stackSections && 'px-4 py-5 pb-6'
       )}
     >

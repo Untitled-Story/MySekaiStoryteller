@@ -10,6 +10,15 @@ body,
   overscroll-behavior: none;
 }
 
+.mobile-page-scrollbar {
+  scrollbar-width: auto;
+}
+
+.mobile-page-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
 @keyframes spin-once {
   from {
     transform: rotate(0deg);

@@ -7,6 +7,8 @@ import hotwindAvatar from '@/assets/avatars/hotwind.jpg'
 import whiteMistAvatar from '@/assets/avatars/white-mist.jpg'
 import xiaocaooooAvatar from '@/assets/avatars/xiaocaoooo.jpg'
 import { useTranslation } from 'react-i18next'
+import { isMobileRuntime } from '@/lib/platform'
+import { cn } from '@/lib/style'
 
 type Acknowledgement = {
   nickname: string
@@ -44,8 +46,14 @@ const SPECIAL_THANKS: readonly Acknowledgement[] = [
 
 export default function AboutPage(): JSX.Element {
   const { t } = useTranslation()
+  const mobileRuntime: boolean = isMobileRuntime()
   return (
-    <div className="relative h-full overflow-y-auto overscroll-none bg-background select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+    <div
+      className={cn(
+        'relative h-full overflow-y-auto overscroll-none bg-background select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent',
+        mobileRuntime && 'mobile-page-scrollbar'
+      )}
+    >
       <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 py-10 pb-12 sm:px-10 sm:py-12">
         <section className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="relative mb-5">

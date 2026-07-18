@@ -32,6 +32,7 @@ import { isMobileRuntime } from '@/lib/platform'
 import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/style'
 
 export default function SettingsPage(): JSX.Element {
   const { t } = useTranslation()
@@ -193,7 +194,12 @@ export default function SettingsPage(): JSX.Element {
   }, [handleShortcutChange, recordingShortcutId])
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto overscroll-none px-5 py-6 pb-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent sm:px-8 sm:py-8">
+    <div
+      className={cn(
+        'flex h-full flex-col overflow-y-auto overscroll-none px-5 py-6 pb-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent sm:px-8 sm:py-8',
+        mobileRuntime && 'mobile-page-scrollbar'
+      )}
+    >
       <div className="mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.storage')}</h2>
         <p className="text-sm text-muted-foreground">{t('settings.storageDescription')}</p>
