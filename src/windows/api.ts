@@ -199,3 +199,9 @@ export function streamFrame(projectName: string, data: Uint8Array | number[]): P
   const payload: number[] = data instanceof Uint8Array ? Array.from(data) : data
   return invoke('stream_frame', { projectName, data: payload })
 }
+
+export function publishRenderOutput(sourcePath: string, destination: string): Promise<void> {
+  return invoke('publish_render_output', {
+    args: { sourcePath, destination }
+  })
+}

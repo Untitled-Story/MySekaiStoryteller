@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { revealItemInDir, openPath } from '@tauri-apps/plugin-opener'
+import { isMobileRuntime } from '@/lib/platform'
 import type { RenderConfig } from '@/settings/types'
 import { formatElapsed, mapRenderStatusToUi } from '@/export/exportUi'
 import { Button } from '@/components/ui/Button'
@@ -184,12 +185,19 @@ export function ExportProgressDashboard({
               onClick={() => {
                 const path = exportPath ?? stats.exportPath
                 if (!path) return
+                if (isMobileRuntime()) {
+                  void openPath(path).catch((error: unknown) => {
+                    console.warn('open export path failed', error)
+                    void revealItemInDir(path).catch(() => undefined)
+                  })
+                  return
+                }
                 void revealItemInDir(path).catch((error: unknown) => {
                   console.warn('reveal export path failed', error)
                 })
               }}
             >
-              打开文件位置
+              {isMobileRuntime() ? '打开/分享' : '打开文件位置'}
             </Button>
           ) : null}
           {onOpenDetails ? (

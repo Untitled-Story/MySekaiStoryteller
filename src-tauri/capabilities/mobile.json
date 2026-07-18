@@ -2,7 +2,20 @@
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile-player",
   "description": "Mobile shell permissions used by the embedded player",
-  "windows": ["main"],
-  "platforms": ["android", "iOS"],
-  "permissions": ["core:window:allow-set-fullscreen"]
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-set-fullscreen",
+    "dialog:default",
+    "fs:default",
+    "log:default",
+    "opener:default"
+  ]
 }

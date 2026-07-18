@@ -49,6 +49,12 @@ import {
 } from '@/export/pendingRenderConfig'
 import { isMobileRuntime, prefersInAppNavigation } from '@/lib/platform'
 import {
+  enterImmersiveMode,
+  exitImmersiveMode,
+  lockLandscapeOrientation,
+  unlockOrientation
+} from '@/lib/orientation'
+import {
   buildJobPaths,
   clampConcurrency,
   createLaneJobPlanner,
@@ -181,6 +187,28 @@ type RenderStats = {
   efficiency?: number
   doneWorkers?: number
   totalWorkers?: number
+}
+
+
+async function requestExportWakeLock(): Promise<WakeLockSentinel | null> {
+  try {
+    const nav = navigator as Navigator & {
+      wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinel> }
+    }
+    if (!nav.wakeLock?.request) return null
+    return await nav.wakeLock.request('screen')
+  } catch {
+    return null
+  }
+}
+
+async function releaseExportWakeLock(lock: WakeLockSentinel | null): Promise<void> {
+  if (!lock) return
+  try {
+    await lock.release()
+  } catch {
+    // ignore
+  }
 }
 
 export default function App({
@@ -958,9 +986,17 @@ async function runExportPipeline({
   isCancelled,
   onStats
 }: ExportPipelineOptions): Promise<void> {
-  const exportWidth = Math.max(1, Math.floor(Number(renderConfig.width) || 1280))
-  const exportHeight = Math.max(1, Math.floor(Number(renderConfig.height) || 720))
-  const exportFps = Math.max(1, Math.floor(Number(renderConfig.fps) || 60))
+  const mobileClamp = isMobileRuntime()
+  let exportWidth = Math.max(1, Math.floor(Number(renderConfig.width) || 1280))
+  let exportHeight = Math.max(1, Math.floor(Number(renderConfig.height) || 720))
+  let exportFps = Math.max(1, Math.floor(Number(renderConfig.fps) || 60))
+  if (mobileClamp) {
+    exportWidth = Math.min(exportWidth, 1280)
+    exportHeight = Math.min(exportHeight, 720)
+    exportFps = Math.min(exportFps, 30)
+    exportWidth -= exportWidth % 2
+    exportHeight -= exportHeight % 2
+  }
   const frameIntervalMs = 1000 / exportFps
   const totalDuration = Math.max(0.001, calculateStoryDuration(story))
   const totalFrames = Math.max(1, Math.ceil(totalDuration * exportFps))
@@ -989,6 +1025,13 @@ async function runExportPipeline({
   const workerIndex = renderConfig.workerIndex ?? 0
   const multiJob = Boolean(renderConfig.multiJob && isWorker)
   const groupIdForJobs = renderConfig.exportGroupId ?? renderConfig.sessionId
+
+  let exportWakeLock: WakeLockSentinel | null = null
+  if (isMobileRuntime()) {
+    void lockLandscapeOrientation()
+    enterImmersiveMode()
+    exportWakeLock = await requestExportWakeLock()
+  }
 
   let uploadUrl = (
     await startRenderSession(sessionKey, {
@@ -1269,6 +1312,13 @@ async function runExportPipeline({
       ])
     } catch (stopErr: unknown) {
       logger.warn('export.stop_session_issue', { error: describeError(stopErr) })
+    } finally {
+      await releaseExportWakeLock(exportWakeLock)
+      exportWakeLock = null
+      if (isMobileRuntime()) {
+        unlockOrientation()
+        exitImmersiveMode()
+      }
     }
     const minDur = Math.max(0.05, (Math.max(1, expectedFrames) - 2) / exportFps)
     // Brief FS settle.

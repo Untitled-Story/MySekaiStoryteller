@@ -32,3 +32,10 @@ zip = { version = "2.4", default-features = false, features = ["deflate"] }
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+
+# Android/iOS software encode (no host ffmpeg).
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+openh264 = { version = "0.9", default-features = false, features = ["source"] }
+mp4 = "0.14"
+bytes = "1"
+

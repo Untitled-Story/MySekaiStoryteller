@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -542,7 +543,19 @@ pub fn start_render_session(
     let config_clone = config.clone();
     let stop_flag_worker = Arc::clone(&stop_flag);
     let ffmpeg_pid_worker = Arc::clone(&ffmpeg_pid);
+
+    #[cfg(mobile)]
+    let worker_handle = {
+        let cfg = config_clone.clone();
+        let stop = Arc::clone(&stop_flag_worker);
+        thread::spawn(move || {
+            crate::commands::mobile_encoder::run_mobile_encode_worker(rx, cfg, stop);
+        })
+    };
+
+    #[cfg(desktop)]
     let worker_handle = thread::spawn(move || {
+
         let size = format!("{}x{}", config_clone.width, config_clone.height);
         let fps = config_clone.fps.to_string();
 
@@ -884,32 +897,43 @@ pub fn validate_render_segment(path: String, min_duration_sec: f64) -> Result<f6
         return Err(format!("Segment too small ({} bytes): {path}", meta.len()));
     }
 
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            &path,
-        ])
-        .output()
-        .map_err(|e| format!("ffprobe failed: {e}"))?;
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Invalid segment (no moov/unreadable): {path}: {err}"));
+    #[cfg(mobile)]
+    {
+        return crate::commands::mobile_encoder::validate_mp4_basic(&path, min_duration_sec);
     }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let duration: f64 = text
-        .parse()
-        .map_err(|_| format!("Could not parse duration '{text}' for {path}"))?;
-    if duration + 1e-3 < min_duration_sec {
-        return Err(format!(
-            "Segment too short: {path} duration={duration:.3}s < expected {min_duration_sec:.3}s"
-        ));
+
+    #[cfg(desktop)]
+    {
+        let output = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                &path,
+            ])
+            .output()
+            .map_err(|e| format!("ffprobe failed: {e}"))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Invalid segment (no moov/unreadable): {path}: {err}"));
+        }
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let duration: f64 = text
+            .parse()
+            .map_err(|_| format!("Could not parse duration '{text}' for {path}"))?;
+        if duration + 1e-3 < min_duration_sec {
+            return Err(format!(
+                "Segment too short: {path} duration={duration:.3}s < expected {min_duration_sec:.3}s"
+            ));
+        }
+        return Ok(duration);
     }
-    Ok(duration)
+
+    #[allow(unreachable_code)]
+    Ok(min_duration_sec.max(0.05))
 }
 
 /// Weighted split: worker w gets weight (n − w) + n → n=4 → 8:7:6:5.
@@ -1001,5 +1025,61 @@ fn kick_stop(addr: SocketAddr) -> Result<(), String> {
         let req = b"POST /stop HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         let _ = stream.write_all(req);
     }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishRenderOutputArgs {
+    pub source_path: String,
+    pub destination: String,
+}
+
+/// Copy a finished render into a user-selected path (may be content:// on Android).
+#[tauri::command]
+pub fn publish_render_output(
+    app: AppHandle,
+    args: PublishRenderOutputArgs,
+) -> Result<(), String> {
+    log::info!(
+        target: "backend::render",
+        "publish_render_output source={} dest={}",
+        args.source_path,
+        args.destination
+    );
+    let source = Path::new(&args.source_path);
+    if !source.is_file() {
+        return Err(format!("源文件不存在: {}", args.source_path));
+    }
+    let bytes = std::fs::read(source).map_err(|e| format!("读取渲染结果失败: {e}"))?;
+    if bytes.is_empty() {
+        return Err("渲染结果为空".into());
+    }
+
+    let dest = args.destination.trim().to_string();
+    let lowered = dest.to_ascii_lowercase();
+    if lowered.starts_with("content://") || lowered.starts_with("file://") {
+        use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+        let file_path =
+            FilePath::from_str(&dest).map_err(|e| format!("解析导出目标失败: {e}"))?;
+        let mut options = OpenOptions::new();
+        options.write(true).truncate(true).create(true);
+        let mut file = app
+            .fs()
+            .open(file_path, options)
+            .map_err(|e| format!("打开导出目标失败: {e}"))?;
+        use std::io::Write as _;
+        file.write_all(&bytes)
+            .map_err(|e| format!("写入导出目标失败: {e}"))?;
+        file.flush().map_err(|e| format!("刷新导出目标失败: {e}"))?;
+        return Ok(());
+    }
+
+    if let Some(parent) = Path::new(&dest).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
+        }
+    }
+    std::fs::write(&dest, &bytes).map_err(|e| format!("写入导出文件失败: {e}"))?;
     Ok(())
 }

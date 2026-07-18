@@ -160,6 +160,7 @@ pub fn run() {
             render::concat_render_segments,
             render::cleanup_export_temp,
             render::validate_render_segment,
+            render::publish_render_output,
         ]);
 
     builder = protocol::register_story_protocol(builder);
