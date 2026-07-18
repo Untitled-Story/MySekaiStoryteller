@@ -55,7 +55,7 @@ const DEFAULT_PLAYBACK: PlaybackSettings = {
 export const DEFAULT_EXPORT_PREFS: ExportPreferences = {
   width: 1920,
   height: 1080,
-  fps: 60,
+  fps: 30,
   concurrency: 2
 }
 

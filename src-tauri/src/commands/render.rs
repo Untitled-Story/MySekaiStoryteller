@@ -127,6 +127,7 @@ fn build_ffmpeg_args(size: &str, fps: &str, export_path: &str, use_nvenc: bool) 
             "yuv420p".into(),
         ]);
     } else {
+        // Temp segment only — final delivery re-encodes. Prefer throughput over quality.
         base.extend([
             "-c:v".into(),
             "libx264".into(),
@@ -139,7 +140,9 @@ fn build_ffmpeg_args(size: &str, fps: &str, export_path: &str, use_nvenc: bool) 
             "-threads".into(),
             "0".into(),
             "-crf".into(),
-            "20".into(),
+            "26".into(),
+            "-x264-params".into(),
+            "ref=1:bframes=0:rc-lookahead=0:aq-mode=0:me=dia:subme=0:scenecut=0:weightp=0".into(),
         ]);
     }
 
@@ -597,19 +600,20 @@ fn parse_ffmpeg_clock(value: &str) -> Option<f64> {
 }
 
 /// Quality-oriented final encode args (no input/output paths).
-/// Prefer libx265 medium; fall back to libx264 medium.
+/// Prefer libx265 veryfast; fall back to libx264 veryfast.
 fn final_delivery_encode_args() -> Vec<String> {
     static ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     ARGS.get_or_init(|| {
+        // Prefer H.265 delivery, but use a fast preset — medium cost ~1min on 1080p60 soft CPU.
         if encoder_name_listed("libx265") {
-            log::info!(target: "backend::render", "final encoder: libx265 medium CRF 20");
+            log::info!(target: "backend::render", "final encoder: libx265 veryfast CRF 22");
             vec![
                 "-c:v".into(),
                 "libx265".into(),
                 "-preset".into(),
-                "medium".into(),
+                "veryfast".into(),
                 "-crf".into(),
-                "20".into(),
+                "22".into(),
                 "-pix_fmt".into(),
                 "yuv420p".into(),
                 "-tag:v".into(),
@@ -618,14 +622,14 @@ fn final_delivery_encode_args() -> Vec<String> {
                 "+faststart".into(),
             ]
         } else {
-            log::info!(target: "backend::render", "final encoder: libx264 medium CRF 18");
+            log::info!(target: "backend::render", "final encoder: libx264 veryfast CRF 20");
             vec![
                 "-c:v".into(),
                 "libx264".into(),
                 "-preset".into(),
-                "medium".into(),
+                "veryfast".into(),
                 "-crf".into(),
-                "18".into(),
+                "20".into(),
                 "-pix_fmt".into(),
                 "yuv420p".into(),
                 "-movflags".into(),

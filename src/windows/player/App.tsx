@@ -1781,11 +1781,19 @@ async function runExportPipeline({
   /** Frames before startFrame where we must present+PBO to prime the pipeline. */
   const WARM_GPU_PRIME_FRAMES = 3
   /**
-   * When pure-warming far from capture and story is idle, advance this many
-   * virtual frames per step (Live2D gets combined dt). Keep 1 so story waits
-   * (especially motion start→finish) are not skipped under multi-frame jumps.
+   * Adaptive multi-frame warm: clock.advanceManual processes timers inside the
+   * combined delta, so modest jumps are safe. Stay at 1 near capture / async.
    */
-  const WARM_CLOCK_STEP = 1
+  function warmClockStepFor(frameIndex: number): number {
+    if (isStoryAsyncPending()) return 1
+    const remaining = startFrame - frameIndex - WARM_GPU_PRIME_FRAMES
+    if (remaining <= 1) return 1
+    // Far warm: larger steps (exportFps@60 → step 12 ≈ 200ms virtual).
+    if (remaining > exportFps * 12) return Math.min(16, Math.max(8, Math.floor(exportFps / 4)))
+    if (remaining > exportFps * 4) return Math.min(8, Math.max(4, Math.floor(exportFps / 8)))
+    if (remaining > exportFps) return 3
+    return 2
+  }
 
   /**
    * Story snippets chain via async delays. Fixed huge drains waste warm time;
@@ -1834,8 +1842,9 @@ async function runExportPipeline({
     await waitForStoryExternalIdle()
     // Always drive story timers/VFX first so waitUntil(motion) and animations see this step.
     clock.advanceManual(deltaMs)
-    // Yield so story awaits (Assets.load, startMotion, etc.) can progress between frames.
-    await drainStoryMicrotasks(8)
+    // Large warm jumps: fewer idle drains (story still gets a yield + Live2D present).
+    const largeWarmJump = deltaMs >= frameIntervalMs * 2.5
+    await drainStoryMicrotasks(largeWarmJump ? 4 : 8)
     // Pixi/Live2D must use the same virtual timeline as the story (not wall clock).
     // Ticker.update(currentTime) derives deltaMS from currentTime - lastTime.
     app.ticker.update(clock.getSyntheticAppTimeMs())
@@ -1848,8 +1857,10 @@ async function runExportPipeline({
       await drainStoryMicrotasks(12)
       app.renderer.render({ container: app.stage })
       clock.pollTasks()
-    } else {
+    } else if (!largeWarmJump) {
       await drainStoryMicrotasks(4)
+    } else {
+      await drainStoryMicrotasks(2)
     }
   }
 
@@ -1910,10 +1921,13 @@ async function runExportPipeline({
       }
 
       const pureWarmFar = !nearCapture && !enteredRange
-      // Multi-step only when far warm and not blocked on external I/O.
-      if (pureWarmFar && !isStoryAsyncPending() && WARM_CLOCK_STEP > 1) {
-        const remaining = Math.max(1, startFrame - frameIndexBefore - WARM_GPU_PRIME_FRAMES)
-        framesToAdvance = Math.min(WARM_CLOCK_STEP, remaining)
+      // Multi-step far warm: combine virtual dt (timers still fire inside advanceManual).
+      if (pureWarmFar) {
+        const step = warmClockStepFor(frameIndexBefore)
+        if (step > 1) {
+          const remaining = Math.max(1, startFrame - frameIndexBefore - WARM_GPU_PRIME_FRAMES)
+          framesToAdvance = Math.min(step, remaining)
+        }
       }
       await advanceStoryClock(frameIntervalMs * framesToAdvance)
       advancedStoryClock = true
@@ -2742,7 +2756,9 @@ async function runCoordinatorExport(options: {
           (slot.warmTotalFrames || slot.job.startFrame) - slot.warmFrameCount
         )
         const remainingCapture = Math.max(0, slot.totalFrames - slot.frameCount)
-        warming.push({ slotId, remainingWarm, remainingCapture, fps })
+        // Warm multi-steps run several virtual frames per present; treat warm FPS higher.
+        const warmFps = Math.max(fps, exportFps * 2.5)
+        warming.push({ slotId, remainingWarm, remainingCapture, fps: warmFps })
       } else if (slot.status === 'rendering' || slot.status === 'finalizing') {
         const remainingCapture = Math.max(0, slot.totalFrames - slot.frameCount)
         writing.push({ etaSec: remainingCapture / fps })
@@ -3465,7 +3481,7 @@ async function runCoordinatorExport(options: {
           `渲染墙钟 ${formatTime(preConcatWall)}`,
           `压制已进行 ${formatTime(mergeElapsed)}`,
           `FFmpeg ${(ffmpegMergeRatio * 100).toFixed(1)}%`,
-          '最终合并：重新压制（优先 libx265 medium）'
+          '最终合并：重新压制（优先 libx265 veryfast）'
         ],
         canPause: false,
         canStop: false,
