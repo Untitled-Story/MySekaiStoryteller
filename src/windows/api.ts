@@ -1,10 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
 import {
   editorRoutePath,
+  exportRoutePath,
   homeRoutePath,
   playerRoutePath,
   prefersInAppNavigation
 } from '@/lib/platform'
+import { stashPendingRenderConfig } from '@/export/pendingRenderConfig'
 import type { RenderConfig } from '@/settings/types'
 
 type NavigateFn = (path: string) => void
@@ -63,7 +65,28 @@ export async function openPlayerWindow(
   render: boolean = false,
   renderConfig?: RenderConfig
 ): Promise<void> {
-  if (prefersInAppNavigation() && !render) {
+  // Mobile/Android: single webview — never multi-window open_player for render.
+  if (prefersInAppNavigation()) {
+    if (render) {
+      const config: RenderConfig = {
+        ...(renderConfig ?? {
+          exportPath: '',
+          width: 1280,
+          height: 720,
+          fps: 30
+        }),
+        // Parallel workers require extra windows; force single-path on mobile.
+        concurrency: 1,
+        role: 'single',
+        workers: 1
+      }
+      if (!config.exportPath) {
+        throw new Error('渲染路径无效')
+      }
+      stashPendingRenderConfig(projectName, config)
+      navigateInApp(exportRoutePath(projectName))
+      return
+    }
     navigateInApp(playerRoutePath(projectName))
     return
   }
@@ -169,4 +192,10 @@ export function validateRenderSegment(
     path,
     minDurationSec
   })
+}
+
+/** Push one or more packed RGBA frames into the native encode queue (preferred on mobile). */
+export function streamFrame(projectName: string, data: Uint8Array | number[]): Promise<void> {
+  const payload: number[] = data instanceof Uint8Array ? Array.from(data) : data
+  return invoke('stream_frame', { projectName, data: payload })
 }

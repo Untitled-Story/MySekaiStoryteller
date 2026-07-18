@@ -672,7 +672,17 @@ pub fn start_render_session(
         tiny_http::ListenAddr::IP(socket) => socket,
         _ => return Err("Frame server bound to unsupported address".to_string()),
     };
-    let upload_url = format!("http://{stop_addr}/frame");
+    let upload_url = {
+        #[cfg(mobile)]
+        {
+            let _ = &stop_addr;
+            String::from("ipc://stream_frame")
+        }
+        #[cfg(desktop)]
+        {
+            format!("http://{stop_addr}/frame")
+        }
+    };
 
     let server_stop = Arc::clone(&stop_flag);
     let http_tx = tx.clone();

@@ -21,6 +21,7 @@ import { getDataPath } from '@/workspace/api'
 import { openPlayerWindow } from '@/windows/api'
 import { buildDefaultExportPath } from '@/windows/main/utils/exportPath'
 import { describeError, logger } from '@/lib/logger'
+import { isMobileRuntime } from '@/lib/platform'
 
 export type ExportVideoDialogProps = {
   projectTitle: string | null
@@ -33,6 +34,7 @@ export function ExportVideoDialog({
   open,
   onOpenChange
 }: ExportVideoDialogProps): JSX.Element {
+  const mobileRuntime: boolean = isMobileRuntime()
   const { exportPrefs, setExportPrefs } = useSettings()
   const [config, setConfig] = useState<RenderConfig | null>(null)
   const [isStarting, setIsStarting] = useState(false)
@@ -50,12 +52,16 @@ export function ExportVideoDialog({
         const dataPath = await getDataPath()
         if (cancelled || !projectTitle) return
         const prefs = normalizeExportPrefs(exportPrefs)
+        // Android/iOS: thermal/memory-safe defaults + single worker only.
+        const width = mobileRuntime ? Math.min(prefs.width, 1280) : prefs.width
+        const height = mobileRuntime ? Math.min(prefs.height, 720) : prefs.height
+        const fps = mobileRuntime ? Math.min(prefs.fps, 30) : prefs.fps
         setConfig({
           exportPath: buildDefaultExportPath(dataPath, projectTitle),
-          width: prefs.width,
-          height: prefs.height,
-          fps: prefs.fps,
-          concurrency: prefs.concurrency
+          width,
+          height,
+          fps,
+          concurrency: mobileRuntime ? 1 : prefs.concurrency
         })
       } catch (error: unknown) {
         logger.error('export.dialog_init_failed', {
@@ -69,7 +75,7 @@ export function ExportVideoDialog({
     return () => {
       cancelled = true
     }
-  }, [open, projectTitle, exportPrefs])
+  }, [open, projectTitle, exportPrefs, mobileRuntime])
 
   const handleBrowse = async (): Promise<void> => {
     const selected = await save({
@@ -89,7 +95,9 @@ export function ExportVideoDialog({
       const width = Math.max(160, Math.floor(config.width) || DEFAULT_EXPORT_PREFS.width)
       const height = Math.max(90, Math.floor(config.height) || DEFAULT_EXPORT_PREFS.height)
       const fps = Math.max(1, Math.floor(config.fps) || DEFAULT_EXPORT_PREFS.fps)
-      const concurrency = Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
+      const concurrency = mobileRuntime
+        ? 1
+        : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
       const dataPath = await getDataPath()
       // Persist last-used export options (not path).
       setExportPrefs({ width, height, fps, concurrency })
@@ -199,6 +207,7 @@ export function ExportVideoDialog({
               }
             />
           </div>
+          {!mobileRuntime ? (
           <div className="grid gap-2">
             <label className="text-xs font-medium text-muted-foreground">并发数（工作线程）</label>
             <Input
@@ -222,6 +231,11 @@ export function ExportVideoDialog({
               同时渲染的任务数，任意正整数，推荐 2，过高会占更多内存/显存。
             </p>
           </div>
+          ) : (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              移动端使用应用内单路渲染（并发固定为 1）。
+            </p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isStarting}>

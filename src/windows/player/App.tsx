@@ -38,9 +38,16 @@ import {
   prepareParallelExport,
   startRenderSession,
   stopRenderSession,
+  streamFrame,
   validateRenderSegment,
   type FfmpegProgressEvent
 } from '@/windows/api'
+import {
+  clearPendingRenderConfig,
+  peekPendingRenderConfig,
+  takePendingRenderConfig
+} from '@/export/pendingRenderConfig'
+import { isMobileRuntime, prefersInAppNavigation } from '@/lib/platform'
 import {
   buildJobPaths,
   clampConcurrency,
@@ -184,14 +191,35 @@ export default function App({
   const projectName = useWindowProjectName(preferredProjectName)
   const { appearance, loaded: settingsLoaded } = useSettings()
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), [])
-  const isRenderMode = searchParams.get('render') === 'true'
-  const renderConfig = useMemo(
-    () => parseRenderConfig(searchParams.get('renderConfig')),
-    [searchParams]
-  )
+  const mobileRuntime: boolean = isMobileRuntime()
+  const inAppNavigation: boolean = prefersInAppNavigation()
+  const stashedRenderConfigRef = useRef<RenderConfig | null>(null)
+  // Query-string config (desktop multi-window) or stashed config (Android/iOS in-app).
+  const renderConfig = useMemo((): RenderConfig | null => {
+    const fromQuery = parseRenderConfig(searchParams.get('renderConfig'))
+    if (fromQuery) {
+      stashedRenderConfigRef.current = fromQuery
+      return fromQuery
+    }
+    if (stashedRenderConfigRef.current) {
+      return stashedRenderConfigRef.current
+    }
+    const pending = peekPendingRenderConfig(preferredProjectName ?? projectName)
+    if (!pending) return null
+    const normalized: RenderConfig =
+      mobileRuntime || inAppNavigation
+        ? { ...pending, concurrency: 1, role: 'single', workers: 1 }
+        : pending
+    stashedRenderConfigRef.current = normalized
+    return normalized
+  }, [searchParams, preferredProjectName, projectName, mobileRuntime, inAppNavigation])
+  const isRenderMode =
+    searchParams.get('render') === 'true' || Boolean(renderConfig)
   const exportRole = renderConfig?.role ?? (isRenderMode ? 'single' : undefined)
   const isExportDebug = isRenderMode && exportRole === 'debug'
-  const concurrency = clampConcurrency(renderConfig?.concurrency)
+  const concurrency = mobileRuntime || inAppNavigation
+    ? 1
+    : clampConcurrency(renderConfig?.concurrency)
 
   // Align export chrome (and player shell) with app light/dark tokens.
   useEffect(() => {
@@ -318,6 +346,20 @@ export default function App({
       void emit(EXPORT_DEBUG_STATS_EVENT, debugPayload)
     }
   }, [isRenderMode, exportRole, renderConfig, projectName])
+
+  useEffect(() => {
+    if (isRenderMode && projectName) {
+      // Drop storage entry once sticky ref holds config (avoid reusing on next play).
+      takePendingRenderConfig(projectName)
+    }
+  }, [isRenderMode, projectName])
+
+  useEffect(() => {
+    return () => {
+      if (projectName) clearPendingRenderConfig(projectName)
+      stashedRenderConfigRef.current = null
+    }
+  }, [projectName])
 
   useEffect(() => {
     if (!isRenderMode || exportRole === 'worker' || exportRole === 'debug') return
@@ -1107,6 +1149,30 @@ async function runExportPipeline({
   }
 
   async function postFramesWithRetry(payload: Uint8Array): Promise<void> {
+    const useIpc: boolean =
+      !uploadUrl ||
+      uploadUrl.startsWith('ipc://') ||
+      uploadUrl === 'stream_frame' ||
+      isMobileRuntime()
+    if (useIpc) {
+      const maxAttempts = 3
+      let lastError: Error | null = null
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          await streamFrame(sessionKey, payload)
+          return
+        } catch (error: unknown) {
+          lastError = error instanceof Error ? error : new Error('Frame stream failed')
+          if (attempt < maxAttempts) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 40 * attempt))
+            continue
+          }
+          throw lastError
+        }
+      }
+      throw lastError ?? new Error('Frame stream failed')
+    }
+
     const maxAttempts = 3
     let lastError: Error | null = null
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -3533,6 +3599,7 @@ function formatTime(seconds: number): string {
 
 function startWindowDrag(event: ReactMouseEvent<HTMLDivElement>): void {
   if (event.button !== 0) return
+  if (isMobileRuntime() || prefersInAppNavigation()) return
 
   event.preventDefault()
   void getCurrentWindow()
