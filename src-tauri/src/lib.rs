@@ -47,7 +47,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(file_open::PendingProjectImports::default())
-        .manage(RenderManager::default());
+        .manage(RenderManager::new());
 
     #[cfg(desktop)]
     {

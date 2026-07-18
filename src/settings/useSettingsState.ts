@@ -214,9 +214,11 @@ export function useSettingsState(options: UseSettingsStateOptions = {}): Setting
     shortcuts,
     onboarding,
     interaction,
+    exportPrefs,
     workspaceDir,
     loaded,
     persistenceReady,
+    persist,
     language
   ])
 
@@ -265,6 +267,9 @@ export function useSettingsState(options: UseSettingsStateOptions = {}): Setting
         ...prev,
         touchMode: value
       })),
+    setExportPrefs: (value: ExportPreferences): void => {
+      setExportPrefsState(normalizeExportPrefs(value))
+    },
     setWorkspaceDir: (dir: string): void => {
       // Persist immediately so backend project commands never race with the
       // debounced settings effect (critical on first-run / clear-data mobile).
@@ -280,6 +285,7 @@ export function useSettingsState(options: UseSettingsStateOptions = {}): Setting
         shortcuts,
         onboarding,
         interaction,
+        export: exportPrefs,
         workspaceDir: dir
       }
       void saveSettings(payload)
@@ -297,4 +303,26 @@ function normalizeRenderPrecision(value: RenderPrecision | undefined): RenderPre
   if (value === 'Auto') return value
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
   return DEFAULT_PLAYBACK.renderPrecision
+}
+
+export function normalizeExportPrefs(
+  value: ExportPreferences | undefined | null
+): ExportPreferences {
+  const width =
+    typeof value?.width === 'number' && Number.isFinite(value.width) && value.width >= 160
+      ? Math.floor(value.width)
+      : DEFAULT_EXPORT_PREFS.width
+  const height =
+    typeof value?.height === 'number' && Number.isFinite(value.height) && value.height >= 90
+      ? Math.floor(value.height)
+      : DEFAULT_EXPORT_PREFS.height
+  const fps =
+    typeof value?.fps === 'number' && Number.isFinite(value.fps) && value.fps >= 1
+      ? Math.min(240, Math.floor(value.fps))
+      : DEFAULT_EXPORT_PREFS.fps
+  const concurrency =
+    typeof value?.concurrency === 'number' && Number.isFinite(value.concurrency)
+      ? Math.min(4, Math.max(1, Math.floor(value.concurrency)))
+      : DEFAULT_EXPORT_PREFS.concurrency
+  return { width, height, fps, concurrency }
 }

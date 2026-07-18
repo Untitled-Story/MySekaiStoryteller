@@ -466,6 +466,13 @@ export default function ProjectsPage(): JSX.Element {
           onDismiss={(): void => setExportNotice(null)}
         />
       )}
+      <ExportVideoDialog
+        projectTitle={exportTarget}
+        open={!!exportTarget}
+        onOpenChange={(open) => {
+          if (!open) setExportTarget(null)
+        }}
+      />
     </div>
   )
 }
@@ -483,14 +490,6 @@ function ProjectListSkeleton(): JSX.Element {
           </div>
         )
       )}
-      <ExportVideoDialog
-        projectTitle={exportTarget}
-        open={!!exportTarget}
-        onOpenChange={(open) => {
-          if (!open) setExportTarget(null)
-        }}
-      />
-
     </div>
   )
 }

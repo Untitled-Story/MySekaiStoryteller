@@ -81,9 +81,9 @@ function estimateLeafDuration(snippet: LeafSnippetData): number {
     case 'Telop':
       return TELOP_SHOW_TIME_S + TELOP_HOLD_TIME_S + TELOP_HIDE_TIME_S
     case 'LayoutAppear':
-      return Math.max(MODEL_SHOW_TIME_S, moveSpeedToSeconds(snippet.data.moveSpeed))
+      return Math.max(MODEL_SHOW_TIME_S, moveSpeedToSeconds((snippet.data as { moveSpeed?: MoveSpeed }).moveSpeed))
     case 'LayoutClear':
-      return Math.max(MODEL_HIDE_TIME_S, moveSpeedToSeconds(snippet.data.moveSpeed))
+      return Math.max(MODEL_HIDE_TIME_S, moveSpeedToSeconds((snippet.data as { moveSpeed?: MoveSpeed }).moveSpeed))
     case 'Move':
       return moveSpeedToSeconds(snippet.data.moveSpeed)
     case 'ScreenFadeIn':
@@ -108,7 +108,7 @@ function estimateLeafDuration(snippet: LeafSnippetData): number {
   }
 }
 
-function moveSpeedToSeconds(moveSpeed: MoveSpeed): number {
+function moveSpeedToSeconds(moveSpeed: MoveSpeed | undefined | null): number {
   switch (moveSpeed) {
     case MoveSpeed.Slow:
       return 0.7
