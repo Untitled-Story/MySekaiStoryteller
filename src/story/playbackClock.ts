@@ -130,6 +130,34 @@ export class StoryPlaybackClock {
     this.resumeWaiters.clear()
   }
 
+
+  /** Manual export step: advance pending clock tasks by a fixed delta. */
+  advanceManual(deltaMs: number): void {
+    this.advance(deltaMs)
+  }
+
+  /** True while delay/animate/waitUntil tasks are still open. */
+  hasPendingTasks(): boolean {
+    return this.tasks.size > 0
+  }
+
+  /** Re-run tasks with 0dt after Live2D/ticker side effects (motion finish checks). */
+  pollTasks(): void {
+    if (this.destroyed || this.paused) return
+    for (const task of [...this.tasks]) {
+      task.tick(0)
+    }
+  }
+
+  /** Detach from Pixi ticker while export drives the clock manually. */
+  setTickerDriven(enabled: boolean): void {
+    if (this.destroyed) return
+    this.app.ticker.remove(this.tick)
+    if (enabled) {
+      this.app.ticker.add(this.tick)
+    }
+  }
+
   private advance(rawDeltaMs: number): void {
     if (this.destroyed || this.paused) return
 

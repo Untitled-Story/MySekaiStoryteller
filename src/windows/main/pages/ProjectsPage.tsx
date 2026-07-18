@@ -4,20 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Toast, type ToastVariant } from '@/components/ui/Toast'
 import { useTranslation } from 'react-i18next'
-import {
-  FolderOpen,
-  Plus,
-  RefreshCw,
-  Search,
-  ArrowUpDown,
-  Edit3,
-  Play,
-  FileEdit,
-  Trash2,
-  Clock,
-  Download,
-  Upload
-} from 'lucide-react'
+import { FolderOpen, Plus, RefreshCw, Search, ArrowUpDown, Edit3, Play, FileEdit, Trash2, Clock, Download, Upload, Clapperboard } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { useSettings } from '@/settings/useSettings'
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
@@ -25,6 +12,7 @@ import { isMobileRuntime } from '@/lib/platform'
 
 import { cn } from '@/lib/style'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
+import { ExportVideoDialog } from '@/windows/main/components/ExportVideoDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
 import type { ProjectMetadata } from '@/project/metadata'
@@ -65,6 +53,7 @@ type ExportNotice = {
 }
 
 export default function ProjectsPage(): JSX.Element {
+  const [exportTarget, setExportTarget] = useState<string | null>(null)
   const { t } = useTranslation()
   const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
@@ -353,6 +342,16 @@ export default function ProjectsPage(): JSX.Element {
                       >
                         <Play className="w-3.5 h-3.5" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={phoneLayout ? 'size-10' : 'size-9'}
+                        aria-label={t('home.renderVideo')}
+                        title={t('home.renderVideo')}
+                        onClick={() => setExportTarget(metadata.title)}
+                      >
+                        <Clapperboard className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </ContextMenuTrigger>
@@ -484,6 +483,14 @@ function ProjectListSkeleton(): JSX.Element {
           </div>
         )
       )}
+      <ExportVideoDialog
+        projectTitle={exportTarget}
+        open={!!exportTarget}
+        onOpenChange={(open) => {
+          if (!open) setExportTarget(null)
+        }}
+      />
+
     </div>
   )
 }

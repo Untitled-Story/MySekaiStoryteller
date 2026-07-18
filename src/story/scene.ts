@@ -35,6 +35,7 @@ import {
 } from './schema'
 import type { SekaiLive2DModel } from '@/lib/live2d'
 import type { StoryPlaybackClock } from './playbackClock'
+import { trackStoryAsync } from './storyAsyncGate'
 import {
   createBuiltinVisualEffectRegistry,
   StoryVisualEffectManager,
@@ -265,7 +266,7 @@ export function createStoryScene({
     },
     async setBackground(backgroundKey: string): Promise<void> {
       const resolved: ResolvedAsset<BackgroundAsset> = resolveBackgroundUrl(backgroundKey)
-      const texture: Texture = await Assets.load<Texture>(resolved.url)
+      const texture: Texture = await trackStoryAsync(Assets.load<Texture>(resolved.url))
 
       if (!backgroundSprite) {
         backgroundSprite = new Sprite({ texture })
@@ -756,11 +757,7 @@ async function createDialogueUi(
   fontFamily: string
 ): Promise<DialogueUiState> {
   const [textBackgroundTexture, textUnderlineTexture, telopTexture]: [Texture, Texture, Texture] =
-    await Promise.all([
-      Assets.load<Texture>(uiTextBackgroundUrl),
-      Assets.load<Texture>(uiTextUnderlineUrl),
-      Assets.load<Texture>(uiTelopUrl)
-    ])
+    await trackStoryAsync(Promise.all([Assets.load<Texture>(uiTextBackgroundUrl), Assets.load<Texture>(uiTextUnderlineUrl), Assets.load<Texture>(uiTelopUrl)]))
   const screenWidth: number = app.screen.width
   const screenHeight: number = app.screen.height
   const root: Container = new Container()
@@ -1094,8 +1091,8 @@ async function applyAndWaitModelMotion(
     waits.push(managers[1].startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false }))
   }
 
-  await Promise.all(waits)
   if (waits.length > 0) {
+    await trackStoryAsync(Promise.all(waits))
     await waitForModelMotion(managers, waitUntil)
   }
 }

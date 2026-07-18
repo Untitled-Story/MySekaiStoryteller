@@ -5,6 +5,7 @@ import type {
   AppSettings,
   AppLanguage,
   AppearanceSettings,
+  ExportPreferences,
   InteractionSettings,
   PlaybackFontSettings,
   PlaybackSettings,
@@ -29,6 +30,7 @@ export type SettingsHook = {
   shortcuts: ShortcutSettings
   onboarding: OnboardingSettings
   interaction: InteractionSettings
+  exportPrefs: ExportPreferences
   workspaceDir: string | null
   setLanguage: (language: AppLanguage) => void
   setFollowSystem: (follow: boolean) => void
@@ -40,6 +42,7 @@ export type SettingsHook = {
   setOnboarding: (value: OnboardingSettings) => void
   setInteraction: (value: InteractionSettings) => void
   setTouchMode: (value: boolean) => void
+  setExportPrefs: (value: ExportPreferences) => void
   setWorkspaceDir: (dir: string) => void
 }
 
@@ -49,7 +52,20 @@ const DEFAULT_PLAYBACK: PlaybackSettings = {
   font: defaultPlaybackFont()
 }
 
-export function useSettingsState(): SettingsHook {
+export const DEFAULT_EXPORT_PREFS: ExportPreferences = {
+  width: 1920,
+  height: 1080,
+  fps: 60,
+  concurrency: 2
+}
+
+export type UseSettingsStateOptions = {
+  /** When false, load settings for UI but never write them back (export windows). */
+  persist?: boolean
+}
+
+export function useSettingsState(options: UseSettingsStateOptions = {}): SettingsHook {
+  const persist: boolean = options.persist !== false
   const systemTheme = useSystemTheme()
   const [language, setLanguage] = useState<AppLanguage>('system')
 
@@ -66,6 +82,9 @@ export function useSettingsState(): SettingsHook {
   const [shortcuts, setShortcuts] = useState<ShortcutSettings>(defaultShortcutSettings)
   const [onboarding, setOnboarding] = useState<OnboardingSettings>(DEFAULT_ONBOARDING)
   const [interaction, setInteractionState] = useState<InteractionSettings>(DEFAULT_INTERACTION)
+  const [exportPrefs, setExportPrefsState] = useState<ExportPreferences>(() => ({
+    ...DEFAULT_EXPORT_PREFS
+  }))
   const [loaded, setLoaded] = useState(false)
   const [persistenceReady, setPersistenceReady] = useState(false)
 
@@ -108,6 +127,7 @@ export function useSettingsState(): SettingsHook {
         setInteractionState(
           normalizeInteractionSettings(stored.interaction, { detectDefaultWhenMissing: true })
         )
+        setExportPrefsState(normalizeExportPrefs(stored.export))
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setPersistenceReady(true)
         setLoaded(true)
@@ -165,9 +185,9 @@ export function useSettingsState(): SettingsHook {
     applyAppLanguage(language)
   }, [language])
 
-  // Save settings when they change
+  // Save settings when they change (main/settings UI only — never export workers).
   useEffect(() => {
-    if (!loaded || !persistenceReady) return
+    if (!loaded || !persistenceReady || !persist) return
 
     const payload: AppSettings = {
       language,
@@ -206,6 +226,7 @@ export function useSettingsState(): SettingsHook {
     shortcuts,
     onboarding,
     interaction,
+    exportPrefs,
     workspaceDir,
     setLanguage,
     setFollowSystem: (follow) =>

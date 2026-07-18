@@ -51,6 +51,14 @@ export type ShortcutSettings = {
   }
 }
 
+/** Last-used video export preferences (path is not stored). */
+export type ExportPreferences = {
+  width: number
+  height: number
+  fps: number
+  concurrency: number
+}
+
 export type AppSettings = {
   language: AppLanguage
   appearance: AppearanceSettings
@@ -58,5 +66,33 @@ export type AppSettings = {
   shortcuts: ShortcutSettings
   onboarding: OnboardingSettings
   interaction: InteractionSettings
+  /** Persisted export dialog defaults: width / height / fps / concurrency. */
+  export?: ExportPreferences
   workspaceDir?: string
+}
+
+export type RenderConfig = {
+  exportPath: string
+  width: number
+  height: number
+  fps: number
+  /** Parallel workers (1–4). Default 1 = single-path export. */
+  concurrency?: number
+  /** Coordinator/worker role when multi-worker export is active; debug opens technical dashboard. */
+  role?: 'coordinator' | 'worker' | 'single' | 'debug'
+  sessionId?: string
+  /** Shared id for coordinating multi-worker progress events. */
+  exportGroupId?: string
+  workerIndex?: number
+  workers?: number
+  startFrame?: number
+  endFrame?: number
+  /** Per-worker temporary segment output path. */
+  segmentPath?: string
+  /** Queue job id when using multi-job worker pool. */
+  jobId?: number
+  /** If true, worker stays alive and waits for more job assigns. */
+  multiJob?: boolean
+  /** Optional workspace data path for worker windows when settings are incomplete. */
+  dataPath?: string
 }

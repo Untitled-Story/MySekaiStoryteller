@@ -7,6 +7,7 @@ import SettingsPage from '@/windows/main/pages/SettingsPage'
 import AboutPage from '@/windows/main/pages/AboutPage'
 import { SettingsProvider } from '@/settings/SettingsProvider'
 import { useSettings } from '@/settings/useSettings'
+import { ExportProgressHost } from '@/windows/main/components/ExportProgressHost'
 import { WorkspaceSetup } from '@/windows/main/components/WorkspaceSetup'
 import { Agentation } from 'agentation'
 import { ProjectImportCoordinator } from '@/windows/main/components/ProjectImportCoordinator'
@@ -32,6 +33,7 @@ export default function App(): React.JSX.Element {
     <SettingsProvider>
       <AppNavigator />
       <AppContent />
+      <ExportProgressHost />
       {import.meta.env.DEV && <Agentation />}
     </SettingsProvider>
   )

@@ -3,7 +3,11 @@
     "identifier": "default",
     "description": "Capability for all windows",
     "local": true,
-    "windows": ["main", "editor", "player"],
+    "windows": [
+      "main",
+      "editor",
+      "player"
+    ],
     "permissions": [
       "core:default",
       "core:window:allow-close",
@@ -18,35 +22,62 @@
     "identifier": "desktop-shortcuts",
     "description": "Desktop-only global shortcut permissions",
     "local": true,
-    "windows": ["main", "editor", "player"],
+    "windows": [
+      "main",
+      "editor",
+      "player"
+    ],
     "permissions": [
       "global-shortcut:allow-is-registered",
       "global-shortcut:allow-register",
       "global-shortcut:allow-unregister",
       "global-shortcut:allow-unregister-all"
     ],
-    "platforms": ["linux", "macOS", "windows"]
+    "platforms": [
+      "linux",
+      "macOS",
+      "windows"
+    ]
   },
   "editor": {
     "identifier": "editor",
     "description": "Additional permissions for the editor window",
     "local": true,
-    "windows": ["editor"],
-    "permissions": ["core:window:allow-destroy"]
+    "windows": [
+      "editor"
+    ],
+    "permissions": [
+      "core:window:allow-destroy"
+    ]
   },
   "mobile-player": {
     "identifier": "mobile-player",
     "description": "Mobile shell permissions used by the embedded player",
     "local": true,
-    "windows": ["main"],
-    "permissions": ["core:window:allow-set-fullscreen"],
-    "platforms": ["android", "iOS"]
+    "windows": [
+      "main"
+    ],
+    "permissions": [
+      "core:window:allow-set-fullscreen"
+    ],
+    "platforms": [
+      "android",
+      "iOS"
+    ]
   },
   "player": {
     "identifier": "player",
-    "description": "Additional permissions for the borderless player window",
+    "description": "Additional permissions for the borderless player and export windows",
     "local": true,
-    "windows": ["player"],
-    "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
+    "windows": [
+      "player",
+      "export-coordinator",
+      "export-debug",
+      "export-worker-*"
+    ],
+    "permissions": [
+      "core:window:allow-start-dragging",
+      "core:window:allow-set-fullscreen"
+    ]
   }
 }

@@ -5,10 +5,36 @@ import {
   playerRoutePath,
   prefersInAppNavigation
 } from '@/lib/platform'
+import type { RenderConfig } from '@/settings/types'
 
 type NavigateFn = (path: string) => void
 
 let navigateHandler: NavigateFn | null = null
+
+export type StartRenderResult = {
+  uploadUrl: string
+  sessionId: string
+}
+
+export type WorkerPlan = {
+  workerIndex: number
+  startFrame: number
+  endFrame: number
+  segmentPath: string
+  sessionKey: string
+}
+
+export type PrepareParallelExportResult = {
+  sessionId: string
+  tempDir: string
+  workers: WorkerPlan[]
+}
+
+export type FfmpegProgressEvent = {
+  ratio: number
+  outTimeSec: number
+  totalDurationSec: number
+}
 
 export function registerAppNavigator(navigate: NavigateFn | null): void {
   navigateHandler = navigate
@@ -32,12 +58,20 @@ export async function openEditorWindow(projectName: string): Promise<void> {
   await invoke('open_editor', { projectName })
 }
 
-export async function openPlayerWindow(projectName: string): Promise<void> {
-  if (prefersInAppNavigation()) {
+export async function openPlayerWindow(
+  projectName: string,
+  render: boolean = false,
+  renderConfig?: RenderConfig
+): Promise<void> {
+  if (prefersInAppNavigation() && !render) {
     navigateInApp(playerRoutePath(projectName))
     return
   }
-  await invoke('open_player', { projectName })
+  await invoke('open_player', {
+    projectName,
+    render,
+    renderConfig: renderConfig ?? null
+  })
 }
 
 export async function closeEditorWindow(): Promise<void> {
@@ -66,4 +100,73 @@ export async function closePlayerWindow(): Promise<void> {
   } catch {
     navigateInApp(homeRoutePath())
   }
+}
+
+export function closeExportWorker(workerIndex: number): Promise<void> {
+  return invoke('close_export_worker', { workerIndex })
+}
+
+export function startRenderSession(
+  projectName: string,
+  config: RenderConfig & { sessionId?: string }
+): Promise<StartRenderResult> {
+  return invoke<StartRenderResult>('start_render_session', {
+    projectName,
+    config: {
+      exportPath: config.segmentPath ?? config.exportPath,
+      width: config.width,
+      height: config.height,
+      fps: config.fps,
+      sessionId: config.sessionId
+    }
+  })
+}
+
+export function stopRenderSession(projectName: string): Promise<void> {
+  return invoke('stop_render_session', { projectName })
+}
+
+export function prepareParallelExport(args: {
+  projectName: string
+  exportPath: string
+  concurrency: number
+  totalFrames: number
+  width: number
+  height: number
+  fps: number
+  dataPath: string
+}): Promise<PrepareParallelExportResult> {
+  return invoke<PrepareParallelExportResult>('prepare_parallel_export', { args })
+}
+
+export function concatRenderSegments(
+  segmentPaths: string[],
+  exportPath: string,
+  totalDurationSec?: number
+): Promise<void> {
+  return invoke('concat_render_segments', {
+    args: {
+      segmentPaths,
+      exportPath,
+      totalDurationSec:
+        typeof totalDurationSec === 'number' && Number.isFinite(totalDurationSec)
+          ? totalDurationSec
+          : undefined
+    }
+  })
+}
+
+export function cleanupExportTemp(tempDir: string): Promise<void> {
+  return invoke('cleanup_export_temp', { tempDir })
+}
+
+/** Returns segment duration seconds; throws if unreadable/incomplete. */
+export function validateRenderSegment(
+  path: string,
+  minDurationSec: number = 0.01
+): Promise<number> {
+  return invoke<number>('validate_render_segment', {
+    path,
+    minDurationSec
+  })
 }
