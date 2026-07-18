@@ -78,7 +78,7 @@ pnpm tauri android build --apk --target aarch64
 
 Notes:
 
-- The first build downloads Gradle and Android dependencies. On restricted networks, use a local proxy for Gradle and/or the Aliyun Maven mirrors already configured in `src-tauri/gen/android/build.gradle.kts`.
+- The first build downloads Gradle and Android dependencies from the official Google Maven and Maven Central repositories. On restricted networks, set `MSS_USE_ALIYUN_MAVEN=true` to opt into the Aliyun Maven mirrors.
 - Navigation is handled in-app via `#/editor/:project` and `#/player/:project` — no multi-window.
 - The player uses automatic timeline playback, no tap-to-advance.
 - To preview the mobile shell in a desktop browser: `localStorage.setItem('mss.mobileShell','1')` or append `?mobileShell=1`.
