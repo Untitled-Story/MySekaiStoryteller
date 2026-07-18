@@ -172,13 +172,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          key: android-aarch64
+          key: android-arm
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -208,24 +208,32 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           export NDK_HOME="$ANDROID_HOME/ndk/30.0.15729638"
-          pnpm tauri android build --apk --target aarch64 --ci
+          pnpm tauri android build --apk --split-per-abi --target aarch64 armv7 --ci
 
-      - name: Collect Android APK
+      - name: Collect Android APKs
         shell: bash
         run: |
-          apk_path="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release*.apk' -print -quit)"
-          if [[ -z "$apk_path" ]]; then
-            echo "Android release APK was not generated." >&2
-            exit 1
-          fi
+          collect_android_apk() {
+            local flavor="$1"
+            local artifact_arch="$2"
+            local apk_dir="src-tauri/gen/android/app/build/outputs/apk/$flavor/release"
+            local apk_path
+            apk_path="$(find "$apk_dir" -type f -name '*release*.apk' -print -quit)"
+            if [[ -z "$apk_path" ]]; then
+              echo "Android $artifact_arch release APK was not generated." >&2
+              exit 1
+            fi
+            cp "$apk_path" "android-artifacts/MySekaiStoryteller-${RELEASE_TAG}-android-${artifact_arch}.apk"
+          }
 
           mkdir -p android-artifacts
-          cp "$apk_path" "android-artifacts/MySekaiStoryteller-${RELEASE_TAG}-android-arm64.apk"
+          collect_android_apk arm64 arm64
+          collect_android_apk arm armv7
 
-      - name: Upload Android APK
+      - name: Upload Android APKs
         uses: actions/upload-artifact@v4
         with:
-          name: MySekaiStoryteller-android-arm64
+          name: MySekaiStoryteller-android
           path: android-artifacts/*.apk
           if-no-files-found: error
 

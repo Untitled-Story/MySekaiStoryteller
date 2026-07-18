@@ -15,6 +15,7 @@ type ScreenOrientationLike = {
 
 type NativeOrientationBridge = {
   setLandscape: (enabled: boolean) => void
+  setImmersive?: (enabled: boolean) => void
 }
 
 function getNativeOrientationBridge(): NativeOrientationBridge | undefined {
@@ -67,5 +68,25 @@ export function unlockOrientation(): void {
     orientation?.unlock?.()
   } catch {
     // ignore unlock failures
+  }
+}
+
+export function enterImmersiveMode(): boolean {
+  const nativeBridge: NativeOrientationBridge | undefined = getNativeOrientationBridge()
+  if (!nativeBridge?.setImmersive) return false
+
+  try {
+    nativeBridge.setImmersive(true)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function exitImmersiveMode(): void {
+  try {
+    getNativeOrientationBridge()?.setImmersive?.(false)
+  } catch {
+    // The activity may already be closing.
   }
 }

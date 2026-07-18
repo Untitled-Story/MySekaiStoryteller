@@ -1,12 +1,17 @@
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWindow, type Window as TauriWindow } from '@tauri-apps/api/window'
 import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { Application } from 'pixi.js'
 import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { prefersInAppNavigation } from '@/lib/platform'
-import { lockLandscapeOrientation, unlockOrientation } from '@/lib/orientation'
+import {
+  enterImmersiveMode,
+  exitImmersiveMode,
+  lockLandscapeOrientation,
+  unlockOrientation
+} from '@/lib/orientation'
 import { closePlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import { cn } from '@/lib/style'
@@ -125,7 +130,7 @@ export default function App({
     if (!inAppNavigation) return undefined
 
     let cancelled: boolean = false
-    const currentWindow = getCurrentWindow()
+    const currentWindow: TauriWindow = getCurrentWindow()
 
     void (async (): Promise<void> => {
       try {
@@ -136,13 +141,18 @@ export default function App({
       }
       if (cancelled) {
         await currentWindow.setFullscreen(false).catch((): void => undefined)
+        exitImmersiveMode()
         return
       }
+
+      const immersive: boolean = enterImmersiveMode()
+      if (immersive) logger.info('player.immersive_mode_entered')
 
       const locked: boolean = await lockLandscapeOrientation()
       if (cancelled) {
         if (locked) unlockOrientation()
         await currentWindow.setFullscreen(false).catch((): void => undefined)
+        exitImmersiveMode()
         return
       }
       if (locked) logger.info('player.orientation_locked', { orientation: 'landscape' })
@@ -152,15 +162,18 @@ export default function App({
       cancelled = true
       clearControlsHideTimer()
       unlockOrientation()
-      void currentWindow.setFullscreen(false).catch((error: unknown): void => {
-        logger.warn('player.mobile_fullscreen_exit_failed', { error: describeError(error) })
-      })
+      void currentWindow
+        .setFullscreen(false)
+        .catch((error: unknown): void => {
+          logger.warn('player.mobile_fullscreen_exit_failed', { error: describeError(error) })
+        })
+        .finally((): void => exitImmersiveMode())
       logger.info('player.orientation_unlocked')
     }
   }, [clearControlsHideTimer, inAppNavigation])
 
   useEffect((): (() => void) => {
-    const currentWindow = getCurrentWindow()
+    const currentWindow: TauriWindow = getCurrentWindow()
 
     async function enterFullscreen(): Promise<void> {
       try {
