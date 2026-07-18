@@ -93,6 +93,10 @@ export type RenderConfig = {
   jobId?: number
   /** If true, worker stays alive and waits for more job assigns. */
   multiJob?: boolean
-  /** Optional workspace data path for worker windows when settings are incomplete. */
+  /**
+   * Absolute data/workspace path from the launcher window.
+   * Workers should prefer this over get_data_path() so concurrent settings
+   * saves cannot leave them without a workspace.
+   */
   dataPath?: string
 }

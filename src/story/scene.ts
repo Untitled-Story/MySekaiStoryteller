@@ -229,7 +229,8 @@ export function createStoryScene({
   }
   const delayMs = (timeMs: number): Promise<void> =>
     fastForwarding ? Promise.resolve() : clock.delay(timeMs)
-  const waitUntil = (whenFinish: () => boolean): Promise<void> => clock.waitUntil(whenFinish)
+  const waitUntil = (whenFinish: (deltaMs?: number) => boolean): Promise<void> =>
+    clock.waitUntil(whenFinish)
 
   const resizeObserver = new ResizeObserver((): void => {
     relayoutScene()
@@ -397,9 +398,12 @@ export function createStoryScene({
         : null
       if (modelInstance && options.voiceKey) {
         const resolvedVoice: ResolvedAsset<VoiceAsset> = resolveVoiceUrl(options.voiceKey)
-        waits.push(speakModel(modelInstance.model, resolvedVoice.url))
+        // Voice is wall-clock audio. Never await/track it on the export manual clock or
+        // warm-up freezes (frame index stops while waitForStoryExternalIdle spins).
+        void speakModel(modelInstance.model, resolvedVoice.url).catch(() => undefined)
       }
 
+      // Typewriter is clock-driven via animateLinear — do not wrap in trackStoryAsync.
       waits.push(startDisplayDialogueContent(ui, animateLinear))
 
       await Promise.all(waits)
@@ -501,12 +505,14 @@ export function createStoryScene({
   }
 
   function getDialogueUi(): Promise<DialogueUiState> {
-    dialogueUiPromise ??= createDialogueUi(app, layers.ui, fontFamily).then(
-      (createdUi: DialogueUiState): DialogueUiState => {
-        dialogueUi = createdUi
-        layoutDialogueUi(createdUi, app)
-        return createdUi
-      }
+    dialogueUiPromise ??= trackStoryAsync(
+      createDialogueUi(app, layers.ui, fontFamily).then(
+        (createdUi: DialogueUiState): DialogueUiState => {
+          dialogueUi = createdUi
+          layoutDialogueUi(createdUi, app)
+          return createdUi
+        }
+      )
     )
     return dialogueUiPromise
   }
@@ -1030,7 +1036,7 @@ function hideDisplayObject(
 
 async function playModelLastFrame(
   model: SekaiLive2DModel,
-  waitUntil: (whenFinish: () => boolean) => Promise<void>,
+  waitUntil: (whenFinish: (deltaMs?: number) => boolean) => Promise<void>,
   motion?: string,
   facial?: string
 ): Promise<void> {
@@ -1045,7 +1051,7 @@ async function playModelLastFrame(
     waits.push(managers[1].playMotionLastFrame(facial, 0))
   }
 
-  const results: boolean[] = await Promise.all(waits)
+  const results: boolean[] = await trackStoryAsync(Promise.all(waits))
   if (results.includes(false)) {
     await applyAndWaitModelMotion(model, waitUntil, motion, facial, true)
   } else if (waits.length > 0) {
@@ -1065,12 +1071,12 @@ async function applyModelLastFrame(
   if (motion) tasks.push(managers[0].playMotionLastFrame(motion, 0))
   if (facial) tasks.push(managers[1].playMotionLastFrame(facial, 0))
 
-  await Promise.all(tasks)
+  await trackStoryAsync(Promise.all(tasks))
 }
 
 async function applyAndWaitModelMotion(
   model: SekaiLive2DModel,
-  waitUntil: (whenFinish: () => boolean) => Promise<void>,
+  waitUntil: (whenFinish: (deltaMs?: number) => boolean) => Promise<void>,
   motion?: string,
   facial?: string,
   ignoreMotionEyeParams = false
@@ -1091,8 +1097,22 @@ async function applyAndWaitModelMotion(
     waits.push(managers[1].startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false }))
   }
 
-  if (waits.length > 0) {
-    await trackStoryAsync(Promise.all(waits))
+  if (waits.length === 0) return
+
+  // startMotion may do async resource work outside the playback clock — hold export clock.
+  // Bound the hold so a stuck load cannot freeze multi-worker warm forever.
+  const started: boolean[] = await trackStoryAsync(
+    Promise.race([
+      Promise.all(waits),
+      new Promise<boolean[]>((resolve): void => {
+        window.setTimeout((): void => {
+          resolve(waits.map((): boolean => false))
+        }, 5000)
+      })
+    ])
+  )
+  // Only wait when at least one manager actually started; false means skipped/failed start.
+  if (started.some((ok: boolean): boolean => ok)) {
     await waitForModelMotion(managers, waitUntil)
   }
 }
@@ -1176,11 +1196,54 @@ function getParallelMotionManagers(
   return [motionManager, facialManager]
 }
 
+function isMotionManagerFinished(manager: ParallelMotionManagerLike): boolean {
+  try {
+    // After Live2D model.destroy(), queueManager is released and isFinished throws.
+    return manager.isFinished()
+  } catch {
+    return true
+  }
+}
+
+function areMotionManagersFinished(
+  managers: [ParallelMotionManagerLike, ParallelMotionManagerLike]
+): boolean {
+  return isMotionManagerFinished(managers[0]) && isMotionManagerFinished(managers[1])
+}
+
+/**
+ * Wait until motions finish without treating the pre-start "finished" snapshot as done.
+ *
+ * Export drives Live2D manually. Right after startMotion resolves, isFinished() can still
+ * be true until the first model update — resolving immediately skips the whole motion.
+ *
+ * pollTasks() may invoke the predicate with 0ms delta; only count positive delta toward
+ * arming / max-duration budgets so warm-up cannot freeze.
+ */
 function waitForModelMotion(
   managers: [ParallelMotionManagerLike, ParallelMotionManagerLike],
-  waitUntil: (whenFinish: () => boolean) => Promise<void>
+  waitUntil: (whenFinish: (deltaMs?: number) => boolean) => Promise<void>
 ): Promise<void> {
-  return waitUntil(() => managers[0].isFinished() && managers[1].isFinished())
+  let seenActive: boolean = false
+  let armingMs: number = 0
+  let activeMs: number = 0
+  // If never becomes active after startMotion, give up quickly so warm continues.
+  const maxArmingMs: number = 250
+  // Safety: never wait more than ~8s for a single motion under export clock.
+  const maxActiveMs: number = 8000
+
+  return waitUntil((deltaMs: number = 0): boolean => {
+    const finished: boolean = areMotionManagersFinished(managers)
+    if (!finished) {
+      seenActive = true
+      activeMs += Math.max(0, deltaMs)
+      // Pathological: motion never finishes.
+      return activeMs >= maxActiveMs
+    }
+    if (seenActive) return true
+    armingMs += Math.max(0, deltaMs)
+    return armingMs >= maxArmingMs
+  })
 }
 
 function ensureAlphaFilter(model: SekaiLive2DModel): AlphaFilter {
@@ -1261,18 +1324,32 @@ function speakModel(model: SekaiLive2DModel, voiceUrl: string): Promise<void> {
   const speakableModel: SpeakableSekaiLive2DModel = model as SpeakableSekaiLive2DModel
 
   return new Promise<void>((resolve: () => void, reject: (reason?: unknown) => void): void => {
+    // Export clock does not advance wall-audio; still must not hang forever if onFinish never fires.
+    const timeoutId: number = window.setTimeout((): void => {
+      resolve()
+    }, 30_000)
+
+    const finish = (): void => {
+      window.clearTimeout(timeoutId)
+      resolve()
+    }
+    const fail = (reason?: unknown): void => {
+      window.clearTimeout(timeoutId)
+      reject(reason)
+    }
+
     void speakableModel
       .speak(voiceUrl, {
         volume: VOICE_VOLUME,
-        onFinish: resolve,
-        onError: reject
+        onFinish: finish,
+        onError: fail
       })
       .then((started: boolean): void => {
         if (!started) {
-          resolve()
+          finish()
         }
       })
-      .catch(reject)
+      .catch(fail)
   })
 }
 

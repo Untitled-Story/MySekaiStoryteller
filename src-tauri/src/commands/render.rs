@@ -195,9 +195,9 @@ fn nvenc_usable() -> bool {
             .unwrap_or(false);
 
         if ok {
-            eprintln!("[render] encoder: h264_nvenc");
+            log::info!(target: "backend::render", "encoder selected: h264_nvenc");
         } else {
-            eprintln!("[render] encoder: libx264 (nvenc unavailable on this GPU)");
+            log::info!(target: "backend::render", "encoder selected: libx264 (nvenc unavailable)");
         }
         ok
     })
@@ -229,6 +229,8 @@ impl RenderManager {
 pub fn prepare_parallel_export(
     args: PrepareParallelExportArgs,
 ) -> Result<PrepareParallelExportResult, String> {
+    log::info!(target: "backend::render", "prepare_parallel_export requested project={} concurrency={} frames={}", args.project_name, args.concurrency, args.total_frames);
+
     let concurrency = args.concurrency.max(1);
     let total_frames = args.total_frames;
     let session_id = format!(
@@ -284,6 +286,8 @@ pub async fn concat_render_segments(
     app: AppHandle,
     args: ConcatSegmentsArgs,
 ) -> Result<(), String> {
+    log::info!(target: "backend::render", "concat_render_segments requested segments={} path={}", args.segment_paths.len(), args.export_path);
+
     // Heavy libx265 re-encode must not block the async runtime / UI thread.
     tauri::async_runtime::spawn_blocking(move || concat_render_segments_blocking(app, args))
         .await
@@ -354,10 +358,7 @@ fn concat_render_segments_blocking(app: AppHandle, args: ConcatSegmentsArgs) -> 
     cmd.arg(&args.export_path);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-    eprintln!(
-        "[render] final merge+encode (progress enabled): {}",
-        encode_args.join(" ")
-    );
+    log::info!(target: "backend::render", "final merge+encode (progress enabled): {}", encode_args.join(" "));
 
     let mut child = cmd
         .spawn()
@@ -445,7 +446,7 @@ fn final_delivery_encode_args() -> Vec<String> {
     static ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     ARGS.get_or_init(|| {
         if encoder_name_listed("libx265") {
-            eprintln!("[render] final encoder: libx265 medium CRF 20");
+            log::info!(target: "backend::render", "final encoder: libx265 medium CRF 20");
             vec![
                 "-c:v".into(),
                 "libx265".into(),
@@ -461,7 +462,7 @@ fn final_delivery_encode_args() -> Vec<String> {
                 "+faststart".into(),
             ]
         } else {
-            eprintln!("[render] final encoder: libx264 medium CRF 18");
+            log::info!(target: "backend::render", "final encoder: libx264 medium CRF 18");
             vec![
                 "-c:v".into(),
                 "libx264".into(),
@@ -491,6 +492,8 @@ fn encoder_name_listed(name: &str) -> bool {
 
 #[tauri::command]
 pub fn cleanup_export_temp(temp_dir: String) -> Result<(), String> {
+    log::info!(target: "backend::render", "cleanup_export_temp dir={temp_dir}");
+
     let path = Path::new(&temp_dir);
     if path.exists() {
         std::fs::remove_dir_all(path).map_err(|e| format!("Failed to remove temp dir: {e}"))?;
@@ -504,6 +507,8 @@ pub fn start_render_session(
     project_name: String,
     config: RenderConfig,
 ) -> Result<StartRenderResult, String> {
+    log::info!(target: "backend::render", "start_render_session requested project={} path={} {}x{}@{}", project_name, config.export_path, config.width, config.height, config.fps);
+
     if config.width == 0 || config.height == 0 {
         return Err("Invalid render size".to_string());
     }
@@ -553,7 +558,7 @@ pub fn start_render_session(
         {
             Ok(child) => child,
             Err(e) => {
-                eprintln!("Failed to spawn ffmpeg: {e}");
+                log::error!(target: "backend::render", "Failed to spawn ffmpeg: {e}");
                 while let Ok(msg) = rx.recv() {
                     if matches!(msg, RenderMessage::Stop) {
                         break;
@@ -570,7 +575,7 @@ pub fn start_render_session(
         let mut stdin = match child.stdin.take() {
             Some(stdin) => stdin,
             None => {
-                eprintln!("Failed to open ffmpeg stdin");
+                log::error!(target: "backend::render", "Failed to open ffmpeg stdin");
                 let _ = child.kill();
                 let _ = child.wait();
                 return;
@@ -590,13 +595,7 @@ pub fn start_render_session(
                         break;
                     }
                     if data.is_empty() || data.len() % frame_bytes != 0 {
-                        eprintln!(
-                            "Unexpected batch size: got {} bytes, frame {} ({}x{})",
-                            data.len(),
-                            frame_bytes,
-                            config_clone.width,
-                            config_clone.height
-                        );
+                        log::error!(target: "backend::render", "Unexpected batch size: got {} bytes, frame {} ({}x{})", data.len(), frame_bytes, config_clone.width, config_clone.height);
                         break;
                     }
                     // Chunked write so stop_flag can be observed between chunks.
@@ -615,7 +614,7 @@ pub fn start_render_session(
                             }
                             Ok(n) => offset += n,
                             Err(e) => {
-                                eprintln!("FFmpeg stdin write error: {e}");
+                                log::error!(target: "backend::render", "FFmpeg stdin write error: {e}");
                                 write_failed = true;
                                 break;
                             }
@@ -642,7 +641,7 @@ pub fn start_render_session(
                         if let Some(mut stderr) = child.stderr.take() {
                             let _ = stderr.read_to_string(&mut err);
                         }
-                        eprintln!("ffmpeg exited with status {status}: {err}");
+                        log::error!(target: "backend::render", "ffmpeg exited with status {status}: {err}");
                     }
                     break;
                 }
@@ -650,13 +649,13 @@ pub fn start_render_session(
                     if std::time::Instant::now() >= wait_deadline {
                         let _ = child.kill();
                         let _ = child.wait();
-                        eprintln!("ffmpeg force-killed after stop timeout");
+                        log::warn!(target: "backend::render", "ffmpeg force-killed after stop timeout");
                         break;
                     }
                     thread::sleep(Duration::from_millis(50));
                 }
                 Err(e) => {
-                    eprintln!("Failed to wait for ffmpeg: {e}");
+                    log::error!(target: "backend::render", "Failed to wait for ffmpeg: {e}");
                     let _ = child.kill();
                     break;
                 }
@@ -823,6 +822,8 @@ pub fn stop_render_session(
     state: State<'_, RenderManager>,
     project_name: String,
 ) -> Result<(), String> {
+    log::info!(target: "backend::render", "stop_render_session requested project={project_name}");
+
     let mut session = {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
         sessions.remove(&project_name)
@@ -863,6 +864,8 @@ pub fn stop_render_session(
 
 #[tauri::command]
 pub fn validate_render_segment(path: String, min_duration_sec: f64) -> Result<f64, String> {
+    log::debug!(target: "backend::render", "validate_render_segment path={path} min_duration={min_duration_sec}");
+
     if !Path::new(&path).is_file() {
         return Err(format!("Segment missing: {path}"));
     }

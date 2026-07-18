@@ -134,7 +134,8 @@ export function useSettingsState(options: UseSettingsStateOptions = {}): Setting
         logger.info('settings.load_completed', {
           durationMs: Math.round(performance.now() - startedAt),
           found: true,
-          hasWorkspace: Boolean(stored.workspaceDir)
+          hasWorkspace: Boolean(stored.workspaceDir),
+          hasExportPrefs: Boolean(stored.export)
         })
       })
       .catch((error: unknown): void => {
@@ -199,6 +200,7 @@ export function useSettingsState(options: UseSettingsStateOptions = {}): Setting
       shortcuts,
       onboarding,
       interaction,
+      export: exportPrefs,
       workspaceDir: workspaceDir ?? undefined
     }
 

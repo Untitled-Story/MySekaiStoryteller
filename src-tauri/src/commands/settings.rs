@@ -386,6 +386,7 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String
         error.to_string()
     })?;
     fs::rename(&tmp_path, &path).map_err(|error| {
+        let _ = fs::remove_file(&tmp_path);
         log::error!(target: "backend::settings", "settings.save rename_failed error={error}");
         error.to_string()
     })?;

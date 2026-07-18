@@ -20,6 +20,7 @@ import {
 import { getDataPath } from '@/workspace/api'
 import { openPlayerWindow } from '@/windows/api'
 import { buildDefaultExportPath } from '@/windows/main/utils/exportPath'
+import { describeError, logger } from '@/lib/logger'
 
 export type ExportVideoDialogProps = {
   projectTitle: string | null
@@ -57,7 +58,10 @@ export function ExportVideoDialog({
           concurrency: prefs.concurrency
         })
       } catch (error: unknown) {
-        console.error('Failed to initialize export config', error)
+        logger.error('export.dialog_init_failed', {
+          projectTitle,
+          error: describeError(error)
+        })
       }
     }
 
@@ -86,21 +90,44 @@ export function ExportVideoDialog({
       const height = Math.max(90, Math.floor(config.height) || DEFAULT_EXPORT_PREFS.height)
       const fps = Math.max(1, Math.floor(config.fps) || DEFAULT_EXPORT_PREFS.fps)
       const concurrency = Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
+      const dataPath = await getDataPath()
       // Persist last-used export options (not path).
       setExportPrefs({ width, height, fps, concurrency })
       onOpenChange(false)
       const exportGroupId = `exp_ui_${Date.now()}`
+      const role = concurrency > 1 ? 'coordinator' : 'single'
+      logger.info('export.start_requested', {
+        projectTitle,
+        exportPath: config.exportPath,
+        width,
+        height,
+        fps,
+        concurrency,
+        role,
+        exportGroupId,
+        dataPath
+      })
       await openPlayerWindow(projectTitle, true, {
         exportPath: config.exportPath,
         width,
         height,
         fps,
         concurrency,
-        role: concurrency > 1 ? 'coordinator' : 'single',
+        role,
         exportGroupId,
-        sessionId: exportGroupId
+        sessionId: exportGroupId,
+        dataPath
+      })
+      logger.info('export.start_window_opened', {
+        projectTitle,
+        exportGroupId,
+        role
       })
     } catch (error: unknown) {
+      logger.error('export.start_failed', {
+        projectTitle,
+        error: describeError(error)
+      })
       alert('开始导出失败: ' + (error instanceof Error ? error.message : '未知错误'))
     } finally {
       setIsStarting(false)
