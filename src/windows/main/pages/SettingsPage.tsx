@@ -28,7 +28,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FolderOpen, RotateCcw } from 'lucide-react'
 import { describeError, logger } from '@/lib/logger'
-import { isMobileRuntime } from '@/lib/platform'
+import { getRuntimePlatform, isMobileRuntime } from '@/lib/platform'
 import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
@@ -37,6 +37,7 @@ import { cn } from '@/lib/style'
 export default function SettingsPage(): JSX.Element {
   const { t } = useTranslation()
   const mobileRuntime: boolean = isMobileRuntime()
+  const androidRuntime: boolean = getRuntimePlatform() === 'android'
   const {
     language,
     appearance,
@@ -200,28 +201,32 @@ export default function SettingsPage(): JSX.Element {
         mobileRuntime && 'mobile-page-scrollbar'
       )}
     >
-      <div className="mb-2 w-full max-w-2xl space-y-1">
-        <h2 className="text-2xl font-semibold leading-tight">{t('settings.storage')}</h2>
-        <p className="text-sm text-muted-foreground">{t('settings.storageDescription')}</p>
-      </div>
+      {!androidRuntime ? (
+        <>
+          <div className="mb-2 w-full max-w-2xl space-y-1">
+            <h2 className="text-2xl font-semibold leading-tight">{t('settings.storage')}</h2>
+            <p className="text-sm text-muted-foreground">{t('settings.storageDescription')}</p>
+          </div>
 
-      <div className="w-full max-w-2xl divide-y divide-border">
-        <SettingRow
-          title={t('settings.workspace')}
-          description={workspaceDir ?? t('common.missing')}
-        >
-          <Button variant="outline" size="sm" onClick={handleChangeWorkspace}>
-            <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
-            {t('common.change')}
-          </Button>
-        </SettingRow>
-        <SettingRow title={t('settings.logs')} description={logPath}>
-          <Button variant="outline" size="sm" onClick={handleOpenLogDirectory}>
-            <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
-            {t('common.open')}
-          </Button>
-        </SettingRow>
-      </div>
+          <div className="w-full max-w-2xl divide-y divide-border">
+            <SettingRow
+              title={t('settings.workspace')}
+              description={workspaceDir ?? t('common.missing')}
+            >
+              <Button variant="outline" size="sm" onClick={handleChangeWorkspace}>
+                <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                {t('common.change')}
+              </Button>
+            </SettingRow>
+            <SettingRow title={t('settings.logs')} description={logPath}>
+              <Button variant="outline" size="sm" onClick={handleOpenLogDirectory}>
+                <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                {t('common.open')}
+              </Button>
+            </SettingRow>
+          </div>
+        </>
+      ) : null}
 
       <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl leading-tight font-semibold">{t('settings.interaction')}</h2>
