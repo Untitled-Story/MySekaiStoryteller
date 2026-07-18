@@ -1002,7 +1002,14 @@ async function runExportPipeline({
   const totalFrames = Math.max(1, Math.ceil(totalDuration * exportFps))
   const frameByteLength = exportWidth * exportHeight * 4
   // Larger batches cut HTTP overhead; pool size bounds peak RAM.
-  const batchFrames = frameByteLength >= 8_000_000 ? 4 : frameByteLength >= 3_000_000 ? 6 : 8
+  // Mobile: 1 frame/batch so first progress update is not delayed by multi-MB IPC.
+  const batchFrames = isMobileRuntime()
+    ? 1
+    : frameByteLength >= 8_000_000
+      ? 4
+      : frameByteLength >= 3_000_000
+        ? 6
+        : 8
 
   stageElement.style.width = `${exportWidth}px`
   stageElement.style.height = `${exportHeight}px`

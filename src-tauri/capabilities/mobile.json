@@ -16,6 +16,35 @@
     "dialog:default",
     "fs:default",
     "log:default",
-    "opener:default"
+    "opener:default",
+    "fs:allow-write-file",
+    "fs:allow-read-file",
+    "fs:allow-remove",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-app-write",
+    "fs:allow-app-read",
+    "fs:allow-app-meta",
+    "fs:allow-appcache-write",
+    "fs:allow-appcache-read",
+    "fs:allow-appcache-meta",
+    "fs:allow-appcache-write-recursive",
+    "fs:allow-appcache-read-recursive",
+    "fs:allow-app-write-recursive",
+    "fs:allow-app-read-recursive",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "$APPCACHE/**"
+        },
+        {
+          "path": "$APPLOCALDATA/**"
+        },
+        {
+          "path": "$APP/**"
+        }
+      ]
+    }
   ]
 }

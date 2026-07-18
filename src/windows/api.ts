@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs'
 import {
   editorRoutePath,
   exportRoutePath,
@@ -194,11 +195,24 @@ export function validateRenderSegment(
   })
 }
 
-/** Push one or more packed RGBA frames into the native encode queue (preferred on mobile). */
-export function streamFrame(projectName: string, data: Uint8Array | number[]): Promise<void> {
-  const payload: number[] = data instanceof Uint8Array ? Array.from(data) : data
-  return invoke('stream_frame', { projectName, data: payload })
+/** Push packed RGBA frame bytes into the native encode queue (file bridge avoids huge JSON). */
+export async function streamFrame(
+  projectName: string,
+  data: Uint8Array | number[]
+): Promise<void> {
+  const bytes: Uint8Array =
+    data instanceof Uint8Array ? data : Uint8Array.from(data)
+  // Never Array.from multi-MB frames into JSON — freezes Android WebView (progress stuck at 0%).
+  const fileName: string = `render-frame-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}.rgba`
+  await writeFile(fileName, bytes, { baseDir: BaseDirectory.Cache })
+  await invoke('stream_frame_file', {
+    projectName,
+    path: fileName
+  })
 }
+
 
 export function publishRenderOutput(sourcePath: string, destination: string): Promise<void> {
   return invoke('publish_render_output', {

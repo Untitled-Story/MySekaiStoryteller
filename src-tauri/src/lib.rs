@@ -155,6 +155,7 @@ pub fn run() {
             window::close_export_worker,
             render::start_render_session,
             render::stream_frame,
+            render::stream_frame_file,
             render::stop_render_session,
             render::prepare_parallel_export,
             render::concat_render_segments,

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -837,6 +837,44 @@ pub fn stream_frame(
 
     tx.send(RenderMessage::FrameBatch(data))
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Prefer this on mobile: read a temp RGBA batch file instead of huge JSON number arrays.
+#[tauri::command]
+pub fn stream_frame_file(
+    app: AppHandle,
+    state: State<'_, RenderManager>,
+    project_name: String,
+    path: String,
+) -> Result<(), String> {
+    let resolved = if Path::new(&path).is_file() {
+        PathBuf::from(&path)
+    } else {
+        app.path()
+            .app_cache_dir()
+            .map_err(|e| format!("cache dir: {e}"))?
+            .join(&path)
+    };
+    let data = std::fs::read(&resolved).map_err(|e| {
+        format!(
+            "read frame file failed path={} err={e}",
+            resolved.display()
+        )
+    })?;
+    if data.is_empty() {
+        return Err("frame file empty".into());
+    }
+    let tx = {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        sessions
+            .get(&project_name)
+            .map(|session| session.tx.clone())
+            .ok_or_else(|| "No active render session found for this project".to_string())?
+    };
+    tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(2_000))
+        .map_err(|e| format!("frame queue: {e}"))?;
+    let _ = std::fs::remove_file(&resolved);
     Ok(())
 }
 
