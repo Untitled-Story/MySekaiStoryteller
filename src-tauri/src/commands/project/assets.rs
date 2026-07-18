@@ -113,7 +113,13 @@ pub fn import_project_asset(
 
     let project_path = project_path(&app, &project_name)?;
     let mut assets = read_assets(&project_path)?;
-    let key = next_import_key(&assets, asset_kind, &source, &project_path)?;
+    let key = next_import_key(
+        &assets,
+        asset_kind,
+        &source,
+        &project_path,
+        &extension,
+    )?;
     let relative_path = format!("assets/{folder}/{key}.{extension}");
     let destination = resolve_project_file(&project_path, &relative_path)?;
     if destination.exists() {
@@ -447,13 +453,13 @@ fn next_import_key(
     kind: ProjectAssetKind,
     source: &Path,
     project_path: &Path,
+    extension: &str,
 ) -> Result<String, String> {
     let stem = source
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("asset");
     let base = normalize_asset_key(stem);
-    let extension = file_extension(source)?;
     let collection = asset_collection(assets, kind)?;
     let mut index: u32 = 1;
     loop {
@@ -853,6 +859,34 @@ mod tests {
         fs::write(&unknown, b"not a supported asset").expect("write unknown fixture");
         assert!(detect_asset_extension(&unknown).is_err());
         fs::remove_dir_all(root).expect("remove signature test directory");
+    }
+
+    #[test]
+    fn creates_import_key_for_extensionless_materialized_asset() {
+        let root = std::env::temp_dir().join(format!(
+            "mss-extensionless-import-test-{}",
+            super::super::unique_write_suffix()
+        ));
+        let project_path = root.join("project");
+        fs::create_dir_all(project_path.join("assets/backgrounds"))
+            .expect("create background directory");
+
+        let source = root.join("1000023035");
+        fs::write(&source, b"\xff\xd8\xff\xe0").expect("write extensionless JPEG fixture");
+        let extension = detect_asset_extension(&source).expect("detect JPEG content");
+        let assets = default_assets_json();
+
+        let key = next_import_key(
+            &assets,
+            ProjectAssetKind::Backgrounds,
+            &source,
+            &project_path,
+            &extension,
+        )
+        .expect("create import key");
+
+        assert_eq!(key, "1000023035");
+        fs::remove_dir_all(root).expect("remove extensionless import test directory");
     }
 
     #[test]

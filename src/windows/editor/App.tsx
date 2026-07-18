@@ -900,9 +900,12 @@ export default function App({
         setActivePanel('assets')
       })
     } catch (error: unknown) {
-      setActionError(
-        describeError(error, t('editor.importAssetFailed', { kind: localizeAssetKind(kind) }))
+      const message: string = describeError(
+        error,
+        t('editor.importAssetFailed', { kind: localizeAssetKind(kind) })
       )
+      setActionError(message)
+      setEditorNotice({ id: Date.now(), message, variant: 'error' })
     }
   }
 
