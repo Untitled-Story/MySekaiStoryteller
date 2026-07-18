@@ -195,22 +195,41 @@ export function validateRenderSegment(
   })
 }
 
-/** Push packed RGBA frame bytes into the native encode queue (file bridge avoids huge JSON). */
+/** Push packed RGBA frame bytes into the native encode queue. */
 export async function streamFrame(
   projectName: string,
   data: Uint8Array | number[]
 ): Promise<void> {
   const bytes: Uint8Array =
     data instanceof Uint8Array ? data : Uint8Array.from(data)
-  // Never Array.from multi-MB frames into JSON — freezes Android WebView (progress stuck at 0%).
-  const fileName: string = `render-frame-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}.rgba`
-  await writeFile(fileName, bytes, { baseDir: BaseDirectory.Cache })
-  await invoke('stream_frame_file', {
-    projectName,
-    path: fileName
-  })
+
+  // 1) Prefer raw binary IPC (Uint8Array → Vec<u8>). Do NOT Array.from() into number[]:
+  //    that expands multi-MB frames into JSON and freezes Android WebView.
+  try {
+    await invoke('stream_frame', {
+      projectName,
+      data: bytes
+    })
+    return
+  } catch (directError: unknown) {
+    // 2) Fallback: write cache file then let Rust read it (works when binary IPC is blocked).
+    const fileName: string = `render-frame-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}.rgba`
+    try {
+      await writeFile(fileName, bytes, { baseDir: BaseDirectory.Cache })
+      await invoke('stream_frame_file', {
+        projectName,
+        path: fileName
+      })
+      return
+    } catch (fileError: unknown) {
+      const directMsg =
+        directError instanceof Error ? directError.message : String(directError)
+      const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
+      throw new Error(`Frame stream failed (ipc: ${directMsg}; file: ${fileMsg})`)
+    }
+  }
 }
 
 

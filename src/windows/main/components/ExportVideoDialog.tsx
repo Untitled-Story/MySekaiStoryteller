@@ -99,6 +99,15 @@ export function ExportVideoDialog({
         ? 1
         : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
       const dataPath = await getDataPath()
+      // Android/iOS: always write under app private storage first (content:// is not mkdir-able).
+      let exportPath: string = config.exportPath
+      if (
+        mobileRuntime ||
+        exportPath.startsWith('content://') ||
+        exportPath.startsWith('file://')
+      ) {
+        exportPath = buildDefaultExportPath(dataPath, projectTitle)
+      }
       // Persist last-used export options (not path).
       setExportPrefs({ width, height, fps, concurrency })
       onOpenChange(false)
@@ -106,7 +115,7 @@ export function ExportVideoDialog({
       const role = concurrency > 1 ? 'coordinator' : 'single'
       logger.info('export.start_requested', {
         projectTitle,
-        exportPath: config.exportPath,
+        exportPath,
         width,
         height,
         fps,
@@ -116,7 +125,7 @@ export function ExportVideoDialog({
         dataPath
       })
       await openPlayerWindow(projectTitle, true, {
-        exportPath: config.exportPath,
+        exportPath,
         width,
         height,
         fps,

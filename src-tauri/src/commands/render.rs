@@ -519,6 +519,13 @@ pub fn start_render_session(
     if config.export_path.trim().is_empty() {
         return Err("Export path is empty".to_string());
     }
+    let lowered = config.export_path.to_ascii_lowercase();
+    if lowered.starts_with("content://") || lowered.starts_with("file://") {
+        return Err(
+            "Android content:// paths cannot be opened as ordinary files for encoding. Use the app private outputs directory, then share/export the finished MP4."
+                .into(),
+        );
+    }
 
     let export_path = Path::new(&config.export_path);
     if let Some(parent) = export_path.parent() {

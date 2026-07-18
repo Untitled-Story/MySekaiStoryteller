@@ -1212,9 +1212,21 @@ async function runExportPipeline({
           await streamFrame(sessionKey, payload)
           return
         } catch (error: unknown) {
-          lastError = error instanceof Error ? error : new Error('Frame stream failed')
+          const msg =
+            error instanceof Error
+              ? error.message
+              : typeof error === 'string'
+                ? error
+                : 'Frame stream failed'
+          lastError = new Error(msg)
+          logger.warn('export.frame_stream_attempt_failed', {
+            attempt,
+            maxAttempts,
+            error: describeError(error),
+            bytes: payload.byteLength
+          })
           if (attempt < maxAttempts) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 40 * attempt))
+            await new Promise<void>((resolve) => setTimeout(resolve, 80 * attempt))
             continue
           }
           throw lastError
