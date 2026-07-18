@@ -28,12 +28,14 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FolderOpen, RotateCcw } from 'lucide-react'
 import { describeError, logger } from '@/lib/logger'
+import { isMobileRuntime } from '@/lib/platform'
 import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 export default function SettingsPage(): JSX.Element {
   const { t } = useTranslation()
+  const mobileRuntime: boolean = isMobileRuntime()
   const {
     language,
     appearance,
@@ -353,29 +355,33 @@ export default function SettingsPage(): JSX.Element {
         </SettingRow>
       </div>
 
-      <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">{t('settings.shortcuts')}</h2>
-        <p className="text-sm text-muted-foreground">{t('settings.shortcutsDescription')}</p>
-      </div>
+      {!mobileRuntime ? (
+        <>
+          <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+            <h2 className="text-2xl font-semibold leading-tight">{t('settings.shortcuts')}</h2>
+            <p className="text-sm text-muted-foreground">{t('settings.shortcutsDescription')}</p>
+          </div>
 
-      <ShortcutGroup
-        title={t('settings.editor')}
-        commands={EDITOR_SHORTCUT_COMMANDS}
-        shortcuts={shortcuts}
-        conflict={shortcutConflict}
-        recordingShortcutId={recordingShortcutId}
-        onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
-        onReset={handleShortcutReset}
-      />
-      <ShortcutGroup
-        title={t('settings.player')}
-        commands={PLAYER_SHORTCUT_COMMANDS}
-        shortcuts={shortcuts}
-        conflict={shortcutConflict}
-        recordingShortcutId={recordingShortcutId}
-        onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
-        onReset={handleShortcutReset}
-      />
+          <ShortcutGroup
+            title={t('settings.editor')}
+            commands={EDITOR_SHORTCUT_COMMANDS}
+            shortcuts={shortcuts}
+            conflict={shortcutConflict}
+            recordingShortcutId={recordingShortcutId}
+            onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
+            onReset={handleShortcutReset}
+          />
+          <ShortcutGroup
+            title={t('settings.player')}
+            commands={PLAYER_SHORTCUT_COMMANDS}
+            shortcuts={shortcuts}
+            conflict={shortcutConflict}
+            recordingShortcutId={recordingShortcutId}
+            onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
+            onReset={handleShortcutReset}
+          />
+        </>
+      ) : null}
 
       <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.onboarding')}</h2>

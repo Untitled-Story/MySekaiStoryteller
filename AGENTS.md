@@ -48,6 +48,16 @@
 - Preserve proper names, credited biographies, and user-authored project content unless a product requirement explicitly calls for translating them.
 - Before finishing frontend work, search the touched UI for newly introduced hard-coded user-facing text and run `pnpm typecheck` to catch missing or structurally inconsistent locale keys.
 
+## Cross-Platform Compatibility
+
+- Treat runtime platform, input mode, and viewport size as separate concerns. Desktop builds on macOS, Linux, and Windows must retain desktop navigation/layout regardless of window width; Android/iOS may use responsive phone/tablet layouts and single-webview navigation.
+- Never assume filesystem paths, URL serialization, window creation, fullscreen, orientation, or file pickers behave identically across platforms. Keep platform-specific behavior behind shared helpers with a safe fallback.
+- Preserve `src/lib/projectAssetUrl.ts`'s segment-by-segment encoding and protocol-base resolution. Passing a complete hierarchical path directly to `convertFileSrc` breaks model-relative assets on Windows; keep the regression protection from commit `1c387fe2` intact.
+- Keep dynamic Tauri window commands asynchronous. Creating WebView2 windows from synchronous commands can deadlock Windows' COM message pump.
+- On Android/iOS, handle file-picker `content://`-style sources as opaque inputs rather than assuming ordinary filesystem paths. Native-only APIs and plugins must be platform-gated and must not break desktop builds.
+- Generated Tauri capability/schema output can vary by the platform that ran the CLI. Do not commit large generated-schema churn unless the source capabilities actually changed and the generated output is intentionally synchronized.
+- Before finishing platform-sensitive changes, verify the shared frontend (`pnpm typecheck`, lint/build as appropriate), Rust desktop code (`cargo check`), and the affected native target (for example an Android Gradle compile task). Document any target that could not be checked locally.
+
 ## Testing Guidelines
 
 - No formal test suite present. Add targeted tests alongside new logic when feasible; follow `*.test.ts` or `*.spec.ts` naming. For renderer logic, consider React Testing Library; for Rust commands, use `#[cfg(test)]` modules. Ensure `pnpm typecheck` and `cargo check` stay clean.

@@ -88,13 +88,25 @@ export default function HomePage(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full select-none flex-col overflow-auto px-5 py-6 pb-8 sm:px-8 sm:py-8">
-      <div className="mb-8">
-        <h2 className="text-2xl font-semibold">{t('home.welcome')}</h2>
+    <div
+      className={cn(
+        'flex h-full select-none flex-col overflow-auto px-8 py-8 pb-8',
+        stackSections && 'px-4 py-5 pb-6'
+      )}
+    >
+      <div className={cn('mb-8', stackSections && 'mb-5')}>
+        <h2 className={cn('text-2xl font-semibold', stackSections && 'text-xl')}>
+          {t('home.welcome')}
+        </h2>
       </div>
 
-      <div className={cn('flex gap-8', stackSections ? 'flex-col' : 'flex-row')}>
-        <div className="min-w-0 flex-1">
+      <div className={cn('flex gap-8', stackSections ? 'flex-col gap-5' : 'flex-row')}>
+        <div
+          className={cn(
+            'min-w-0 flex-1',
+            stackSections && 'rounded-2xl border bg-card p-4 shadow-xs'
+          )}
+        >
           <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
             {t('home.recent')}
           </h3>
@@ -107,7 +119,12 @@ export default function HomePage(): JSX.Element {
                   <span>{timeAgo(latest.lastModified)}</span>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div
+                className={cn(
+                  'flex gap-2',
+                  stackSections && '[&>button]:h-11 [&>button]:flex-1 [&>button]:justify-center'
+                )}
+              >
                 <button
                   onClick={() => handleOpenEditor(latest.title)}
                   className="flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -133,25 +150,34 @@ export default function HomePage(): JSX.Element {
           <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
             {t('home.quickActions')}
           </h3>
-          <nav className="space-y-1">
+          <nav className={cn('space-y-1', stackSections && 'space-y-2')}>
             <button
               data-tour="main-create-project"
               onClick={() => setCreateDialogOpen(true)}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
+              className={cn(
+                'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent',
+                stackSections && 'h-12 rounded-xl border bg-card shadow-xs active:bg-accent'
+              )}
             >
               <Plus className="h-4 w-4 text-muted-foreground" />
               {t('project.new')}
             </button>
             <button
               onClick={() => navigate('/projects')}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
+              className={cn(
+                'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent',
+                stackSections && 'h-12 rounded-xl border bg-card shadow-xs active:bg-accent'
+              )}
             >
               <Folder className="h-4 w-4 text-muted-foreground" />
               {t('home.allProjects')}
             </button>
             <button
               onClick={() => navigate('/settings')}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
+              className={cn(
+                'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent',
+                stackSections && 'h-12 rounded-xl border bg-card shadow-xs active:bg-accent'
+              )}
             >
               <Settings className="h-4 w-4 text-muted-foreground" />
               {t('nav.settings')}

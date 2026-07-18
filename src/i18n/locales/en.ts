@@ -390,10 +390,11 @@ export const en: LocaleShape = {
     importModel: 'Import new model',
     globalModel: 'Global model',
     noGlobalModels: 'No models are available in global models',
-    chooseModelSource: 'Choose model entry or ZIP',
+    chooseModelSource: 'Choose a model file',
     mobileModelZipHint:
-      'On mobile, package the complete model directory as a ZIP before importing.',
-    desktopModelHint: 'Supports *.model3.json, *.model.json, model.json, and ZIP archives.',
+      'Choose a ZIP containing the complete model directory. The model entry is detected automatically.',
+    desktopModelHint:
+      'Supports *.model3.json, *.model.json, model.json, and ZIP. Entries inside ZIP files are detected automatically.',
     inspectingZip: 'Inspecting ZIP…',
     optionalDisplayName: 'Display name (optional)',
     projectAssetKey: 'Project asset key',
@@ -426,7 +427,7 @@ export const en: LocaleShape = {
     registerModelFailed: 'Could not register model',
     importModelFailed: 'Could not import model',
     inspectModelZipFailed: 'Could not inspect model ZIP',
-    chooseLive2dEntry: 'Choose Live2D model entry',
+    chooseLive2dEntry: 'Choose a Live2D model file',
     live2dModel: 'Live2D model',
     noBackgroundSelected: 'No background selected',
     noModelSelected: 'No model selected',

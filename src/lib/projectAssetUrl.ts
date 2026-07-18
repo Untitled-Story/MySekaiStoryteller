@@ -14,6 +14,9 @@ export function projectAssetUrl(projectPath: string, relativePath: string): stri
 }
 
 function resolveProtocolBaseUrl(): string {
+  // Do not replace this marker-base strategy with convertFileSrc(`${root}/${child}`, 'mss').
+  // Windows custom-protocol serialization can destroy the relative asset hierarchy.
+  // Regression guard for 1c387fe2. Fuck u Microsoft.
   const markerUrl: string = convertFileSrc(PROTOCOL_PATH_MARKER, 'mss')
   const encodedMarker: string = encodeURIComponent(PROTOCOL_PATH_MARKER)
 

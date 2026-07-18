@@ -346,18 +346,26 @@ export function EditorPreview({
   return (
     <section
       data-tour="editor-preview-stage"
-      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-muted/15"
+      className={cn(
+        'flex h-full min-h-0 min-w-0 flex-col overflow-hidden',
+        compact ? 'bg-black' : 'bg-background'
+      )}
     >
       <div
         className={cn(
-          'flex shrink-0 items-center border-b bg-background/70',
-          compact ? 'h-10 px-2' : 'h-12 px-4'
+          'flex shrink-0 items-center border-b',
+          compact ? 'h-10 border-white/10 bg-black px-2 text-white' : 'h-12 bg-background/70 px-4'
         )}
       >
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm font-medium">{t('editor.previewPanel')}</span>
         </div>
-        <div className="ml-auto flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <div
+          className={cn(
+            'ml-auto flex min-w-0 items-center gap-1.5 text-xs',
+            compact ? 'text-white/60' : 'text-muted-foreground'
+          )}
+        >
           {status === 'loading' ? (
             <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
           ) : (
@@ -373,9 +381,17 @@ export function EditorPreview({
       </div>
 
       <div
-        className={cn('flex min-h-0 flex-1 items-center justify-center', compact ? 'p-2' : 'p-5')}
+        className={cn(
+          'flex min-h-0 flex-1 items-center justify-center',
+          compact ? 'bg-black p-0' : 'bg-background p-5'
+        )}
       >
-        <div className="relative w-full max-w-[960px] overflow-hidden rounded-md border bg-black shadow-sm">
+        <div
+          className={cn(
+            'relative w-full max-w-[960px] overflow-hidden bg-black',
+            compact ? 'rounded-none border-0 shadow-none' : 'rounded-md border shadow-sm'
+          )}
+        >
           <div className="relative aspect-video overflow-hidden">
             <div ref={stageRef} className="absolute inset-0" />
             <div className="pointer-events-none absolute inset-[7%] border border-white/12">
@@ -393,8 +409,8 @@ export function EditorPreview({
 
       <div
         className={cn(
-          'flex shrink-0 items-center border-t bg-background',
-          compact ? 'h-11 px-2' : 'h-12 px-4'
+          'flex shrink-0 items-center border-t',
+          compact ? 'h-11 border-white/10 bg-black px-2 text-white' : 'h-12 bg-background px-4'
         )}
       >
         <div className="flex items-center gap-1">
@@ -438,8 +454,13 @@ export function EditorPreview({
             <Square className="size-3.5 fill-current" />
           </Button>
         </div>
-        <div className="mx-3 h-px flex-1 bg-border" />
-        <span className="font-mono text-[11px] text-muted-foreground">
+        <div className={cn('mx-3 h-px flex-1', compact ? 'bg-white/15' : 'bg-border')} />
+        <span
+          className={cn(
+            'font-mono text-[11px]',
+            compact ? 'text-white/55' : 'text-muted-foreground'
+          )}
+        >
           {paused ? 'PAUSED' : status.toUpperCase()}
         </span>
       </div>

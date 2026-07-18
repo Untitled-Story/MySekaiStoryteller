@@ -386,9 +386,11 @@ export const ja: typeof en = {
     importModel: '新しいモデルをインポート',
     globalModel: 'グローバルモデル',
     noGlobalModels: '利用できるグローバルモデルがありません',
-    chooseModelSource: 'モデルエントリまたはZIPを選択',
-    mobileModelZipHint: 'モバイルではモデルフォルダー全体をZIPにしてからインポートしてください。',
-    desktopModelHint: '*.model3.json、*.model.json、model.json、ZIPに対応しています。',
+    chooseModelSource: 'モデルファイルを選択',
+    mobileModelZipHint:
+      'モデルフォルダー全体を含むZIPを選択してください。モデルエントリは自動認識されます。',
+    desktopModelHint:
+      '*.model3.json、*.model.json、model.json、ZIPに対応しています。ZIP内のエントリは自動認識されます。',
     inspectingZip: 'ZIPを確認中…',
     optionalDisplayName: '表示名（任意）',
     projectAssetKey: 'プロジェクトのリソースキー',
@@ -422,7 +424,7 @@ export const ja: typeof en = {
     registerModelFailed: 'モデルを登録できませんでした',
     importModelFailed: 'モデルをインポートできませんでした',
     inspectModelZipFailed: 'モデルZIPを確認できませんでした',
-    chooseLive2dEntry: 'Live2Dモデルエントリを選択',
+    chooseLive2dEntry: 'Live2Dモデルファイルを選択',
     live2dModel: 'Live2Dモデル',
     noBackgroundSelected: '背景未選択',
     noModelSelected: 'モデル未選択',

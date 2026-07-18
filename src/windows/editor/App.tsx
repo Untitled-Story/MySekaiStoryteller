@@ -43,7 +43,6 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
-import { Switch } from '@/components/ui/Switch'
 import { cn } from '@/lib/style'
 import { isMobileRuntime } from '@/lib/platform'
 import { describeError as describeLogError, logger } from '@/lib/logger'
@@ -182,7 +181,6 @@ export default function App({
   const requestedProjectName = useWindowProjectName(preferredProjectName)
   const viewportMode: ViewportMode = useViewportMode()
   const [mobileBottomTab, setMobileBottomTab] = useState<'outline' | 'properties'>('outline')
-  const [pinOutlineTab, setPinOutlineTab] = useState<boolean>(false)
 
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
@@ -1142,13 +1140,13 @@ export default function App({
       onSelectNode={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout && !pinOutlineTab) setMobileBottomTab('properties')
+        if (phoneLayout) setMobileBottomTab('properties')
         requestPreview(nodeId, true)
       }}
       onContextSelectSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout && !pinOutlineTab) setMobileBottomTab('properties')
+        if (phoneLayout) setMobileBottomTab('properties')
       }}
       onPreviewSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
@@ -1165,7 +1163,7 @@ export default function App({
       onSelectAsset={(selection: EditorAssetSelection): void => {
         setSelectedAsset(selection)
         setActivePanel('assets')
-        if (phoneLayout && !pinOutlineTab) setMobileBottomTab('properties')
+        if (phoneLayout) setMobileBottomTab('properties')
       }}
       onAddDialogOpenChange={setAddDialogOpen}
       onAddSnippet={addSnippet}
@@ -1227,12 +1225,19 @@ export default function App({
       <header
         className={cn(
           'flex shrink-0 items-center border-b bg-background px-2 sm:px-3',
-          embedInShell
-            ? 'h-[calc(52px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]'
-            : 'h-[52px]'
+          phoneLayout && 'flex-wrap content-start px-2 pb-1',
+          embedInShell && phoneLayout
+            ? 'pt-[env(safe-area-inset-top)]'
+            : embedInShell
+              ? 'h-[calc(52px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]'
+              : phoneLayout
+                ? undefined
+                : 'h-[52px]'
         )}
       >
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+        <div
+          className={cn('flex min-w-0 items-center gap-1.5 sm:gap-2', phoneLayout && 'h-12 flex-1')}
+        >
           {embedInShell ? (
             <Button
               type="button"
@@ -1267,7 +1272,12 @@ export default function App({
           />
         </div>
 
-        <div className={cn('ml-2 flex items-center gap-0.5 sm:ml-5 sm:gap-1 sm:border-l sm:pl-4')}>
+        <div
+          className={cn(
+            'ml-2 flex items-center gap-0.5 sm:ml-5 sm:gap-1 sm:border-l sm:pl-4',
+            phoneLayout && 'ml-auto h-12'
+          )}
+        >
           <Button
             type="button"
             variant="ghost"
@@ -1307,7 +1317,12 @@ export default function App({
           </Button>
         </div>
 
-        <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5">
+        <div
+          className={cn(
+            'ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5',
+            phoneLayout && 'ml-0 h-12 w-full border-t px-0.5 pt-1'
+          )}
+        >
           {visibleError && (
             <span className="hidden max-w-40 truncate text-xs text-destructive sm:inline sm:max-w-72">
               {visibleError}
@@ -1317,7 +1332,7 @@ export default function App({
             type="button"
             variant="outline"
             size="icon"
-            className={compactChrome ? 'size-9' : 'size-8'}
+            className={phoneLayout ? 'size-10 shrink-0' : compactChrome ? 'size-9' : 'size-8'}
             aria-label={t('projectArchive.export')}
             title={t('projectArchive.export')}
             disabled={exportingProject || editorSaving}
@@ -1332,8 +1347,8 @@ export default function App({
           <Button
             type="button"
             variant="outline"
-            size={compactChrome ? 'icon' : 'sm'}
-            className={compactChrome ? 'size-9' : undefined}
+            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
+            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
             data-tour="editor-preview-button"
             disabled={!selectedNode}
             aria-label={t('editor.preview')}
@@ -1341,19 +1356,19 @@ export default function App({
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
-            {!compactChrome ? t('editor.preview') : null}
+            {phoneLayout || !compactChrome ? t('editor.preview') : null}
           </Button>
           <Button
             type="button"
-            size={compactChrome ? 'icon' : 'sm'}
-            className={compactChrome ? 'size-9' : undefined}
+            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
+            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
             data-tour="editor-player-button"
             title={t('editor.playSavedTitle')}
             aria-label={t('editor.playSaved')}
             onClick={(): void => void playSavedProject()}
           >
             <Play className="size-3.5 fill-current" />
-            {!compactChrome ? t('editor.playSaved') : null}
+            {phoneLayout || !compactChrome ? t('editor.playSaved') : null}
           </Button>
         </div>
       </header>
@@ -1363,15 +1378,15 @@ export default function App({
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           inert={projectMutationInProgress}
         >
-          <div className="min-h-0 basis-[42%] shrink-0 grow-0 overflow-hidden border-b">
+          <div className="h-[calc(56.25vw+5.25rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
             {previewNode}
           </div>
-          <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-muted/30 px-2">
-            <div className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-md bg-muted p-1">
+          <div className="flex h-12 shrink-0 items-center border-b bg-muted/25 px-3">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1">
               <button
                 type="button"
                 className={cn(
-                  'h-8 rounded-sm text-sm font-medium transition-colors',
+                  'h-9 rounded-md text-sm font-medium transition-colors',
                   mobileBottomTab === 'outline'
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground'
@@ -1383,7 +1398,7 @@ export default function App({
               <button
                 type="button"
                 className={cn(
-                  'h-8 rounded-sm text-sm font-medium transition-colors',
+                  'h-9 rounded-md text-sm font-medium transition-colors',
                   mobileBottomTab === 'properties'
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground'
@@ -1393,19 +1408,8 @@ export default function App({
                 {t('editor.properties')}
               </button>
             </div>
-            <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Switch
-                checked={pinOutlineTab}
-                onCheckedChange={(checked: boolean): void => {
-                  setPinOutlineTab(checked)
-                  if (checked) setMobileBottomTab('outline')
-                }}
-                aria-label={t('editor.pinOutline')}
-              />
-              <span className="whitespace-nowrap">{t('editor.pinOutline')}</span>
-            </label>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-hidden [&>aside]:border-r-0">
             {mobileBottomTab === 'outline' ? sidebarNode : inspectorNode}
           </div>
         </div>
