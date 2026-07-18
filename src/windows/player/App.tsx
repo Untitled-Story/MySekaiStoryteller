@@ -6,12 +6,7 @@ import { Application } from 'pixi.js'
 import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { prefersInAppNavigation } from '@/lib/platform'
-import {
-  enterImmersiveFullscreen,
-  exitImmersiveFullscreen,
-  lockLandscapeOrientation,
-  unlockOrientation
-} from '@/lib/orientation'
+import { lockLandscapeOrientation, unlockOrientation } from '@/lib/orientation'
 import { closePlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import { cn } from '@/lib/style'
@@ -39,7 +34,8 @@ import type { AppSettings, RenderPrecision, ShortcutSettings } from '@/settings/
 import { loadPlaybackFontFamily } from '@/settings/fonts'
 import { getDataPath } from '@/workspace/api'
 import { describeError, logger } from '@/lib/logger'
-import { applyAppLanguage } from '@/i18n'
+import { applyAppLanguage, i18n } from '@/i18n'
+import { useTranslation } from 'react-i18next'
 
 export type PlayerStoryInput = {
   projectName: string
@@ -63,14 +59,8 @@ type ModelLoadState =
   | { status: 'error'; message?: never; error: string }
 
 const PLAYER_STAGE_STYLE: CSSProperties = {
-  width: 'min(100vw, 177.77777778vh)',
+  width: 'min(100vw, 177.77777778dvh)',
   height: 'min(100dvh, 56.25vw)'
-}
-
-const PLAYER_STAGE_STYLE_MOBILE: CSSProperties = {
-  width: '100%',
-  height: '100%',
-  maxHeight: '100dvh'
 }
 
 const MOBILE_CONTROLS_HIDE_MS: number = 2600
@@ -80,10 +70,10 @@ export default function App({
 }: {
   preferredProjectName?: string | null
 } = {}): JSX.Element {
+  const { t } = useTranslation()
   const projectName = useWindowProjectName(preferredProjectName)
   const inAppNavigation: boolean = prefersInAppNavigation()
   const stageRef = useRef<HTMLDivElement | null>(null)
-  const rootRef = useRef<HTMLElement | null>(null)
   const controlsHideTimerRef = useRef<number | null>(null)
   const [storyInput, setStoryInput] = useState<PlayerStoryInput | null>(null)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
@@ -119,7 +109,7 @@ export default function App({
 
     void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
       if (!disposed) setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
-        applyAppLanguage(event.payload.language)
+      applyAppLanguage(event.payload.language)
     }).then((dispose: () => void): void => {
       if (disposed) dispose()
       else unlisten = dispose
@@ -135,25 +125,36 @@ export default function App({
     if (!inAppNavigation) return undefined
 
     let cancelled: boolean = false
-    const rootElement: HTMLElement | null = rootRef.current
+    const currentWindow = getCurrentWindow()
 
     void (async (): Promise<void> => {
-      const locked: boolean = await lockLandscapeOrientation()
-      if (cancelled) return
-      if (locked) logger.info('player.orientation_locked', { orientation: 'landscape' })
-
-      if (rootElement) {
-        const fullscreen: boolean = await enterImmersiveFullscreen(rootElement)
-        if (cancelled) return
-        logger.info('player.immersive_fullscreen', { entered: fullscreen })
+      try {
+        await currentWindow.setFullscreen(true)
+        logger.info('player.mobile_fullscreen_entered')
+      } catch (error: unknown) {
+        logger.warn('player.mobile_fullscreen_enter_failed', { error: describeError(error) })
       }
+      if (cancelled) {
+        await currentWindow.setFullscreen(false).catch((): void => undefined)
+        return
+      }
+
+      const locked: boolean = await lockLandscapeOrientation()
+      if (cancelled) {
+        if (locked) unlockOrientation()
+        await currentWindow.setFullscreen(false).catch((): void => undefined)
+        return
+      }
+      if (locked) logger.info('player.orientation_locked', { orientation: 'landscape' })
     })()
 
     return (): void => {
       cancelled = true
       clearControlsHideTimer()
-      void exitImmersiveFullscreen()
       unlockOrientation()
+      void currentWindow.setFullscreen(false).catch((error: unknown): void => {
+        logger.warn('player.mobile_fullscreen_exit_failed', { error: describeError(error) })
+      })
       logger.info('player.orientation_unlocked')
     }
   }, [clearControlsHideTimer, inAppNavigation])
@@ -248,14 +249,14 @@ export default function App({
         })
         setLoadState({
           status: 'error',
-          error: error instanceof Error ? error.message : '加载 story.json 失败'
+          error: error instanceof Error ? error.message : t('player.storyLoadFailed')
         })
       })
 
     return () => {
       cancelled = true
     }
-  }, [projectName, reloadRequest])
+  }, [projectName, reloadRequest, t])
 
   useEffect(() => {
     if (loadState.status !== 'ready' || !storyInput || !stageRef.current) return
@@ -273,7 +274,7 @@ export default function App({
     const currentStoryInput = storyInput
     const startedAt: number = performance.now()
 
-    setModelLoadState({ status: 'loading', message: '初始化播放器' })
+    setModelLoadState({ status: 'loading', message: t('player.initialize') })
     logger.info('player.runtime_started', {
       projectName: currentStoryInput.projectName,
       snippetCount: currentStoryInput.story.snippets.length
@@ -329,14 +330,14 @@ export default function App({
         resolution: resolveRenderPrecision(currentStoryInput.settings)
       })
 
-      setModelLoadState({ status: 'loading', message: '加载字体资源' })
+      setModelLoadState({ status: 'loading', message: t('player.loadFont') })
       fontFamily = await loadPlaybackFontFamily(
         currentStoryInput.settings,
         currentStoryInput.dataPath
       )
       if (cancelled) return
 
-      setModelLoadState({ status: 'loading', message: '加载模型资源' })
+      setModelLoadState({ status: 'loading', message: t('player.loadModels') })
       preloadedModels = await preloadStoryModels({
         app: playerApp,
         dataPath: currentStoryInput.dataPath,
@@ -371,7 +372,7 @@ export default function App({
 
       setModelLoadState({
         status: 'ready',
-        message: `已加载 ${preloadedModels.length} 个模型`
+        message: t('player.loadedModels', { count: preloadedModels.length })
       })
       await dispatcher.run(currentStoryInput.story)
       if (!cancelled) {
@@ -408,11 +409,10 @@ export default function App({
       detachMountedCanvas()
       destroyInitializedApp()
     }
-  }, [loadState.status, storyInput])
+  }, [loadState.status, storyInput, t])
 
   return (
     <main
-      ref={rootRef}
       className="relative flex h-[100dvh] w-screen items-center justify-center overflow-hidden bg-black text-white select-none"
       data-player-entry="story-json"
       data-status={loadState.status}
@@ -435,8 +435,8 @@ export default function App({
             variant="ghost"
             size="icon"
             className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
-            aria-label="返回"
-            title="返回"
+            aria-label={t('common.back')}
+            title={t('common.back')}
             onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
               event.stopPropagation()
               void closePlayerWindow()
@@ -449,8 +449,8 @@ export default function App({
             variant="ghost"
             size="icon"
             className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
-            aria-label="重新加载"
-            title="重新加载"
+            aria-label={t('common.reload')}
+            title={t('common.reload')}
             onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
               event.stopPropagation()
               setReloadRequest((current: number): number => current + 1)
@@ -460,16 +460,13 @@ export default function App({
             <RotateCcw className="size-5" />
           </Button>
           <span className="min-w-0 truncate text-sm text-white/80">
-            {storyInput?.metadata.title ?? projectName ?? '播放器'}
+            {storyInput?.metadata.title ?? projectName ?? t('player.playerFallback')}
           </span>
         </div>
       )}
       <div
-        className={cn(
-          'relative overflow-hidden bg-black',
-          inAppNavigation ? 'h-full w-full shrink-0' : 'shrink-0'
-        )}
-        style={inAppNavigation ? PLAYER_STAGE_STYLE_MOBILE : PLAYER_STAGE_STYLE}
+        className="relative shrink-0 overflow-hidden bg-black"
+        style={PLAYER_STAGE_STYLE}
         data-player-stage="16:9"
       >
         <div ref={stageRef} className="absolute inset-0 overflow-hidden" />
@@ -506,7 +503,7 @@ async function loadPlayerStoryInput(projectName: string): Promise<PlayerStoryInp
     ])
 
   if (!rawMetadata) {
-    throw new Error(`项目 metadata.json 不存在: ${projectName}`)
+    throw new Error(i18n.t('project.metadataMissing', { name: projectName }))
   }
 
   const story = await getProjectStory(projectName)
@@ -547,10 +544,14 @@ function describeStoryPlaybackError(error: unknown): string {
   if (error instanceof StorySnippetError) {
     const cause = error.cause instanceof Error ? `: ${error.cause.message}` : ''
 
-    return `Snippet 执行失败 ${error.path.join('.')}: ${error.snippet.type}${cause}`
+    return i18n.t('player.snippetFailed', {
+      path: error.path.join('.'),
+      type: error.snippet.type,
+      cause
+    })
   }
 
-  return error instanceof Error ? error.message : 'Story 播放失败'
+  return error instanceof Error ? error.message : i18n.t('player.playbackFailed')
 }
 
 function describeModelLoadError(error: StoryModelPreloadError): string {
@@ -559,11 +560,11 @@ function describeModelLoadError(error: StoryModelPreloadError): string {
   const status = getErrorValue(error.cause, 'status')
 
   return [
-    `Live2D 模型加载失败: ${message}`,
-    `模型: ${error.modelName}`,
-    `入口: ${error.modelUrl}`,
-    failedUrl ? `失败请求: ${failedUrl}` : null,
-    typeof status === 'number' ? `HTTP 状态: ${status}` : null
+    i18n.t('player.modelLoadFailed', { message }),
+    i18n.t('player.model', { model: error.modelName }),
+    i18n.t('player.entry', { entry: error.modelUrl }),
+    failedUrl ? i18n.t('player.failedRequest', { url: failedUrl }) : null,
+    typeof status === 'number' ? i18n.t('player.httpStatus', { status }) : null
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n')

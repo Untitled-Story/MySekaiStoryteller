@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { Archive, LoaderCircle } from 'lucide-react'
 import { useNavigate } from 'react-router'
@@ -51,7 +51,13 @@ export function ProjectImportCoordinator(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(false)
   const [importing, setImporting] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [inspectionRequest, setInspectionRequest] = useState<number>(0)
+  const queueRef = useRef<readonly string[]>([])
   const sourcePath: string | null = queue[0] ?? null
+
+  useEffect((): void => {
+    queueRef.current = queue
+  }, [queue])
 
   const enqueue = useCallback((path: string): void => {
     const normalized: string = path.toLocaleLowerCase()
@@ -61,29 +67,13 @@ export function ProjectImportCoordinator(): JSX.Element {
       normalized.includes('.sest') ||
       normalized.startsWith('content://')
     if (!looksLikeSest) return
-    setQueue((current: string[]): string[] => {
-      // Same content URI can be re-selected after a failed inspect; force re-run.
-      if (current[0] === path) {
-        setInspection(null)
-        setError(null)
-        setLoading(true)
-        void inspectProjectArchive(path)
-          .then((value: ProjectArchiveInspection): void => {
-            setInspection(value)
-          })
-          .catch((reason: unknown): void => {
-            setError(`${describeImportError(reason)}\npath: ${path}`)
-            setInspection(null)
-            console.error('inspectProjectArchive failed', { sourcePath: path, reason })
-          })
-          .finally((): void => {
-            setLoading(false)
-          })
-        return current
-      }
-      if (current.includes(path)) return current
-      return [...current, path]
-    })
+    const current: readonly string[] = queueRef.current
+    if (current[0] === path) {
+      setInspectionRequest((request: number): number => request + 1)
+      return
+    }
+    if (current.includes(path)) return
+    setQueue((queued: string[]): string[] => (queued.includes(path) ? queued : [...queued, path]))
   }, [])
 
   useEffect((): (() => void) => {
@@ -150,7 +140,7 @@ export function ProjectImportCoordinator(): JSX.Element {
     return (): void => {
       cancelled = true
     }
-  }, [sourcePath])
+  }, [inspectionRequest, sourcePath])
 
   const closeCurrent = (): void => {
     if (importing) return

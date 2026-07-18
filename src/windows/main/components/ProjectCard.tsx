@@ -148,8 +148,8 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps):
                 size="icon"
                 variant="ghost"
                 className="size-9 shrink-0"
-                aria-label="更多操作"
-                title="更多操作"
+                aria-label={t('common.moreActions')}
+                title={t('common.moreActions')}
                 onClick={(event): void => {
                   event.preventDefault()
                   event.stopPropagation()

@@ -17,6 +17,8 @@ import {
 import { getBuiltinSnippetDefinition } from '@/story'
 import type { ProjectAssetKind, ProjectAssets } from '@/project/assets'
 import type { EditorNode, EditorStory } from './editorDocument'
+import { localizeSnippetSummary } from './editorLocalization'
+import { i18n } from '@/i18n'
 
 export type NodeTone = 'scene' | 'model' | 'dialogue' | 'parallel' | 'overlay'
 
@@ -68,12 +70,6 @@ export const TONE_CLASS_NAMES: Record<NodeTone, string> = {
   overlay: 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
 }
 
-export const ASSET_KIND_LABELS: Record<ProjectAssetKind, string> = {
-  backgrounds: '背景',
-  models: '模型',
-  voices: '语音'
-}
-
 export function flattenTreeNodes(
   story: EditorStory,
   expandedParallelIds: ReadonlySet<string>
@@ -104,19 +100,21 @@ export function filterTreeNodes(
 
   return flatNodes.filter((flatNode: FlatTreeNode): boolean => {
     const definition = getBuiltinSnippetDefinition(flatNode.node.type)
-    return `${definition.label} ${definition.summary(flatNode.node)}`
+    return `${definition.label} ${localizeSnippetSummary(flatNode.node)}`
       .toLocaleLowerCase()
       .includes(normalizedQuery)
   })
 }
 
 export function formatNodeSummary(node: EditorNode): string {
-  return getBuiltinSnippetDefinition(node.type).summary(node)
+  return localizeSnippetSummary(node)
 }
 
 export function formatNodePath(path: readonly number[]): string {
-  if (path.length === 0) return '未选择片段'
-  return `片段 ${path.map((index: number): string => String(index + 1).padStart(2, '0')).join('.')}`
+  if (path.length === 0) return i18n.t('editor.noSnippetSelected')
+  return i18n.t('editor.snippetPath', {
+    path: path.map((index: number): string => String(index + 1).padStart(2, '0')).join('.')
+  })
 }
 
 export function getAssetItems(assets: ProjectAssets, kind: ProjectAssetKind): EditorAssetItem[] {
@@ -134,7 +132,11 @@ export function getAssetItems(assets: ProjectAssets, kind: ProjectAssetKind): Ed
       return {
         kind,
         key,
-        name: asset.name || key,
+        name:
+          asset.name ||
+          (kind === 'backgrounds'
+            ? i18n.t('editor.unnamedBackground')
+            : i18n.t('editor.unnamedVoice')),
         detail: asset.path
       }
     })
@@ -150,5 +152,9 @@ export function getAssetOptionLabel(
 ): string {
   const asset = assets[kind][key]
   if (!asset) return key
-  return kind === 'models' ? (asset.name ?? key) : asset.name || key
+  if (kind === 'models') return asset.name ?? key
+  return (
+    asset.name ||
+    (kind === 'backgrounds' ? i18n.t('editor.unnamedBackground') : i18n.t('editor.unnamedVoice'))
+  )
 }

@@ -10,7 +10,6 @@
       "core:window:allow-set-focus",
       "core:event:default",
       "dialog:default",
-      "fs:default",
       "log:default",
       "opener:default"
     ]
@@ -41,5 +40,13 @@
     "local": true,
     "windows": ["player"],
     "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
+  },
+  "mobile-player": {
+    "identifier": "mobile-player",
+    "description": "Mobile shell permissions used by the embedded player",
+    "local": true,
+    "windows": ["main"],
+    "permissions": ["core:window:allow-set-fullscreen"],
+    "platforms": ["android", "iOS"]
   }
 }

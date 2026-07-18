@@ -178,7 +178,7 @@ export default function ProjectsPage(): JSX.Element {
       filters: [
         { name: t('projectArchive.fileType'), extensions: ['sest'] },
         // Android dialog filters are MIME-oriented; keep a broad fallback.
-        { name: 'All', extensions: ['*/*'] }
+        { name: t('common.allFiles'), extensions: ['*/*'] }
       ]
     })
     const selectedPath: string | null = Array.isArray(selected)

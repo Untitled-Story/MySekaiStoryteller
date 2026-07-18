@@ -8,7 +8,6 @@ import logo from '@/assets/logo.png'
 import { useTranslation } from 'react-i18next'
 import { isMobileRuntime } from '@/lib/platform'
 
-
 interface WorkspaceSetupProps {
   onConfirm: (dir: string) => void
 }
@@ -32,7 +31,6 @@ export function WorkspaceSetup({ onConfirm }: WorkspaceSetupProps): JSX.Element 
   }, [defaultDir, mobileRuntime, onConfirm, selectedDir])
 
   const handleSelectDir = async (): Promise<void> => {
-
     const selected = await open({
       title: t('workspace.choose'),
       directory: true,
@@ -49,10 +47,15 @@ export function WorkspaceSetup({ onConfirm }: WorkspaceSetupProps): JSX.Element 
   if (mobileRuntime && !selectedDir) {
     return (
       <div className="fixed inset-0 z-50 flex select-none flex-col items-center justify-center bg-background px-6">
-        <img src={logo} draggable={false} alt="Logo" className="mb-6 h-16 w-16 object-contain" />
-        <h1 className="mb-2 text-center text-2xl font-semibold">正在准备工作区</h1>
+        <img
+          src={logo}
+          draggable={false}
+          alt={t('common.appLogo')}
+          className="mb-6 h-16 w-16 object-contain"
+        />
+        <h1 className="mb-2 text-center text-2xl font-semibold">{t('workspace.preparing')}</h1>
         <p className="max-w-md text-center text-sm text-muted-foreground">
-          移动端默认使用应用私有目录保存项目数据
+          {t('workspace.mobilePrivate')}
         </p>
       </div>
     )
@@ -60,7 +63,12 @@ export function WorkspaceSetup({ onConfirm }: WorkspaceSetupProps): JSX.Element 
 
   return (
     <div className="fixed inset-0 z-50 flex select-none flex-col items-center justify-center bg-background px-4">
-      <img src={logo} draggable={false} alt="Logo" className="mb-6 h-16 w-16 object-contain" />
+      <img
+        src={logo}
+        draggable={false}
+        alt={t('common.appLogo')}
+        className="mb-6 h-16 w-16 object-contain"
+      />
       <h1 className="mb-2 text-center text-2xl font-semibold">{t('workspace.welcome')}</h1>
       <p className="mb-8 max-w-lg text-center text-sm text-muted-foreground">
         {t('workspace.description')}
@@ -80,7 +88,6 @@ export function WorkspaceSetup({ onConfirm }: WorkspaceSetupProps): JSX.Element 
           <Button variant="outline" className="h-11 flex-1 text-sm" onClick={handleSelectDir}>
             <FolderOpen className="mr-1.5 h-4 w-4" />
             {t('workspace.custom')}
-
           </Button>
           <Button
             className="h-11 flex-1 text-sm"

@@ -54,7 +54,7 @@ export default function AboutPage(): JSX.Element {
               <img
                 src={logo}
                 draggable={false}
-                alt="MySekaiStoryteller Logo"
+                alt={t('common.appLogo')}
                 className="size-20 object-contain drop-shadow-sm"
               />
             </div>

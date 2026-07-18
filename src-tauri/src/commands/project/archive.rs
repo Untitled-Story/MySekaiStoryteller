@@ -224,10 +224,7 @@ fn export_temp_path(app: &AppHandle, project_name: &str) -> Result<PathBuf, Stri
             }
         })
         .collect();
-    Ok(cache_root.join(format!(
-        "{safe_name}-{}.sest",
-        super::unique_write_suffix()
-    )))
+    Ok(cache_root.join(format!("{safe_name}-{}.sest", super::unique_write_suffix())))
 }
 
 #[tauri::command]
@@ -478,16 +475,16 @@ fn resolve_archive_source(app: &AppHandle, source_path: &str) -> Result<PathBuf,
         );
         format!("选择的 .sest 文件不存在: {error}")
     })?;
-    if !source.is_file() {
+    if !source.path.is_file() {
         return Err(format!(
             "选择的 .sest 文件不存在 (materialized={})",
-            source.display()
+            source.path.display()
         ));
     }
     // Do not open the zip here. ZipArchive holds the file handle, and calling
     // open_archive again immediately after can fail on some Android filesystems.
     // Callers validate the archive contents after materialization.
-    Ok(source)
+    Ok(source.path)
 }
 
 fn looks_like_possible_archive_source(source_path: &str) -> bool {
@@ -910,8 +907,6 @@ fn move_or_copy_file(from: &Path, to: &Path) -> Result<(), String> {
     }
 }
 
-
-
 #[cfg(all(debug_assertions, target_os = "android"))]
 pub fn run_android_debug_sest_smoke(app: &AppHandle) -> Result<(), String> {
     use std::fs;
@@ -929,8 +924,12 @@ pub fn run_android_debug_sest_smoke(app: &AppHandle) -> Result<(), String> {
             .app_data_dir()
             .map_err(|error| format!("resolve app data dir: {error}"))?
             .join("debug-run-sest-import"),
-        PathBuf::from("/data/data/org.untitled_story.storyteller.android/files/debug-run-sest-import"),
-        PathBuf::from("/data/user/0/org.untitled_story.storyteller.android/files/debug-run-sest-import"),
+        PathBuf::from(
+            "/data/data/org.untitled_story.storyteller.android/files/debug-run-sest-import",
+        ),
+        PathBuf::from(
+            "/data/user/0/org.untitled_story.storyteller.android/files/debug-run-sest-import",
+        ),
     ];
     let marker = marker_candidates.into_iter().find(|path| path.exists());
     let Some(marker) = marker else {
@@ -941,8 +940,12 @@ pub fn run_android_debug_sest_smoke(app: &AppHandle) -> Result<(), String> {
     let source_path = {
         let source_file_candidates = [
             marker.with_file_name("debug-sest-source.txt"),
-            PathBuf::from("/data/data/org.untitled_story.storyteller.android/files/debug-sest-source.txt"),
-            PathBuf::from("/data/user/0/org.untitled_story.storyteller.android/files/debug-sest-source.txt"),
+            PathBuf::from(
+                "/data/data/org.untitled_story.storyteller.android/files/debug-sest-source.txt",
+            ),
+            PathBuf::from(
+                "/data/user/0/org.untitled_story.storyteller.android/files/debug-sest-source.txt",
+            ),
         ];
         source_file_candidates
             .into_iter()
@@ -986,10 +989,7 @@ pub fn run_android_debug_sest_smoke(app: &AppHandle) -> Result<(), String> {
         .path()
         .app_cache_dir()
         .map_err(|error| format!("export cache: {error}"))?
-        .join(format!(
-            "mss-export-{}.sest",
-            super::unique_write_suffix()
-        ));
+        .join(format!("mss-export-{}.sest", super::unique_write_suffix()));
     export_project_archive(
         app.clone(),
         imported.project_name.clone(),

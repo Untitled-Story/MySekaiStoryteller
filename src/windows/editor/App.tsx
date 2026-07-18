@@ -45,6 +45,7 @@ import {
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
 import { cn } from '@/lib/style'
+import { isMobileRuntime } from '@/lib/platform'
 import { describeError as describeLogError, logger } from '@/lib/logger'
 import type {
   ImportedModelResult,
@@ -83,7 +84,6 @@ import { getDataPath } from '@/workspace/api'
 import { openPlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import {
-  ASSET_KIND_LABELS,
   filterTreeNodes,
   flattenTreeNodes,
   formatNodePath,
@@ -109,9 +109,11 @@ import {
   type EditorStory
 } from './editorDocument'
 import { moveSnippetSubtree, type SnippetDropPlacement } from './editorTree'
+import { localizeAssetKind } from './editorLocalization'
 import { EditorProductTour } from '@/onboarding/EditorProductTour'
 import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
 import { useTranslation } from 'react-i18next'
+import { i18n } from '@/i18n'
 
 type LoadedEditorProject = {
   metadata: ProjectMetadata
@@ -248,12 +250,12 @@ export default function App({
   const isDirty: boolean = !storiesEqual(history.present, history.saved)
   const editorSaving: boolean = savingStory || savingAssets || projectMutationInProgress
   const saveButtonTitle: string = editorSaving
-    ? '正在保存'
+    ? t('editor.saving')
     : storySaveStatus === 'error'
-      ? '保存失败，点击重试'
+      ? t('editor.saveFailedRetry')
       : isDirty
-        ? '立即保存'
-        : '已保存'
+        ? t('editor.saveNow')
+        : t('editor.saved')
   const visibleError: string | null = storySaveError ?? actionError
   const loadedProjectName: string | null = loadedProject?.previewInput.projectName ?? null
   const selectedNode = findEditorNode(story, selectedNodeId)
@@ -324,7 +326,7 @@ export default function App({
           await currentWindow.destroy()
         } catch (error: unknown) {
           allowWindowCloseRef.current = false
-          setActionError(describeError(error, '关闭编辑器窗口失败'))
+          setActionError(describeError(error, t('editor.closeEditorFailed')))
           logger.error('editor.window_close_failed', {
             error: describeLogError(error)
           })
@@ -339,7 +341,7 @@ export default function App({
       disposed = true
       unlisten?.()
     }
-  }, [embedInShell])
+  }, [embedInShell, t])
 
   useEffect((): void => {
     if (!requestedProjectName || requestedProjectName === activeProjectName) return
@@ -415,13 +417,16 @@ export default function App({
           durationMs: Math.round(performance.now() - startedAt),
           error: describeLogError(error)
         })
-        setLoadState({ status: 'error', error: describeError(error, '加载项目失败') })
+        setLoadState({
+          status: 'error',
+          error: describeError(error, t('editor.loadProjectFailed'))
+        })
       })
 
     return (): void => {
       cancelled = true
     }
-  }, [activeProjectName])
+  }, [activeProjectName, t])
 
   useEffect((): void => {
     if (selectedNodeId && !selectedNode) {
@@ -562,7 +567,7 @@ export default function App({
         return true
       } catch (error: unknown) {
         if (session !== saveSessionRef.current) return false
-        const message: string = describeError(error, '保存 story.json 失败')
+        const message: string = describeError(error, t('editor.saveStoryFailed'))
         setStorySaveStatus('error')
         setStorySaveError(message)
         logger.error('editor.story_save_failed', {
@@ -621,7 +626,7 @@ export default function App({
       } catch (error: unknown) {
         if (session !== saveSessionRef.current) return false
         if (!pendingAssetWriteRef.current) pendingAssetWriteRef.current = write
-        setActionError(describeError(error, '保存 assets.json 失败'))
+        setActionError(describeError(error, t('editor.saveAssetsFailed')))
         logger.error('editor.assets_save_failed', {
           projectName: write.projectName,
           error: describeLogError(error)
@@ -667,7 +672,7 @@ export default function App({
       if (!saved) return false
       if (!pendingAssetWriteRef.current) return true
     }
-    setActionError('资源仍在持续变化，请稍后重试。')
+    setActionError(t('editor.assetsChanging'))
     return false
   }
 
@@ -696,7 +701,7 @@ export default function App({
       if (!saved) return
       await openPlayerWindow(loadedProject.previewInput.projectName)
     } catch (error: unknown) {
-      setActionError(describeError(error, '打开播放器失败'))
+      setActionError(describeError(error, t('editor.openPlayerFailed')))
     }
   }
 
@@ -772,7 +777,7 @@ export default function App({
     }
 
     setStorySaveStatus('error')
-    setStorySaveError('Story 仍在持续变化，请稍后重试。')
+    setStorySaveError(t('editor.storyChanging'))
     return false
   }
 
@@ -820,7 +825,7 @@ export default function App({
       setActivePanel('story')
       setAddDialogOpen(false)
     } catch (error: unknown) {
-      setActionError(describeError(error, '添加片段失败'))
+      setActionError(describeError(error, t('editor.addSnippetFailed')))
     }
   }
 
@@ -877,8 +882,8 @@ export default function App({
       kind === 'backgrounds' ? ['png', 'jpg', 'jpeg', 'webp'] : ['ogg', 'mp3', 'wav', 'm4a']
     const sourcePath = await openFileDialog({
       multiple: false,
-      title: `导入${ASSET_KIND_LABELS[kind]}`,
-      filters: [{ name: ASSET_KIND_LABELS[kind], extensions: [...extensions] }]
+      title: t('editor.importAssetTitle', { kind: localizeAssetKind(kind) }),
+      filters: [{ name: localizeAssetKind(kind), extensions: [...extensions] }]
     })
     if (!sourcePath || Array.isArray(sourcePath)) return
 
@@ -897,7 +902,9 @@ export default function App({
         setActivePanel('assets')
       })
     } catch (error: unknown) {
-      setActionError(describeError(error, `导入${ASSET_KIND_LABELS[kind]}失败`))
+      setActionError(
+        describeError(error, t('editor.importAssetFailed', { kind: localizeAssetKind(kind) }))
+      )
     }
   }
 
@@ -1004,7 +1011,7 @@ export default function App({
         setSelectedAsset({ kind: selection.kind, key: nextKey })
       })
     } catch (error: unknown) {
-      setActionError(describeError(error, '重命名资源键失败'))
+      setActionError(describeError(error, t('editor.renameAssetFailed')))
     }
   }
 
@@ -1018,7 +1025,7 @@ export default function App({
           (reference): ProjectAssetReference => ({
             snippetId: reference.snippetId,
             snippetType: reference.snippetType,
-            path: `当前内存 story · ${reference.snippetId.slice(0, 8)}`
+            path: t('editor.memoryStoryReference', { id: reference.snippetId.slice(0, 8) })
           })
         )
       })
@@ -1034,7 +1041,7 @@ export default function App({
       )
       setAssetDeletePrompt({ selection, references })
     } catch (error: unknown) {
-      setActionError(describeError(error, '检查资源引用失败'))
+      setActionError(describeError(error, t('editor.inspectReferencesFailed')))
     }
   }
 
@@ -1054,7 +1061,7 @@ export default function App({
         setAssetDeletePrompt(null)
       })
     } catch (error: unknown) {
-      setActionError(describeError(error, '删除资源失败'))
+      setActionError(describeError(error, t('editor.deleteAssetFailed')))
       setAssetDeletePrompt(null)
     }
   }
@@ -1092,16 +1099,26 @@ export default function App({
   }
 
   if (!requestedProjectName && !activeProjectName) {
-    return <EditorStateMessage title="没有打开项目" detail="请从项目列表打开一个编辑器窗口。" />
+    return <EditorStateMessage title={t('editor.noProject')} detail={t('editor.openProjectHint')} />
   }
 
   if (loadState.status === 'error') {
-    return <EditorStateMessage title="项目加载失败" detail={loadState.error} onRetry={retryLoad} />
+    return (
+      <EditorStateMessage
+        title={t('editor.projectLoadFailed')}
+        detail={loadState.error}
+        onRetry={retryLoad}
+      />
+    )
   }
 
   if (loadState.status === 'loading' || !loadedProject || !previewInput) {
     return (
-      <EditorStateMessage title="正在加载项目" detail="读取 story、assets 与模型注册表…" loading />
+      <EditorStateMessage
+        title={t('editor.loadingProject')}
+        detail={t('editor.readingProject')}
+        loading
+      />
     )
   }
 
@@ -1222,12 +1239,16 @@ export default function App({
               variant="ghost"
               size="icon"
               className="size-9 shrink-0"
-              aria-label="返回"
-              title="返回"
+              aria-label={t('common.back')}
+              title={t('common.back')}
               onClick={(): void => {
-                void flushEditorWrites().finally((): void => {
-                  void closeEditorWindow()
-                })
+                void flushEditorWrites()
+                  .then((saved: boolean): void => {
+                    if (saved) void closeEditorWindow()
+                  })
+                  .catch((error: unknown): void => {
+                    setActionError(describeError(error, t('editor.saveProjectFailed')))
+                  })
               }}
             >
               <ArrowLeft className="size-4" />
@@ -1238,7 +1259,7 @@ export default function App({
           </div>
           <p className="min-w-0 truncate text-sm font-semibold">{loadedProject.metadata.title}</p>
           <span
-            aria-label={isDirty ? '有未保存修改' : undefined}
+            aria-label={isDirty ? t('editor.unsavedChanges') : undefined}
             className={cn(
               'size-1.5 shrink-0 rounded-full bg-amber-500 transition-opacity duration-300 ease-out',
               isDirty ? 'opacity-100' : 'opacity-0'
@@ -1252,8 +1273,8 @@ export default function App({
             variant="ghost"
             size="icon"
             className="size-9"
-            aria-label="撤销"
-            title="撤销"
+            aria-label={t('common.undo')}
+            title={t('common.undo')}
             disabled={history.past.length === 0}
             onClick={(): void => dispatchHistory({ type: 'undo' })}
           >
@@ -1264,8 +1285,8 @@ export default function App({
             variant="ghost"
             size="icon"
             className="size-9"
-            aria-label="重做"
-            title="重做"
+            aria-label={t('common.redo')}
+            title={t('common.redo')}
             disabled={history.future.length === 0}
             onClick={(): void => dispatchHistory({ type: 'redo' })}
           >
@@ -1313,16 +1334,14 @@ export default function App({
             variant="outline"
             size={compactChrome ? 'icon' : 'sm'}
             className={compactChrome ? 'size-9' : undefined}
-
             data-tour="editor-preview-button"
             disabled={!selectedNode}
-            aria-label="预览"
-            title="预览"
+            aria-label={t('editor.preview')}
+            title={t('editor.preview')}
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
             {!compactChrome ? t('editor.preview') : null}
-
           </Button>
           <Button
             type="button"
@@ -1335,7 +1354,6 @@ export default function App({
           >
             <Play className="size-3.5 fill-current" />
             {!compactChrome ? t('editor.playSaved') : null}
-
           </Button>
         </div>
       </header>
@@ -1360,7 +1378,7 @@ export default function App({
                 )}
                 onClick={(): void => setMobileBottomTab('outline')}
               >
-                大纲
+                {t('editor.outline')}
               </button>
               <button
                 type="button"
@@ -1372,7 +1390,7 @@ export default function App({
                 )}
                 onClick={(): void => setMobileBottomTab('properties')}
               >
-                属性
+                {t('editor.properties')}
               </button>
             </div>
             <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -1382,9 +1400,9 @@ export default function App({
                   setPinOutlineTab(checked)
                   if (checked) setMobileBottomTab('outline')
                 }}
-                aria-label="固定大纲"
+                aria-label={t('editor.pinOutline')}
               />
-              <span className="whitespace-nowrap">固定大纲</span>
+              <span className="whitespace-nowrap">{t('editor.pinOutline')}</span>
             </label>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -1439,20 +1457,26 @@ export default function App({
       >
         <AlertDialogContent className="select-none">
           <AlertDialogHeader>
-            <AlertDialogTitle>删除 {deleteSnippetNode?.type ?? '片段'}？</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t('editor.deleteSnippetTitle', {
+                type: deleteSnippetNode?.type ?? t('editor.unknownSnippet')
+              })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteSnippetNode && countDescendants(deleteSnippetNode) > 1
-                ? `这会同时删除 ${countDescendants(deleteSnippetNode)} 个嵌套片段。`
-                : '这会从当前故事中移除该片段。'}
+                ? t('editor.deleteSnippetNested', {
+                    count: countDescendants(deleteSnippetNode)
+                  })
+                : t('editor.deleteSnippetSingle')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={deleteSelectedSnippet}
             >
-              删除
+              {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1475,7 +1499,7 @@ export default function App({
         onRegister={async (modelId: string, key: string, name: string): Promise<void> => {
           try {
             const saved: boolean = await flushEditorWrites()
-            if (!saved) throw new Error('保存当前编辑器修改失败')
+            if (!saved) throw new Error(t('editor.saveCurrentChangesFailed'))
             await runProjectMutation(async (): Promise<void> => {
               const result: ProjectAssetMutationResult = await registerProjectModel(
                 previewInput.projectName,
@@ -1489,7 +1513,7 @@ export default function App({
               setRegisterModelOpen(false)
             })
           } catch (error: unknown) {
-            setActionError(describeError(error, '注册模型失败'))
+            setActionError(describeError(error, t('editor.registerModelFailed')))
             throw error
           }
         }}
@@ -1501,7 +1525,7 @@ export default function App({
         ): Promise<void> => {
           try {
             const saved: boolean = await flushEditorWrites()
-            if (!saved) throw new Error('保存当前编辑器修改失败')
+            if (!saved) throw new Error(t('editor.saveCurrentChangesFailed'))
             await runProjectMutation(async (): Promise<void> => {
               const imported: ImportedModelResult = await importGlobalModel(
                 sourcePath,
@@ -1521,7 +1545,7 @@ export default function App({
               setRegisterModelOpen(false)
             })
           } catch (error: unknown) {
-            setActionError(describeError(error, '导入模型失败'))
+            setActionError(describeError(error, t('editor.importModelFailed')))
             throw error
           }
         }}
@@ -1541,6 +1565,7 @@ function EditorStateMessage({
   loading?: boolean
   onRetry?: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <main className="flex h-screen items-center justify-center bg-background p-8 text-center">
       <div className="max-w-md">
@@ -1551,7 +1576,7 @@ function EditorStateMessage({
         <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{detail}</p>
         {onRetry && (
           <Button type="button" variant="outline" size="sm" className="mt-5" onClick={onRetry}>
-            重试
+            {t('common.retry')}
           </Button>
         )}
       </div>
@@ -1568,13 +1593,14 @@ function ProjectSwitchDialog({
   saving: boolean
   onAction: (action: 'save' | 'discard' | 'cancel') => Promise<void>
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <AlertDialog open={targetProjectName !== null}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>自动保存失败</AlertDialogTitle>
+          <AlertDialogTitle>{t('editor.autosaveFailed')}</AlertDialogTitle>
           <AlertDialogDescription>
-            切换到「{targetProjectName ?? ''}」前无法保存当前修改。可以重试、放弃修改，或取消切换。
+            {t('editor.projectSwitchSaveFailed', { name: targetProjectName ?? '' })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1584,7 +1610,7 @@ function ProjectSwitchDialog({
             disabled={saving}
             onClick={(): void => void onAction('cancel')}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -1592,10 +1618,10 @@ function ProjectSwitchDialog({
             disabled={saving}
             onClick={(): void => void onAction('discard')}
           >
-            放弃修改
+            {t('editor.discardChanges')}
           </Button>
           <Button type="button" disabled={saving} onClick={(): void => void onAction('save')}>
-            重试并切换
+            {t('editor.retryAndSwitch')}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1612,6 +1638,7 @@ function AssetDeleteDialog({
   onCancel: () => void
   onConfirm: () => Promise<void>
 }): JSX.Element {
+  const { t } = useTranslation()
   const blocked: boolean = Boolean(prompt && prompt.references.length > 0)
   return (
     <AlertDialog
@@ -1622,11 +1649,18 @@ function AssetDeleteDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{blocked ? '无法删除被引用的资源' : '删除资源？'}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {blocked ? t('editor.referencedAssetTitle') : t('editor.deleteAssetTitle')}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {blocked
-              ? `以下 ${prompt?.references.length ?? 0} 个片段仍在引用「${prompt?.selection.key ?? ''}」：`
-              : `将从项目中删除「${prompt?.selection.key ?? ''}」以及其受管文件。`}
+              ? t('editor.referencedAssetDescription', {
+                  count: prompt?.references.length ?? 0,
+                  key: prompt?.selection.key ?? ''
+                })
+              : t('editor.deleteAssetDescription', {
+                  key: prompt?.selection.key ?? ''
+                })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {blocked && (
@@ -1641,13 +1675,15 @@ function AssetDeleteDialog({
           </ul>
         )}
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>{blocked ? '知道了' : '取消'}</AlertDialogCancel>
+          <AlertDialogCancel onClick={onCancel}>
+            {blocked ? t('editor.acknowledged') : t('common.cancel')}
+          </AlertDialogCancel>
           {!blocked && (
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={(): void => void onConfirm()}
             >
-              删除
+              {t('common.delete')}
             </AlertDialogAction>
           )}
         </AlertDialogFooter>
@@ -1674,6 +1710,8 @@ function ModelRegistrationDialog({
     name: string
   ) => Promise<void>
 }): JSX.Element {
+  const { t } = useTranslation()
+  const mobileRuntime: boolean = isMobileRuntime()
   const modelEntries = useMemo(
     (): [string, ModelRegistry['models'][string]][] =>
       Object.entries(registry.models).sort(([left], [right]): number => left.localeCompare(right)),
@@ -1715,13 +1753,18 @@ function ModelRegistrationDialog({
     const selected = await openFileDialog({
       multiple: false,
       directory: false,
-      title: '选择 Live2D 模型入口',
-      filters: [{ name: 'Live2D 模型', extensions: ['json', 'zip'] }]
+      title: t('editor.chooseLive2dEntry'),
+      filters: [
+        {
+          name: t('editor.live2dModel'),
+          extensions: mobileRuntime ? ['zip'] : ['json', 'zip']
+        }
+      ]
     })
     if (typeof selected !== 'string') return
 
     setError('')
-    if (!selected.toLocaleLowerCase().endsWith('.zip')) {
+    if (!mobileRuntime && !selected.toLocaleLowerCase().endsWith('.zip')) {
       setSourcePath(selected)
       setArchiveEntry(undefined)
       return
@@ -1741,14 +1784,21 @@ function ModelRegistrationDialog({
         return
       }
 
+      const firstCandidate: ModelArchiveCandidate | undefined =
+        recognized[0] ?? inspection.candidates[0]
+      if (!firstCandidate) {
+        setError(t('editor.noJsonEntry'))
+        return
+      }
+
       setPendingArchivePath(selected)
       setArchiveCandidates(recognized.length > 1 ? recognized : inspection.candidates)
-      setSelectedArchiveEntry((recognized[0] ?? inspection.candidates[0]).path)
+      setSelectedArchiveEntry(firstCandidate.path)
       setArchiveSelectionOpen(true)
     } catch (inspectionError: unknown) {
       setSourcePath('')
       setArchiveEntry(undefined)
-      setError(describeError(inspectionError, '检查模型 ZIP 失败'))
+      setError(describeError(inspectionError, t('editor.inspectModelZipFailed')))
     } finally {
       setInspectingArchive(false)
     }
@@ -1765,7 +1815,12 @@ function ModelRegistrationDialog({
         await onImport(sourcePath, archiveEntry, key, name)
       }
     } catch (submitError: unknown) {
-      setError(describeError(submitError, mode === 'existing' ? '注册模型失败' : '导入模型失败'))
+      setError(
+        describeError(
+          submitError,
+          mode === 'existing' ? t('editor.registerModelFailed') : t('editor.importModelFailed')
+        )
+      )
     } finally {
       setSubmitting(false)
     }
@@ -1775,10 +1830,8 @@ function ModelRegistrationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg min-w-0 overflow-hidden">
         <DialogHeader className="min-w-0">
-          <DialogTitle>添加模型</DialogTitle>
-          <DialogDescription>
-            使用全局 models 中的已有模型，或从新的 Live2D 模型目录导入。
-          </DialogDescription>
+          <DialogTitle>{t('editor.addModel')}</DialogTitle>
+          <DialogDescription>{t('editor.addModelDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className="grid min-w-0 grid-cols-2 rounded-md bg-muted p-1">
@@ -1796,7 +1849,7 @@ function ModelRegistrationDialog({
               setError('')
             }}
           >
-            全局已有模型
+            {t('editor.existingModels')}
           </button>
           <button
             type="button"
@@ -1812,14 +1865,14 @@ function ModelRegistrationDialog({
               setError('')
             }}
           >
-            导入新模型
+            {t('editor.importModel')}
           </button>
         </div>
 
         <div className="min-w-0 space-y-4">
           {mode === 'existing' ? (
             <label className="block min-w-0 text-xs font-medium text-muted-foreground">
-              全局模型
+              {t('editor.globalModel')}
               {modelEntries.length > 0 ? (
                 <select
                   className="mt-2 h-9 w-full min-w-0 max-w-full rounded-md border bg-background px-2 text-sm text-foreground"
@@ -1839,15 +1892,15 @@ function ModelRegistrationDialog({
                 </select>
               ) : (
                 <span className="mt-2 block rounded-md border border-dashed px-3 py-4 text-sm font-normal">
-                  全局 models 中还没有可用模型
+                  {t('editor.noGlobalModels')}
                 </span>
               )}
             </label>
           ) : (
             <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-dashed p-4">
-              <p className="text-sm font-medium">选择模型入口或 ZIP</p>
+              <p className="text-sm font-medium">{t('editor.chooseModelSource')}</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                支持 *.model3.json、*.model.json、model.json 与 ZIP 压缩包。
+                {mobileRuntime ? t('editor.mobileModelZipHint') : t('editor.desktopModelHint')}
               </p>
               <Button
                 type="button"
@@ -1857,7 +1910,7 @@ function ModelRegistrationDialog({
                 disabled={submitting || inspectingArchive}
                 onClick={(): void => void chooseModelEntry()}
               >
-                {inspectingArchive ? '正在检查 ZIP…' : '选择文件'}
+                {inspectingArchive ? t('editor.inspectingZip') : t('common.chooseFile')}
               </Button>
               {sourcePath && (
                 <p
@@ -1872,7 +1925,7 @@ function ModelRegistrationDialog({
           )}
 
           <label className="block min-w-0 text-xs font-medium text-muted-foreground">
-            显示名称（可选）
+            {t('editor.optionalDisplayName')}
             <Input
               value={name}
               disabled={submitting}
@@ -1885,15 +1938,15 @@ function ModelRegistrationDialog({
           <details className="group min-w-0 max-w-full overflow-hidden rounded-md border bg-muted/15">
             <summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 text-xs font-medium text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
               <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
-              高级选项
+              {t('editor.advanced')}
             </summary>
             <div className="border-t px-3 py-3">
               <label className="block text-xs font-medium text-muted-foreground">
-                项目资源键
+                {t('editor.projectAssetKey')}
                 <Input
                   value={key}
                   disabled={submitting}
-                  placeholder="留空自动生成"
+                  placeholder={t('editor.autoGeneratePlaceholder')}
                   className="mt-2 h-9 font-mono text-xs"
                   onChange={(event: ChangeEvent<HTMLInputElement>): void =>
                     setKey(event.currentTarget.value)
@@ -1912,7 +1965,7 @@ function ModelRegistrationDialog({
             disabled={submitting}
             onClick={(): void => onOpenChange(false)}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -1921,19 +1974,23 @@ function ModelRegistrationDialog({
             }
             onClick={(): void => void submit()}
           >
-            {submitting ? '处理中…' : mode === 'existing' ? '加入项目' : '导入并加入'}
+            {submitting
+              ? t('common.processing')
+              : mode === 'existing'
+                ? t('editor.addToProject')
+                : t('editor.importAndAdd')}
           </Button>
         </DialogFooter>
         <Dialog open={archiveSelectionOpen} onOpenChange={setArchiveSelectionOpen}>
           <DialogContent className="max-w-xl min-w-0 overflow-hidden">
             <DialogHeader>
-              <DialogTitle>选择 ZIP 中的模型入口</DialogTitle>
+              <DialogTitle>{t('editor.chooseZipEntry')}</DialogTitle>
               <DialogDescription>
                 {archiveCandidates.some(
                   (candidate: ModelArchiveCandidate): boolean => candidate.recognized
                 )
-                  ? '检测到多个可用入口，请选择要导入的模型。'
-                  : '未能根据文件名识别入口，请从 JSON 文件中手动选择。'}
+                  ? t('editor.chooseRecognizedEntry')
+                  : t('editor.chooseJsonEntry')}
               </DialogDescription>
             </DialogHeader>
             <div className="max-h-80 space-y-1 overflow-y-auto rounded-md border bg-muted/15 p-1.5 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
@@ -1969,7 +2026,7 @@ function ModelRegistrationDialog({
                           : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
                       )}
                     >
-                      {candidate.recognized ? '已识别' : '普通 JSON'}
+                      {candidate.recognized ? t('editor.recognized') : t('editor.plainJson')}
                     </span>
                   </button>
                 )
@@ -1981,7 +2038,7 @@ function ModelRegistrationDialog({
                 variant="outline"
                 onClick={(): void => setArchiveSelectionOpen(false)}
               >
-                取消
+                {t('common.cancel')}
               </Button>
               <Button
                 type="button"
@@ -1992,7 +2049,7 @@ function ModelRegistrationDialog({
                   setArchiveSelectionOpen(false)
                 }}
               >
-                使用此入口
+                {t('editor.useEntry')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -2014,7 +2071,7 @@ async function loadEditorProject(projectName: string): Promise<LoadedEditorProje
       getProjectPath(projectName)
     ])
   if (!metadata) {
-    throw new Error(`项目 metadata.json 不存在: ${projectName}`)
+    throw new Error(i18n.t('project.metadataMissing', { name: projectName }))
   }
   return {
     metadata,

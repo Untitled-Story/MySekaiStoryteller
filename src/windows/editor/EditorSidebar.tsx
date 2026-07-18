@@ -41,7 +41,6 @@ import { builtinSnippetDefinitions, type StoryAssetKind } from '@/story'
 import type { ProjectAssetKind, ProjectAssets } from '@/project/assets'
 import { cn } from '@/lib/style'
 import {
-  ASSET_KIND_LABELS,
   getAssetItems,
   NODE_PRESENTATIONS,
   TONE_CLASS_NAMES,
@@ -53,7 +52,11 @@ import { formatNodeSummary } from './editorCatalog'
 import type { AddableSnippetType, EditorNode } from './editorDocument'
 import type { SnippetDropPlacement } from './editorTree'
 import { useTranslation } from 'react-i18next'
-import { localizeSnippetCategory, localizeSnippetDescription } from './editorLocalization'
+import {
+  localizeAssetKind,
+  localizeSnippetCategory,
+  localizeSnippetDescription
+} from './editorLocalization'
 
 export type EditorSidebarTab = 'story' | 'assets'
 
@@ -853,7 +856,7 @@ function AssetGroup({
   return (
     <section className="mb-4">
       <div className="mb-2 flex h-7 items-center px-2 text-xs text-muted-foreground">
-        <span>{ASSET_KIND_LABELS[kind]}</span>
+        <span>{localizeAssetKind(kind)}</span>
         <span className="ml-1 font-mono text-[10px]">{items.length}</span>
         <button
           type="button"
@@ -909,7 +912,7 @@ function AssetGroup({
           }}
         >
           <FolderPlus className="size-3.5" />
-          {t('editor.addFirstAsset', { action: actionLabel, kind: ASSET_KIND_LABELS[kind] })}
+          {t('editor.addFirstAsset', { action: actionLabel, kind: localizeAssetKind(kind) })}
         </button>
       )}
     </section>
@@ -981,7 +984,7 @@ function AddSnippetDialog({
                       )
                     )
                     const unavailableMessage: string = missingAssetKinds
-                      .map((kind: StoryAssetKind): string => ASSET_KIND_LABELS[kind])
+                      .map((kind: StoryAssetKind): string => localizeAssetKind(kind))
                       .join('、')
                     return (
                       <button
