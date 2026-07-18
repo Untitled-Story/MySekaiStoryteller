@@ -26,10 +26,13 @@ jobs:
         include:
           - platform: linux
             os: ubuntu-22.04
+            arch: x86_64
           - platform: macos
             os: macos-latest
+            arch: arm64
           - platform: windows
             os: windows-latest
+            arch: x64
 
     runs-on: ${{ matrix.os }}
 
@@ -82,17 +85,53 @@ jobs:
       - name: Build Tauri bundles
         run: pnpm tauri build --verbose
 
+      - name: Normalize bundle names
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          bundle_dir="src-tauri/target/release/bundle"
+          output_dir="release-artifacts"
+          artifact_prefix="MySekaiStoryteller-${RELEASE_TAG}-${PLATFORM}-${ARCH}"
+          mkdir -p "$output_dir"
+
+          collect_bundle() {
+            local pattern="$1"
+            local output_name="$2"
+            local source_path
+            source_path="$(find "$bundle_dir" -type f -name "$pattern" -print -quit)"
+            if [[ -z "$source_path" ]]; then
+              echo "Could not find bundle matching $pattern for $PLATFORM." >&2
+              exit 1
+            fi
+            cp "$source_path" "$output_dir/$output_name"
+          }
+
+          case "$PLATFORM" in
+            linux)
+              collect_bundle '*.AppImage' "${artifact_prefix}.AppImage"
+              collect_bundle '*.deb' "${artifact_prefix}.deb"
+              collect_bundle '*.rpm' "${artifact_prefix}.rpm"
+              ;;
+            macos)
+              collect_bundle '*.dmg' "${artifact_prefix}.dmg"
+              ;;
+            windows)
+              collect_bundle '*.msi' "${artifact_prefix}.msi"
+              collect_bundle '*.exe' "${artifact_prefix}-setup.exe"
+              ;;
+            *)
+              echo "Unsupported release platform: $PLATFORM" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
-          name: MySekaiStoryteller-${{ matrix.platform }}
-          path: |
-            src-tauri/target/release/bundle/**/*.AppImage
-            src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.rpm
-            src-tauri/target/release/bundle/**/*.dmg
-            src-tauri/target/release/bundle/**/*.msi
-            src-tauri/target/release/bundle/**/*.exe
+          name: MySekaiStoryteller-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-artifacts/*
           if-no-files-found: error
 
   build-android:
