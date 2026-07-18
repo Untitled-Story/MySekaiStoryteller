@@ -135,7 +135,7 @@ jobs:
           if-no-files-found: error
 
   build-android:
-    name: Build (android-arm64)
+    name: Build (Android)
     runs-on: ubuntu-22.04
 
     steps:
