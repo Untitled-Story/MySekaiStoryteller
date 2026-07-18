@@ -11,17 +11,49 @@ import { useSettings } from '@/settings/useSettings'
 import { MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { MainProductTour } from '@/onboarding/MainProductTour'
 import { useTranslation } from 'react-i18next'
+import { useViewportMode } from '@/hooks/useViewportMode'
+import { cn } from '@/lib/style'
+import { detectPreferTouchMode } from '@/lib/touchMode'
+import { Button } from '@/components/ui/Button'
+import { Switch } from '@/components/ui/Switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/Dialog'
 
 export default function HomePage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [touchPromptOpen, setTouchPromptOpen] = useState(false)
+  const [touchPromptValue, setTouchPromptValue] = useState(false)
   const navigate = useNavigate()
-  const { onboarding, setOnboarding } = useSettings()
+  const { onboarding, interaction, setOnboarding, setInteraction } = useSettings()
+  const viewportMode = useViewportMode()
+  const stackSections: boolean = viewportMode === 'phone'
 
   const completeMainTour = useCallback((): void => {
     setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
-  }, [onboarding, setOnboarding])
+    if (!interaction.touchModePromptSeen) {
+      setTouchPromptValue(detectPreferTouchMode())
+      setTouchPromptOpen(true)
+    }
+  }, [interaction.touchModePromptSeen, onboarding, setOnboarding])
+
+  const finishTouchPrompt = useCallback(
+    (enabled: boolean): void => {
+      setInteraction({
+        touchMode: enabled,
+        touchModePromptSeen: true
+      })
+      setTouchPromptOpen(false)
+    },
+    [setInteraction]
+  )
 
   const latest: ProjectMetadata | null =
     projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
@@ -56,39 +88,55 @@ export default function HomePage(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-screen select-none px-8 py-8">
-      <div className="mb-8">
-        <h2 className="font-semibold text-2xl">{t('home.welcome')}</h2>
+    <div
+      className={cn(
+        'flex h-full select-none flex-col overflow-auto px-8 py-8 pb-8',
+        stackSections && 'px-4 py-5 pb-6'
+      )}
+    >
+      <div className={cn('mb-8', stackSections && 'mb-5')}>
+        <h2 className={cn('text-2xl font-semibold', stackSections && 'text-xl')}>
+          {t('home.welcome')}
+        </h2>
       </div>
 
-      <div className="flex gap-8">
-        {/* 左栏：最近项目 */}
-        <div className="flex-1 min-w-0">
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
+      <div className={cn('flex gap-8', stackSections ? 'flex-col gap-5' : 'flex-row')}>
+        <div
+          className={cn(
+            'min-w-0 flex-1',
+            stackSections && 'rounded-2xl border bg-card p-4 shadow-xs'
+          )}
+        >
+          <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
             {t('home.recent')}
           </h3>
           {latest ? (
             <div className="space-y-4">
               <div>
-                <h4 className="font-medium text-lg truncate">{latest.title}</h4>
-                <div className="flex items-center text-xs text-muted-foreground mt-1">
-                  <Clock className="w-3 h-3 mr-1" />
+                <h4 className="truncate text-lg font-medium">{latest.title}</h4>
+                <div className="mt-1 flex items-center text-xs text-muted-foreground">
+                  <Clock className="mr-1 h-3 w-3" />
                   <span>{timeAgo(latest.lastModified)}</span>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div
+                className={cn(
+                  'flex gap-2',
+                  stackSections && '[&>button]:h-11 [&>button]:flex-1 [&>button]:justify-center'
+                )}
+              >
                 <button
                   onClick={() => handleOpenEditor(latest.title)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                  className="flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  <Edit3 className="w-3.5 h-3.5" />
+                  <Edit3 className="h-3.5 w-3.5" />
                   {t('home.continueEditing')}
                 </button>
                 <button
                   onClick={() => handleOpenPlayer(latest.title)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors"
+                  className="flex items-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
                 >
-                  <Play className="w-3.5 h-3.5" />
+                  <Play className="h-3.5 w-3.5" />
                   {t('common.play')}
                 </button>
               </div>
@@ -98,32 +146,40 @@ export default function HomePage(): JSX.Element {
           )}
         </div>
 
-        {/* 右栏：快捷操作 */}
-        <div className="w-48 flex-shrink-0">
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
+        <div className={cn(stackSections ? 'w-full' : 'w-48 shrink-0')}>
+          <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
             {t('home.quickActions')}
           </h3>
-          <nav className="space-y-1">
+          <nav className={cn('space-y-1', stackSections && 'space-y-2')}>
             <button
               data-tour="main-create-project"
               onClick={() => setCreateDialogOpen(true)}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm hover:bg-accent transition-colors text-left"
+              className={cn(
+                'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent',
+                stackSections && 'h-12 rounded-xl border bg-card shadow-xs active:bg-accent'
+              )}
             >
-              <Plus className="w-4 h-4 text-muted-foreground" />
+              <Plus className="h-4 w-4 text-muted-foreground" />
               {t('project.new')}
             </button>
             <button
               onClick={() => navigate('/projects')}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm hover:bg-accent transition-colors text-left"
+              className={cn(
+                'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent',
+                stackSections && 'h-12 rounded-xl border bg-card shadow-xs active:bg-accent'
+              )}
             >
-              <Folder className="w-4 h-4 text-muted-foreground" />
+              <Folder className="h-4 w-4 text-muted-foreground" />
               {t('home.allProjects')}
             </button>
             <button
               onClick={() => navigate('/settings')}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm hover:bg-accent transition-colors text-left"
+              className={cn(
+                'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent',
+                stackSections && 'h-12 rounded-xl border bg-card shadow-xs active:bg-accent'
+              )}
             >
-              <Settings className="w-4 h-4 text-muted-foreground" />
+              <Settings className="h-4 w-4 text-muted-foreground" />
               {t('nav.settings')}
             </button>
           </nav>
@@ -139,6 +195,39 @@ export default function HomePage(): JSX.Element {
         active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}
         onComplete={completeMainTour}
       />
+
+      <Dialog
+        open={touchPromptOpen}
+        onOpenChange={(open: boolean): void => {
+          if (!open) finishTouchPrompt(touchPromptValue)
+        }}
+      >
+        <DialogContent className="max-w-md select-none">
+          <DialogHeader>
+            <DialogTitle>{t('home.touchPromptTitle')}</DialogTitle>
+            <DialogDescription>{t('home.touchPromptDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-3">
+            <div className="pr-4">
+              <p className="text-sm font-medium">{t('home.touchMode')}</p>
+              <p className="text-xs text-muted-foreground">{t('home.touchModeHint')}</p>
+            </div>
+            <Switch
+              checked={touchPromptValue}
+              aria-label={t('home.touchModeAria')}
+              onCheckedChange={setTouchPromptValue}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={(): void => finishTouchPrompt(false)}>
+              {t('home.touchNotNow')}
+            </Button>
+            <Button type="button" onClick={(): void => finishTouchPrompt(touchPromptValue)}>
+              {t('common.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

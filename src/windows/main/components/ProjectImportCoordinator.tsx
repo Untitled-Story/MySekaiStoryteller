@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { Archive, LoaderCircle } from 'lucide-react'
 import { useNavigate } from 'react-router'
@@ -26,6 +26,23 @@ import { openEditorWindow } from '@/windows/api'
 
 const TAURI_IMPORT_EVENT = 'project-import-requested'
 
+function describeImportError(reason: unknown): string {
+  if (reason instanceof Error) return reason.message
+  if (typeof reason === 'string') return reason
+  if (reason && typeof reason === 'object') {
+    const record = reason as { message?: unknown; error?: unknown; data?: unknown }
+    if (typeof record.message === 'string' && record.message.trim()) return record.message
+    if (typeof record.error === 'string' && record.error.trim()) return record.error
+    if (typeof record.data === 'string' && record.data.trim()) return record.data
+    try {
+      return JSON.stringify(reason)
+    } catch {
+      return String(reason)
+    }
+  }
+  return String(reason)
+}
+
 export function ProjectImportCoordinator(): JSX.Element {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -34,13 +51,29 @@ export function ProjectImportCoordinator(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(false)
   const [importing, setImporting] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [inspectionRequest, setInspectionRequest] = useState<number>(0)
+  const queueRef = useRef<readonly string[]>([])
   const sourcePath: string | null = queue[0] ?? null
 
+  useEffect((): void => {
+    queueRef.current = queue
+  }, [queue])
+
   const enqueue = useCallback((path: string): void => {
-    if (!path.toLocaleLowerCase().endsWith('.sest')) return
-    setQueue((current: string[]): string[] =>
-      current.includes(path) ? current : [...current, path]
-    )
+    const normalized: string = path.toLocaleLowerCase()
+    // Android document pickers often return content:// URIs that do not end with .sest.
+    const looksLikeSest: boolean =
+      normalized.endsWith('.sest') ||
+      normalized.includes('.sest') ||
+      normalized.startsWith('content://')
+    if (!looksLikeSest) return
+    const current: readonly string[] = queueRef.current
+    if (current[0] === path) {
+      setInspectionRequest((request: number): number => request + 1)
+      return
+    }
+    if (current.includes(path)) return
+    setQueue((queued: string[]): string[] => (queued.includes(path) ? queued : [...queued, path]))
   }, [])
 
   useEffect((): (() => void) => {
@@ -95,8 +128,10 @@ export function ProjectImportCoordinator(): JSX.Element {
       })
       .catch((reason: unknown): void => {
         if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : String(reason))
+          const message: string = describeImportError(reason)
+          setError(`${message}\npath: ${sourcePath}`)
           setInspection(null)
+          console.error('inspectProjectArchive failed', { sourcePath, reason })
         }
       })
       .finally((): void => {
@@ -105,7 +140,7 @@ export function ProjectImportCoordinator(): JSX.Element {
     return (): void => {
       cancelled = true
     }
-  }, [sourcePath])
+  }, [inspectionRequest, sourcePath])
 
   const closeCurrent = (): void => {
     if (importing) return
@@ -123,7 +158,7 @@ export function ProjectImportCoordinator(): JSX.Element {
       navigate('/projects')
       await openEditorWindow(result.projectName)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(describeImportError(reason))
     } finally {
       setImporting(false)
     }

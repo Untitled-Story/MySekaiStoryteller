@@ -19,6 +19,10 @@ import {
   Upload
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
+import { useSettings } from '@/settings/useSettings'
+import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
+
+import { cn } from '@/lib/style'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
@@ -63,6 +67,11 @@ export default function ProjectsPage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
+  const { interaction } = useSettings()
+  const viewportMode: ViewportMode = useViewportMode()
+  const phoneLayout: boolean = viewportMode === 'phone'
+  const alwaysShowRowActions: boolean = phoneLayout || interaction.touchMode
+
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('recent')
@@ -169,9 +178,20 @@ export default function ProjectsPage(): JSX.Element {
       title: t('projectArchive.chooseImport'),
       multiple: false,
       directory: false,
-      filters: [{ name: t('projectArchive.fileType'), extensions: ['sest'] }]
+      filters: [
+        { name: t('projectArchive.fileType'), extensions: ['sest'] },
+        // Android dialog filters are MIME-oriented; keep a broad fallback.
+        { name: t('common.allFiles'), extensions: ['*/*'] }
+      ]
     })
-    if (typeof selected === 'string') requestProjectImport(selected)
+    const selectedPath: string | null = Array.isArray(selected)
+      ? typeof selected[0] === 'string'
+        ? selected[0]
+        : null
+      : typeof selected === 'string'
+        ? selected
+        : null
+    if (selectedPath) requestProjectImport(selectedPath)
   }
 
   const handleExport = async (projectName: string): Promise<void> => {
@@ -203,10 +223,15 @@ export default function ProjectsPage(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-screen select-none">
-      <div className="px-8 pt-8 pb-6 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
+    <div className="flex h-full select-none flex-col">
+      <div className={cn('shrink-0 px-8 pt-8 pb-6', phoneLayout && 'px-4 pt-5 pb-4')}>
+        <div
+          className={cn(
+            'flex items-center justify-between gap-3',
+            phoneLayout && 'flex-col items-stretch gap-4'
+          )}
+        >
+          <div className="min-w-0">
             <h2 className="font-semibold text-2xl">{t('projects.title')}</h2>
             <p className="text-sm text-muted-foreground mt-1">
               {projects.length > 0
@@ -214,12 +239,21 @@ export default function ProjectsPage(): JSX.Element {
                 : t('projects.description')}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={(): void => void handleChooseImport()}>
+          <div className={cn('flex items-center gap-2', phoneLayout && 'grid grid-cols-2')}>
+            <Button
+              variant="outline"
+              size="sm"
+              className={phoneLayout ? 'h-11' : undefined}
+              onClick={(): void => void handleChooseImport()}
+            >
               <Upload className="w-4 h-4 mr-1" />
               {t('projectArchive.import')}
             </Button>
-            <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+            <Button
+              size="sm"
+              className={phoneLayout ? 'h-11' : undefined}
+              onClick={() => setCreateDialogOpen(true)}
+            >
               <Plus className="w-4 h-4 mr-1" />
               {t('project.new')}
             </Button>
@@ -227,7 +261,7 @@ export default function ProjectsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="px-8 flex-shrink-0 pb-2">
+      <div className={cn('flex-shrink-0 px-8 pb-2', phoneLayout && 'px-4 pb-3')}>
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -235,12 +269,13 @@ export default function ProjectsPage(): JSX.Element {
               placeholder={t('projects.search')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              className={cn('pl-9', phoneLayout && 'h-11 rounded-xl')}
             />
           </div>
           <Button
             variant="outline"
             size="icon"
+            className={phoneLayout ? 'size-11 rounded-xl' : undefined}
             aria-label={sortMode === 'recent' ? t('projects.sortByName') : t('projects.sortByTime')}
             title={sortMode === 'recent' ? t('projects.currentTime') : t('projects.currentName')}
             onClick={toggleSort}
@@ -250,6 +285,7 @@ export default function ProjectsPage(): JSX.Element {
           <Button
             variant="outline"
             size="icon"
+            className={phoneLayout ? 'size-11 rounded-xl' : undefined}
             aria-label={t('projects.refresh')}
             onClick={() => spin(fetchProjects)}
           >
@@ -258,15 +294,31 @@ export default function ProjectsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="flex-1 px-8 overflow-auto overscroll-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+      <div
+        className={cn(
+          'flex-1 overflow-auto overscroll-none px-8 pb-6 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent',
+          phoneLayout && 'px-4 pb-5'
+        )}
+      >
         {loading ? (
           <ProjectListSkeleton />
         ) : filtered.length > 0 ? (
-          <div className="divide-y divide-border">
+          <div
+            className={cn(
+              'divide-y divide-border',
+              phoneLayout && 'flex flex-col gap-3 divide-y-0'
+            )}
+          >
             {filtered.map((metadata) => (
               <ContextMenu key={metadata.title}>
-                <ContextMenuTrigger>
-                  <div className="flex items-center justify-between py-3 px-2 -mx-2 rounded-md hover:bg-accent/50 transition-colors cursor-default group">
+                <ContextMenuTrigger className={phoneLayout ? 'block' : undefined}>
+                  <div
+                    className={cn(
+                      'group -mx-2 flex cursor-default items-center justify-between rounded-md px-2 py-3 transition-colors hover:bg-accent/50',
+                      phoneLayout &&
+                        'mx-0 min-h-16 rounded-xl border bg-card px-3 py-2 shadow-xs active:bg-accent/70'
+                    )}
+                  >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{metadata.title}</p>
                       <div className="flex items-center text-xs text-muted-foreground mt-0.5">
@@ -274,11 +326,16 @@ export default function ProjectsPage(): JSX.Element {
                         <span>{timeAgo(metadata.lastModified)}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div
+                      className={cn(
+                        'flex items-center gap-1 transition-opacity',
+                        alwaysShowRowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      )}
+                    >
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className={phoneLayout ? 'size-10' : 'size-9'}
                         aria-label={t('common.edit')}
                         onClick={() => handleOpenEditor(metadata.title)}
                       >
@@ -287,7 +344,7 @@ export default function ProjectsPage(): JSX.Element {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className={phoneLayout ? 'size-10' : 'size-9'}
                         aria-label={t('common.play')}
                         onClick={() => handleOpenPlayer(metadata.title)}
                       >

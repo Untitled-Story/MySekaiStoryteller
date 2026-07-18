@@ -1,9 +1,15 @@
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { Application } from 'pixi.js'
+import { ArrowLeft, RotateCcw } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { prefersInAppNavigation } from '@/lib/platform'
+import { lockLandscapeOrientation, unlockOrientation } from '@/lib/orientation'
+import { closePlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
+import { cn } from '@/lib/style'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
 import {
   createStoryRuntime,
@@ -28,7 +34,7 @@ import type { AppSettings, RenderPrecision, ShortcutSettings } from '@/settings/
 import { loadPlaybackFontFamily } from '@/settings/fonts'
 import { getDataPath } from '@/workspace/api'
 import { describeError, logger } from '@/lib/logger'
-import { applyAppLanguage } from '@/i18n'
+import { applyAppLanguage, i18n } from '@/i18n'
 import { useTranslation } from 'react-i18next'
 
 export type PlayerStoryInput = {
@@ -53,34 +59,57 @@ type ModelLoadState =
   | { status: 'error'; message?: never; error: string }
 
 const PLAYER_STAGE_STYLE: CSSProperties = {
-  width: 'min(100vw, 177.77777778vh)',
-  height: 'min(100vh, 56.25vw)'
+  width: 'min(100vw, 177.77777778dvh)',
+  height: 'min(100dvh, 56.25vw)'
 }
 
-export default function App(): JSX.Element {
+const MOBILE_CONTROLS_HIDE_MS: number = 2600
+
+export default function App({
+  preferredProjectName = null
+}: {
+  preferredProjectName?: string | null
+} = {}): JSX.Element {
   const { t } = useTranslation()
-  const projectName = useWindowProjectName()
+  const projectName = useWindowProjectName(preferredProjectName)
+  const inAppNavigation: boolean = prefersInAppNavigation()
   const stageRef = useRef<HTMLDivElement | null>(null)
+  const controlsHideTimerRef = useRef<number | null>(null)
   const [storyInput, setStoryInput] = useState<PlayerStoryInput | null>(null)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
   const [modelLoadState, setModelLoadState] = useState<ModelLoadState>({ status: 'idle' })
   const [reloadRequest, setReloadRequest] = useState<number>(0)
   const [shortcutOverride, setShortcutOverride] = useState<ShortcutSettings | null>(null)
+  const [mobileControlsVisible, setMobileControlsVisible] = useState<boolean>(false)
   const shortcuts: ShortcutSettings = useMemo(
     (): ShortcutSettings =>
       normalizeShortcutSettings(shortcutOverride ?? storyInput?.settings?.shortcuts),
     [shortcutOverride, storyInput?.settings?.shortcuts]
   )
 
+  const clearControlsHideTimer = useCallback((): void => {
+    if (controlsHideTimerRef.current === null) return
+    window.clearTimeout(controlsHideTimerRef.current)
+    controlsHideTimerRef.current = null
+  }, [])
+
+  const revealMobileControls = useCallback((): void => {
+    if (!inAppNavigation) return
+    setMobileControlsVisible(true)
+    clearControlsHideTimer()
+    controlsHideTimerRef.current = window.setTimeout((): void => {
+      setMobileControlsVisible(false)
+      controlsHideTimerRef.current = null
+    }, MOBILE_CONTROLS_HIDE_MS)
+  }, [clearControlsHideTimer, inAppNavigation])
+
   useEffect((): (() => void) => {
     let disposed = false
     let unlisten: (() => void) | null = null
 
     void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
-      if (!disposed) {
-        setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
-        applyAppLanguage(event.payload.language)
-      }
+      if (!disposed) setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
+      applyAppLanguage(event.payload.language)
     }).then((dispose: () => void): void => {
       if (disposed) dispose()
       else unlisten = dispose
@@ -91,6 +120,44 @@ export default function App(): JSX.Element {
       unlisten?.()
     }
   }, [])
+
+  useEffect((): (() => void) | undefined => {
+    if (!inAppNavigation) return undefined
+
+    let cancelled: boolean = false
+    const currentWindow = getCurrentWindow()
+
+    void (async (): Promise<void> => {
+      try {
+        await currentWindow.setFullscreen(true)
+        logger.info('player.mobile_fullscreen_entered')
+      } catch (error: unknown) {
+        logger.warn('player.mobile_fullscreen_enter_failed', { error: describeError(error) })
+      }
+      if (cancelled) {
+        await currentWindow.setFullscreen(false).catch((): void => undefined)
+        return
+      }
+
+      const locked: boolean = await lockLandscapeOrientation()
+      if (cancelled) {
+        if (locked) unlockOrientation()
+        await currentWindow.setFullscreen(false).catch((): void => undefined)
+        return
+      }
+      if (locked) logger.info('player.orientation_locked', { orientation: 'landscape' })
+    })()
+
+    return (): void => {
+      cancelled = true
+      clearControlsHideTimer()
+      unlockOrientation()
+      void currentWindow.setFullscreen(false).catch((error: unknown): void => {
+        logger.warn('player.mobile_fullscreen_exit_failed', { error: describeError(error) })
+      })
+      logger.info('player.orientation_unlocked')
+    }
+  }, [clearControlsHideTimer, inAppNavigation])
 
   useEffect((): (() => void) => {
     const currentWindow = getCurrentWindow()
@@ -139,6 +206,10 @@ export default function App(): JSX.Element {
       if (!matchesShortcut(event, shortcuts.player.close)) return
 
       event.preventDefault()
+      if (inAppNavigation) {
+        void closePlayerWindow()
+        return
+      }
       void currentWindow.close().catch((error: unknown) => {
         console.error('Failed to close player window', error)
       })
@@ -146,7 +217,7 @@ export default function App(): JSX.Element {
 
     window.addEventListener('keydown', handlePlayerShortcut, true)
     return (): void => window.removeEventListener('keydown', handlePlayerShortcut, true)
-  }, [projectName, shortcuts.player])
+  }, [inAppNavigation, projectName, shortcuts.player])
 
   useEffect(() => {
     if (!projectName) return
@@ -160,7 +231,6 @@ export default function App(): JSX.Element {
     loadPlayerStoryInput(projectName)
       .then((input: PlayerStoryInput): void => {
         if (cancelled) return
-        applyAppLanguage(input.settings?.language ?? 'system')
         setStoryInput(input)
         setLoadState({ status: 'ready' })
         logger.info('player.project_load_completed', {
@@ -343,14 +413,57 @@ export default function App(): JSX.Element {
 
   return (
     <main
-      className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-black text-white select-none"
+      className="relative flex h-[100dvh] w-screen items-center justify-center overflow-hidden bg-black text-white select-none"
       data-player-entry="story-json"
       data-status={loadState.status}
       data-project={storyInput?.projectName ?? projectName ?? ''}
       data-snippet-count={storyInput?.story.snippets.length ?? 0}
       data-model-status={modelLoadState.status}
+      onClick={inAppNavigation ? revealMobileControls : undefined}
     >
-      <div className="absolute inset-x-0 top-0 z-20 h-8" onMouseDown={startWindowDrag} />
+      {!inAppNavigation ? (
+        <div className="absolute inset-x-0 top-0 z-20 h-8" onMouseDown={startWindowDrag} />
+      ) : (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center gap-2 bg-gradient-to-b from-black/75 to-transparent px-3 pb-10 pt-[max(0.5rem,env(safe-area-inset-top))] transition-opacity duration-200',
+            mobileControlsVisible ? 'opacity-100' : 'opacity-0'
+          )}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
+            aria-label={t('common.back')}
+            title={t('common.back')}
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+              event.stopPropagation()
+              void closePlayerWindow()
+            }}
+          >
+            <ArrowLeft className="size-5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
+            aria-label={t('common.reload')}
+            title={t('common.reload')}
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+              event.stopPropagation()
+              setReloadRequest((current: number): number => current + 1)
+              revealMobileControls()
+            }}
+          >
+            <RotateCcw className="size-5" />
+          </Button>
+          <span className="min-w-0 truncate text-sm text-white/80">
+            {storyInput?.metadata.title ?? projectName ?? t('player.playerFallback')}
+          </span>
+        </div>
+      )}
       <div
         className="relative shrink-0 overflow-hidden bg-black"
         style={PLAYER_STAGE_STYLE}
@@ -390,7 +503,7 @@ async function loadPlayerStoryInput(projectName: string): Promise<PlayerStoryInp
     ])
 
   if (!rawMetadata) {
-    throw new Error(`项目 metadata.json 不存在: ${projectName}`)
+    throw new Error(i18n.t('project.metadataMissing', { name: projectName }))
   }
 
   const story = await getProjectStory(projectName)
@@ -431,10 +544,14 @@ function describeStoryPlaybackError(error: unknown): string {
   if (error instanceof StorySnippetError) {
     const cause = error.cause instanceof Error ? `: ${error.cause.message}` : ''
 
-    return `Snippet 执行失败 ${error.path.join('.')}: ${error.snippet.type}${cause}`
+    return i18n.t('player.snippetFailed', {
+      path: error.path.join('.'),
+      type: error.snippet.type,
+      cause
+    })
   }
 
-  return error instanceof Error ? error.message : 'Story 播放失败'
+  return error instanceof Error ? error.message : i18n.t('player.playbackFailed')
 }
 
 function describeModelLoadError(error: StoryModelPreloadError): string {
@@ -443,11 +560,11 @@ function describeModelLoadError(error: StoryModelPreloadError): string {
   const status = getErrorValue(error.cause, 'status')
 
   return [
-    `Live2D 模型加载失败: ${message}`,
-    `模型: ${error.modelName}`,
-    `入口: ${error.modelUrl}`,
-    failedUrl ? `失败请求: ${failedUrl}` : null,
-    typeof status === 'number' ? `HTTP 状态: ${status}` : null
+    i18n.t('player.modelLoadFailed', { message }),
+    i18n.t('player.model', { model: error.modelName }),
+    i18n.t('player.entry', { entry: error.modelUrl }),
+    failedUrl ? i18n.t('player.failedRequest', { url: failedUrl }) : null,
+    typeof status === 'number' ? i18n.t('player.httpStatus', { status }) : null
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n')

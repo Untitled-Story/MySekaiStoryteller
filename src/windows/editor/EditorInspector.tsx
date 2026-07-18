@@ -29,7 +29,6 @@ import type { VisualEffectData } from '@/story/schema'
 import { cn } from '@/lib/style'
 import { fuzzyMatchOptions } from '@/lib/fuzzyMatch'
 import {
-  ASSET_KIND_LABELS,
   getAssetItems,
   getAssetOptionLabel,
   NODE_PRESENTATIONS,
@@ -47,11 +46,13 @@ import {
 } from './editorDocument'
 import { useTranslation } from 'react-i18next'
 import {
+  localizeAssetKind,
   localizeSnippetDescription,
   localizeSnippetFieldLabel,
   localizeSnippetOptionLabel,
   localizeSnippetPlaceholder
 } from './editorLocalization'
+import { i18n } from '@/i18n'
 
 type ValueAtPath = unknown
 
@@ -229,12 +230,11 @@ function SnippetInspectorContent({
         )}
         {node.type === 'Parallel' && (
           <div className="rounded-md border border-dashed px-3 py-3 text-xs text-muted-foreground">
-            该块包含 {countSnippetSubtree(node) - 1}{' '}
-            个子片段；所有子片段会从该块的延迟结束后同时开始。
+            {t('editor.parallelSummary', { count: countSnippetSubtree(node) - 1 })}
           </div>
         )}
         <div className="border-t pt-5">
-          <FieldLabel label="延迟" />
+          <FieldLabel label={t('editor.delay')} />
           <NumberInput
             value={node.delay}
             min={0}
@@ -266,6 +266,7 @@ function SnippetField({
   onValueChange: (path: readonly string[], value: unknown, merge?: boolean) => void
   onInputBlur: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const localizedLabel: string = localizeSnippetFieldLabel(field.label)
   const value: ValueAtPath = getValueAtPath(node, field.path)
 
@@ -290,10 +291,12 @@ function SnippetField({
           }
         >
           {availableEffects.length === 0 && !hasMissingSelection && (
-            <option value="">前面没有可移除的效果</option>
+            <option value="">{t('editor.noRemovableEffect')}</option>
           )}
           {hasMissingSelection && (
-            <option value={selectedEffectId}>未找到：{selectedEffectId}</option>
+            <option value={selectedEffectId}>
+              {t('editor.effectNotFound', { id: selectedEffectId })}
+            </option>
           )}
           {availableEffects.map(
             (effectNode: EditorAppliedEffect): JSX.Element => (
@@ -322,7 +325,7 @@ function SnippetField({
           value={textValue}
           options={options}
           placeholder={localizeSnippetPlaceholder(field.placeholder)}
-          emptyText={options.length === 0 ? '当前模型没有可用索引' : '没有匹配项，将保留自定义值'}
+          emptyText={options.length === 0 ? t('editor.modelNoIndex') : t('editor.modelNoMatch')}
           onChange={(nextValue: string): void =>
             onValueChange(field.path, field.optional && !nextValue ? undefined : nextValue, true)
           }
@@ -422,8 +425,14 @@ function SnippetField({
             onValueChange(field.path, field.optional && !nextKey ? undefined : nextKey)
           }}
         >
-          {field.optional && <option value="">未关联{ASSET_KIND_LABELS[field.assetKind]}</option>}
-          {hasMissingSelection && <option value={selectedKey}>缺失：{selectedKey}</option>}
+          {field.optional && (
+            <option value="">
+              {t('editor.unlinkedAsset', { kind: localizeAssetKind(field.assetKind) })}
+            </option>
+          )}
+          {hasMissingSelection && (
+            <option value={selectedKey}>{t('editor.missingAsset', { key: selectedKey })}</option>
+          )}
           {assetOptions.map(
             (asset): JSX.Element => (
               <option key={asset.key} value={asset.key}>
@@ -475,7 +484,9 @@ function SnippetField({
     return (
       <FieldGroup label={localizedLabel}>
         <div className="flex h-9 items-center justify-between rounded-md border px-3">
-          <span className="text-xs text-muted-foreground">{value ? '启用' : '关闭'}</span>
+          <span className="text-xs text-muted-foreground">
+            {value ? t('common.enabled') : t('common.disabled')}
+          </span>
           <Switch
             checked={Boolean(value)}
             onCheckedChange={(checked: boolean): void => onValueChange(field.path, checked)}
@@ -687,6 +698,7 @@ function EffectFields({
   onValueChange: (path: readonly string[], value: unknown, merge?: boolean) => void
   onInputBlur: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   if (node.type !== 'ApplyEffect') return <></>
 
   const { target, effect } = node.data
@@ -699,10 +711,10 @@ function EffectFields({
 
   return (
     <div className="space-y-5">
-      <FieldGroup label="作用范围">
+      <FieldGroup label={t('editor.effectScope')}>
         <div className="space-y-2">
           <select
-            aria-label="Effect 作用范围"
+            aria-label={t('editor.effectScopeAria')}
             className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
             value={target.type}
             onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
@@ -716,20 +728,20 @@ function EffectFields({
             }}
           >
             {supportedTargets.includes('Stage') && (
-              <option value="Stage">舞台（背景、模型与粒子）</option>
+              <option value="Stage">{t('editor.effectStageScope')}</option>
             )}
             {supportedTargets.includes('Screen') && (
-              <option value="Screen">整画面（包含文字 UI）</option>
+              <option value="Screen">{t('editor.effectScreenScope')}</option>
             )}
             {supportedTargets.includes('Model') && (
               <option value="Model" disabled={modelKeys.length === 0}>
-                指定模型
+                {t('editor.effectModelScope')}
               </option>
             )}
           </select>
           {target.type === 'Model' && (
             <select
-              aria-label="Effect 目标模型"
+              aria-label={t('editor.effectTargetModel')}
               className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
               value={target.model}
               onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
@@ -740,7 +752,9 @@ function EffectFields({
               }
             >
               {!assets.models[target.model] && (
-                <option value={target.model}>缺失：{target.model}</option>
+                <option value={target.model}>
+                  {t('editor.missingAsset', { key: target.model })}
+                </option>
               )}
               {modelKeys.map(
                 (key: string): JSX.Element => (
@@ -754,9 +768,9 @@ function EffectFields({
         </div>
       </FieldGroup>
 
-      <FieldGroup label="效果类型">
+      <FieldGroup label={t('editor.effectType')}>
         <select
-          aria-label="Effect 类型"
+          aria-label={t('editor.effectTypeAria')}
           className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
           value={effect.type}
           onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
@@ -769,23 +783,23 @@ function EffectFields({
             onValueChange(path, { ...node.data, effect: nextEffect, target: nextTarget })
           }}
         >
-          <option value="Grayscale">黑白</option>
-          <option value="Blur">模糊</option>
-          <option value="OldFilm">老电影</option>
-          <option value="CRT">CRT 显示器</option>
-          <option value="ColorOverlay">纯色覆盖</option>
+          <option value="Grayscale">{t('editor.effectGrayscale')}</option>
+          <option value="Blur">{t('editor.effectBlur')}</option>
+          <option value="OldFilm">{t('editor.effectOldFilm')}</option>
+          <option value="CRT">{t('editor.effectCrt')}</option>
+          <option value="ColorOverlay">{t('editor.effectColorOverlay')}</option>
           <option value="Hologram" disabled={modelKeys.length === 0}>
-            全息投影
+            {t('editor.effectHologram')}
           </option>
           <option value="TriangleParticles" disabled={modelKeys.length === 0}>
-            三角粒子
+            {t('editor.effectTriangleParticles')}
           </option>
         </select>
       </FieldGroup>
 
       {effect.type === 'Grayscale' && (
         <EffectNumberField
-          label="黑白强度"
+          label={t('editor.grayscaleIntensity')}
           value={effect.intensity}
           min={0}
           max={1}
@@ -798,7 +812,7 @@ function EffectFields({
       {effect.type === 'Blur' && (
         <>
           <EffectNumberField
-            label="模糊强度"
+            label={t('editor.blurStrength')}
             value={effect.strength}
             min={0}
             max={32}
@@ -808,7 +822,7 @@ function EffectFields({
           />
           <div className="grid grid-cols-2 gap-2">
             <EffectNumberField
-              label="质量"
+              label={t('editor.quality')}
               value={effect.quality}
               min={1}
               max={4}
@@ -816,9 +830,9 @@ function EffectFields({
               onChange={(quality: number): void => updateEffect({ quality: Math.round(quality) })}
               onBlur={onInputBlur}
             />
-            <FieldGroup label="采样核">
+            <FieldGroup label={t('editor.kernelSize')}>
               <select
-                aria-label="模糊采样核"
+                aria-label={t('editor.kernelSizeAria')}
                 className="h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs outline-none"
                 value={effect.kernelSize}
                 onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
@@ -846,15 +860,15 @@ function EffectFields({
       {effect.type === 'OldFilm' && (
         <EffectNumberGrid
           fields={[
-            ['棕褐色', effect.sepia, 'sepia', 0, 1, 0.05],
-            ['噪点', effect.noise, 'noise', 0, 1, 0.05],
-            ['噪点尺寸', effect.noiseSize, 'noiseSize', 0, 20, 0.5],
-            ['划痕', effect.scratch, 'scratch', 0, 1, 0.05],
-            ['划痕密度', effect.scratchDensity, 'scratchDensity', 0, 1, 0.05],
-            ['划痕宽度', effect.scratchWidth, 'scratchWidth', 0, 20, 0.5],
-            ['暗角范围', effect.vignetting, 'vignetting', 0, 1, 0.05],
-            ['暗角强度', effect.vignettingAlpha, 'vignettingAlpha', 0, 1, 0.05],
-            ['暗角模糊', effect.vignettingBlur, 'vignettingBlur', 0, 1, 0.05]
+            [t('editor.sepia'), effect.sepia, 'sepia', 0, 1, 0.05],
+            [t('editor.noise'), effect.noise, 'noise', 0, 1, 0.05],
+            [t('editor.noiseSize'), effect.noiseSize, 'noiseSize', 0, 20, 0.5],
+            [t('editor.scratch'), effect.scratch, 'scratch', 0, 1, 0.05],
+            [t('editor.scratchDensity'), effect.scratchDensity, 'scratchDensity', 0, 1, 0.05],
+            [t('editor.scratchWidth'), effect.scratchWidth, 'scratchWidth', 0, 20, 0.5],
+            [t('editor.vignetting'), effect.vignetting, 'vignetting', 0, 1, 0.05],
+            [t('editor.vignettingAlpha'), effect.vignettingAlpha, 'vignettingAlpha', 0, 1, 0.05],
+            [t('editor.vignettingBlur'), effect.vignettingBlur, 'vignettingBlur', 0, 1, 0.05]
           ]}
           onChange={updateEffect}
           onBlur={onInputBlur}
@@ -865,22 +879,22 @@ function EffectFields({
         <>
           <EffectNumberGrid
             fields={[
-              ['曲率', effect.curvature, 'curvature', 0, 10, 0.1],
-              ['扫描线宽度', effect.lineWidth, 'lineWidth', 0, 20, 0.5],
-              ['扫描线对比', effect.lineContrast, 'lineContrast', 0, 1, 0.05],
-              ['噪点', effect.noise, 'noise', 0, 1, 0.05],
-              ['噪点尺寸', effect.noiseSize, 'noiseSize', 0, 20, 0.5],
-              ['暗角范围', effect.vignetting, 'vignetting', 0, 1, 0.05],
-              ['暗角强度', effect.vignettingAlpha, 'vignettingAlpha', 0, 1, 0.05],
-              ['暗角模糊', effect.vignettingBlur, 'vignettingBlur', 0, 1, 0.05]
+              [t('editor.curvature'), effect.curvature, 'curvature', 0, 10, 0.1],
+              [t('editor.lineWidth'), effect.lineWidth, 'lineWidth', 0, 20, 0.5],
+              [t('editor.lineContrast'), effect.lineContrast, 'lineContrast', 0, 1, 0.05],
+              [t('editor.noise'), effect.noise, 'noise', 0, 1, 0.05],
+              [t('editor.noiseSize'), effect.noiseSize, 'noiseSize', 0, 20, 0.5],
+              [t('editor.vignetting'), effect.vignetting, 'vignetting', 0, 1, 0.05],
+              [t('editor.vignettingAlpha'), effect.vignettingAlpha, 'vignettingAlpha', 0, 1, 0.05],
+              [t('editor.vignettingBlur'), effect.vignettingBlur, 'vignettingBlur', 0, 1, 0.05]
             ]}
             onChange={updateEffect}
             onBlur={onInputBlur}
           />
-          <FieldGroup label="扫描线方向">
+          <FieldGroup label={t('editor.scanlineDirection')}>
             <div className="flex h-9 items-center justify-between rounded-md border px-3">
               <span className="text-xs text-muted-foreground">
-                {effect.verticalLine ? '垂直' : '水平'}
+                {effect.verticalLine ? t('editor.vertical') : t('editor.horizontal')}
               </span>
               <Switch
                 checked={effect.verticalLine}
@@ -893,10 +907,10 @@ function EffectFields({
 
       {effect.type === 'ColorOverlay' && (
         <>
-          <FieldGroup label="覆盖颜色">
+          <FieldGroup label={t('editor.overlayColor')}>
             <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2 shadow-xs">
               <input
-                aria-label="覆盖颜色"
+                aria-label={t('editor.overlayColor')}
                 type="color"
                 value={effect.color}
                 className="size-5 cursor-pointer border-0 bg-transparent p-0"
@@ -910,7 +924,7 @@ function EffectFields({
             </div>
           </FieldGroup>
           <EffectNumberField
-            label="覆盖强度"
+            label={t('editor.overlayIntensity')}
             value={effect.alpha}
             min={0}
             max={1}
@@ -1050,6 +1064,7 @@ function ParameterFields({
   onValueChange: (path: readonly string[], value: unknown, merge?: boolean) => void
   onInputBlur: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const params: ParameterAnimation[] = Array.isArray(value)
     ? value.filter(isParameterAnimation)
     : [defaultParameterAnimation()]
@@ -1063,14 +1078,14 @@ function ParameterFields({
   }
 
   return (
-    <FieldGroup label="参数动画">
+    <FieldGroup label={t('editor.parameterAnimation')}>
       <div className="space-y-3">
         {params.map(
           (param: ParameterAnimation, index: number): JSX.Element => (
             <div key={`${param.paramId}-${index}`} className="space-y-2 rounded-md border p-2.5">
               <div className="flex items-center gap-2">
                 <Input
-                  aria-label="参数 ID"
+                  aria-label={t('editor.parameterId')}
                   className="h-8 font-mono text-xs"
                   value={param.paramId}
                   placeholder="ParamAngleX"
@@ -1084,8 +1099,8 @@ function ParameterFields({
                   variant="ghost"
                   size="icon"
                   className="size-8 text-destructive"
-                  aria-label="删除参数"
-                  title="删除参数"
+                  aria-label={t('editor.deleteParameter')}
+                  title={t('editor.deleteParameter')}
                   disabled={params.length === 1}
                   onClick={(): void =>
                     onValueChange(
@@ -1103,20 +1118,20 @@ function ParameterFields({
               <div className="grid grid-cols-2 gap-2">
                 <NumberInput
                   value={param.start}
-                  suffix="起始"
+                  suffix={t('editor.startValue')}
                   onValueChange={(start: number): void => updateAt(index, { start })}
                   onBlur={onInputBlur}
                 />
                 <NumberInput
                   value={param.end}
-                  suffix="结束"
+                  suffix={t('editor.endValue')}
                   onValueChange={(end: number): void => updateAt(index, { end })}
                   onBlur={onInputBlur}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <select
-                  aria-label="曲线"
+                  aria-label={t('editor.curve')}
                   className="h-9 rounded-md border bg-background px-2 text-xs shadow-xs outline-none"
                   value={param.curve}
                   onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
@@ -1128,7 +1143,7 @@ function ParameterFields({
                   {storyFieldOptions.curves.map(
                     (option): JSX.Element => (
                       <option key={option.value} value={option.value}>
-                        {option.label}
+                        {localizeSnippetOptionLabel(option.label)}
                       </option>
                     )
                   )}
@@ -1153,7 +1168,7 @@ function ParameterFields({
           onClick={(): void => onValueChange(path, [...params, defaultParameterAnimation()])}
         >
           <Layers3 className="size-3.5" />
-          添加参数
+          {t('editor.addParameter')}
         </Button>
       </div>
     </FieldGroup>
@@ -1259,9 +1274,10 @@ function FieldLabel({ label }: { label: string }): JSX.Element {
 }
 
 function EmptyInspector(): JSX.Element {
+  const { t } = useTranslation()
   return (
     <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-6 text-muted-foreground">
-      从故事树中选择一个片段，编辑它的属性。
+      {t('editor.emptyInspector')}
     </div>
   )
 }
@@ -1285,12 +1301,13 @@ export function EditorAssetInspector({
   onRename: (selection: EditorAssetSelection, newKey: string) => void
   onDelete: (selection: EditorAssetSelection) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   if (!selectedAsset) {
     return (
       <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l bg-background">
         <div className="flex h-12 shrink-0 items-center border-b px-4">
           <Save className="mr-2 size-4 text-muted-foreground" />
-          <span className="text-sm font-medium">资源属性</span>
+          <span className="text-sm font-medium">{t('editor.assetProperties')}</span>
         </div>
         <EmptyInspector />
       </aside>
@@ -1303,7 +1320,7 @@ export function EditorAssetInspector({
       <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l bg-background">
         <div className="flex h-12 shrink-0 items-center border-b px-4">
           <Save className="mr-2 size-4 text-muted-foreground" />
-          <span className="text-sm font-medium">资源属性</span>
+          <span className="text-sm font-medium">{t('editor.assetProperties')}</span>
         </div>
         <EmptyInspector />
       </aside>
@@ -1314,14 +1331,14 @@ export function EditorAssetInspector({
     <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l bg-background">
       <div className="flex h-12 shrink-0 items-center border-b px-4">
         <Save className="mr-2 size-4 text-muted-foreground" />
-        <span className="text-sm font-medium">资源属性</span>
+        <span className="text-sm font-medium">{t('editor.assetProperties')}</span>
         <Button
           type="button"
           variant="ghost"
           size="icon"
           className="ml-auto size-8 text-destructive hover:text-destructive"
-          aria-label="删除资源"
-          title="删除资源"
+          aria-label={t('editor.deleteAsset')}
+          title={t('editor.deleteAsset')}
           onClick={(): void => onDelete(selectedAsset)}
         >
           <Trash2 className="size-3.5" />
@@ -1329,7 +1346,7 @@ export function EditorAssetInspector({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
         <div className="border-b px-4 py-4">
-          <p className="text-xs text-muted-foreground">{ASSET_KIND_LABELS[selectedAsset.kind]}</p>
+          <p className="text-xs text-muted-foreground">{localizeAssetKind(selectedAsset.kind)}</p>
           <p className="mt-1 break-all font-mono text-sm font-medium">{selectedAsset.key}</p>
         </div>
         <div className="space-y-5 px-4 py-5">
@@ -1366,6 +1383,7 @@ function AssetKeyField({
   selection: EditorAssetSelection
   onRename: (selection: EditorAssetSelection, newKey: string) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const [keyDraft, setKeyDraft] = useState<string>(selection.key)
 
   useEffect((): void => {
@@ -1373,7 +1391,7 @@ function AssetKeyField({
   }, [selection.key])
 
   return (
-    <FieldGroup label="资源键">
+    <FieldGroup label={t('editor.assetKey')}>
       <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
         <Input
           value={keyDraft}
@@ -1389,7 +1407,7 @@ function AssetKeyField({
           disabled={keyDraft === selection.key}
           onClick={(): void => onRename(selection, keyDraft)}
         >
-          改名
+          {t('common.rename')}
         </Button>
       </div>
     </FieldGroup>
@@ -1403,9 +1421,10 @@ function ModelAssetFields({
   asset: ModelAsset
   onChange: (asset: ModelAsset) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <>
-      <FieldGroup label="显示名称">
+      <FieldGroup label={t('editor.displayName')}>
         <Input
           value={asset.name ?? ''}
           className="h-9 text-sm"
@@ -1414,14 +1433,14 @@ function ModelAssetFields({
           }
         />
       </FieldGroup>
-      <FieldGroup label="全局模型 ID">
+      <FieldGroup label={t('editor.globalModelId')}>
         <Input
           value={asset.modelId}
           readOnly
           className="h-9 font-mono text-xs text-muted-foreground"
         />
       </FieldGroup>
-      <FieldGroup label="普通布局缩放">
+      <FieldGroup label={t('editor.normalLayoutScale')}>
         <NumberInput
           value={asset.normalScale}
           step={0.1}
@@ -1429,7 +1448,7 @@ function ModelAssetFields({
           onBlur={noop}
         />
       </FieldGroup>
-      <FieldGroup label="三人布局缩放">
+      <FieldGroup label={t('editor.threePersonLayoutScale')}>
         <NumberInput
           value={asset.smallScale}
           step={0.1}
@@ -1437,7 +1456,7 @@ function ModelAssetFields({
           onBlur={noop}
         />
       </FieldGroup>
-      <FieldGroup label="锚点">
+      <FieldGroup label={t('editor.anchor')}>
         <NumberInput
           value={asset.anchor}
           step={0.05}
@@ -1456,18 +1475,19 @@ function FileAssetFields({
   asset: BackgroundAsset | VoiceAsset
   onChange: (asset: BackgroundAsset | VoiceAsset) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <>
-      <FieldGroup label="显示名称">
+      <FieldGroup label={t('editor.displayName')}>
         <Input
-          value={asset.name}
+          value={asset.name ?? ''}
           className="h-9 text-sm"
           onChange={(event: ChangeEvent<HTMLInputElement>): void =>
             onChange({ ...asset, name: event.currentTarget.value })
           }
         />
       </FieldGroup>
-      <FieldGroup label="项目内路径">
+      <FieldGroup label={t('editor.projectPath')}>
         <Input
           value={asset.path}
           readOnly
@@ -1507,24 +1527,26 @@ function isParameterAnimation(value: unknown): value is ParameterAnimation {
 
 function effectReferenceLabel(story: EditorStory, node: EditorAppliedEffect): string {
   const effectLabel: string = {
-    Grayscale: '黑白',
-    Blur: '模糊',
-    OldFilm: '老电影',
+    Grayscale: i18n.t('editor.effectGrayscale'),
+    Blur: i18n.t('editor.effectBlur'),
+    OldFilm: i18n.t('editor.effectOldFilm'),
     CRT: 'CRT',
-    ColorOverlay: '纯色覆盖',
-    Hologram: '全息投影',
-    TriangleParticles: '三角粒子'
+    ColorOverlay: i18n.t('editor.effectColorOverlay'),
+    Hologram: i18n.t('editor.effectHologram'),
+    TriangleParticles: i18n.t('editor.effectTriangleParticles')
   }[node.data.effect.type]
   const targetLabel: string =
     node.data.target.type === 'Model'
-      ? `模型：${node.data.target.model}`
+      ? i18n.t('editor.targetModel', { model: node.data.target.model })
       : node.data.target.type === 'Stage'
-        ? '舞台'
-        : '整画面'
+        ? i18n.t('editor.targetStage')
+        : i18n.t('editor.targetScreen')
   const path: readonly number[] | null = findEditorNodePath(story, node.id)
   const snippetLabel: string = path
-    ? `片段 ${path.map((index: number): number => index + 1).join('.')}`
-    : '未知片段'
+    ? i18n.t('editor.snippetPath', {
+        path: path.map((index: number): number => index + 1).join('.')
+      })
+    : i18n.t('editor.unknownSnippet')
   return `${effectLabel} · ${targetLabel} · ${snippetLabel}`
 }
 

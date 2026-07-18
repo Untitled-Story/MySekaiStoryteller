@@ -9,12 +9,12 @@ export const ModelAssetSchema = z.object({
 })
 
 export const BackgroundAssetSchema = z.object({
-  name: z.string().default('未命名背景'),
+  name: z.string().optional(),
   path: z.string()
 })
 
 export const VoiceAssetSchema = z.object({
-  name: z.string().default('未命名语音'),
+  name: z.string().optional(),
   path: z.string()
 })
 

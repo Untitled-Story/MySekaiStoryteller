@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
@@ -95,12 +96,17 @@ pub fn import_project_asset(
     let allowed_extensions = asset_kind
         .allowed_extensions()
         .ok_or_else(|| "资源类型不支持导入".to_string())?;
-    let source = PathBuf::from(source_path);
+    let materialized = super::materialize_picked_file(&app, &source_path, None)?;
+    let source = materialized.path;
     if !source.is_file() {
         return Err("选择的文件不存在或不是普通文件".into());
     }
 
-    let extension = file_extension(&source)?;
+    let extension = if materialized.copied {
+        detect_asset_extension(&source)?
+    } else {
+        file_extension(&source)?
+    };
     if !allowed_extensions.contains(&extension.as_str()) {
         return Err(format!("不支持 .{extension} 文件"));
     }
@@ -527,6 +533,41 @@ fn file_extension(path: &Path) -> Result<String, String> {
         .ok_or_else(|| "文件没有扩展名".to_string())
 }
 
+fn detect_asset_extension(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| format!("读取资源文件失败: {error}"))?;
+    let mut bytes = [0_u8; 32];
+    let read = file
+        .read(&mut bytes)
+        .map_err(|error| format!("读取资源文件失败: {error}"))?;
+    let bytes = &bytes[..read];
+
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        return Ok("png".into());
+    }
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Ok("jpg".into());
+    }
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Ok("webp".into());
+    }
+    if bytes.starts_with(b"OggS") {
+        return Ok("ogg".into());
+    }
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
+        return Ok("wav".into());
+    }
+    if bytes.starts_with(b"ID3")
+        || (bytes.len() >= 2 && bytes[0] == 0xff && bytes[1] & 0xe0 == 0xe0)
+    {
+        return Ok("mp3".into());
+    }
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        return Ok("m4a".into());
+    }
+
+    Err("无法识别所选资源的真实文件类型".into())
+}
+
 fn find_asset_references(
     story: &Value,
     kind: ProjectAssetKind,
@@ -783,6 +824,35 @@ mod tests {
         assert_eq!(normalize_asset_key("中文背景"), "asset");
         assert!(validate_asset_key("bg_f001201").is_ok());
         assert!(validate_asset_key("Not Valid").is_err());
+    }
+
+    #[test]
+    fn detects_materialized_asset_types_from_content() {
+        let root = std::env::temp_dir().join(format!(
+            "mss-asset-signature-test-{}",
+            super::super::unique_write_suffix()
+        ));
+        fs::create_dir_all(&root).expect("create signature test directory");
+        let cases: &[(&str, &[u8], &str)] = &[
+            ("png", b"\x89PNG\r\n\x1a\n", "png"),
+            ("jpeg", b"\xff\xd8\xff\xe0", "jpg"),
+            ("webp", b"RIFF\x04\0\0\0WEBP", "webp"),
+            ("ogg", b"OggS\0\0\0\0", "ogg"),
+            ("wav", b"RIFF\x04\0\0\0WAVE", "wav"),
+            ("mp3", b"ID3\x04\0\0\0", "mp3"),
+            ("m4a", b"\0\0\0\x18ftypM4A ", "m4a"),
+        ];
+
+        for (name, content, expected) in cases {
+            let path = root.join(name);
+            fs::write(&path, content).expect("write signature fixture");
+            assert_eq!(detect_asset_extension(&path).as_deref(), Ok(*expected));
+        }
+
+        let unknown = root.join("unknown");
+        fs::write(&unknown, b"not a supported asset").expect("write unknown fixture");
+        assert!(detect_asset_extension(&unknown).is_err());
+        fs::remove_dir_all(root).expect("remove signature test directory");
     }
 
     #[test]

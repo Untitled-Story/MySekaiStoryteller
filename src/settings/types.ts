@@ -1,4 +1,7 @@
 import type { OnboardingSettings } from '@/onboarding/types'
+import type { InteractionSettings } from '@/lib/touchMode'
+
+export type { InteractionSettings }
 
 export type SystemTheme = 'light' | 'dark'
 
@@ -54,5 +57,6 @@ export type AppSettings = {
   playback: PlaybackSettings
   shortcuts: ShortcutSettings
   onboarding: OnboardingSettings
+  interaction: InteractionSettings
   workspaceDir?: string
 }

@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/Card'
-import { Clock, Edit3, Play, Trash2, FileEdit } from 'lucide-react'
+import { Clock, Edit3, Play, Trash2, FileEdit, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { timeAgo } from '@/windows/main/utils/time'
 import type { ProjectMetadata } from '@/project/metadata'
@@ -12,6 +12,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '@/components/ui/ContextMenu'
+import { useLongPressContextMenu } from '@/hooks/useLongPressContextMenu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,6 +49,11 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps):
   const [openingEditor, setOpeningEditor] = useState(false)
   const [openingPlayer, setOpeningPlayer] = useState(false)
   const [contextMenuKey, setContextMenuKey] = useState(0)
+  const longPressHandlers = useLongPressContextMenu({
+    onOpen: (): void => {
+      setContextMenuKey((key: number): number => key + 1)
+    }
+  })
 
   const handleDelete = async () => {
     setIsDeleting(true)
@@ -126,36 +132,66 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps):
         <ContextMenuTrigger
           className="select-none"
           onContextMenu={() => setContextMenuKey((key) => key + 1)}
+          {...longPressHandlers}
         >
-          <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex-1">
-                <h4 className="font-medium text-base mb-1">{metadata.title}</h4>
+          <Card className="cursor-pointer p-4 transition-shadow hover:shadow-md">
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <h4 className="mb-1 truncate text-base font-medium">{metadata.title}</h4>
                 <div className="flex items-center text-sm text-muted-foreground">
-                  <Clock className="w-3.5 h-3.5 mr-1" />
+                  <Clock className="mr-1 h-3.5 w-3.5" />
                   <span>{timeAgo(metadata.lastModified)}</span>
                 </div>
               </div>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-9 shrink-0"
+                aria-label={t('common.moreActions')}
+                title={t('common.moreActions')}
+                onClick={(event): void => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setContextMenuKey((key: number): number => key + 1)
+                  const target: EventTarget | null = event.currentTarget
+                  if (!(target instanceof HTMLElement)) return
+                  const rect: DOMRect = target.getBoundingClientRect()
+                  target.dispatchEvent(
+                    new MouseEvent('contextmenu', {
+                      bubbles: true,
+                      cancelable: true,
+                      clientX: rect.left + rect.width / 2,
+                      clientY: rect.bottom,
+                      button: 2,
+                      buttons: 2,
+                      view: window
+                    })
+                  )
+                }}
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
             </div>
             <div className="flex space-x-2">
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 bg-transparent"
+                className="h-10 flex-1 bg-transparent"
                 onClick={handleOpenEditor}
                 disabled={openingEditor}
               >
-                <Edit3 className="w-3.5 h-3.5 mr-1" />
+                <Edit3 className="mr-1 h-3.5 w-3.5" />
                 {t('common.edit')}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 bg-transparent"
+                className="h-10 flex-1 bg-transparent"
                 onClick={handleOpenPlayer}
                 disabled={openingPlayer}
               >
-                <Play className="w-3.5 h-3.5 mr-1" />
+                <Play className="mr-1 h-3.5 w-3.5" />
                 {t('common.play')}
               </Button>
             </div>

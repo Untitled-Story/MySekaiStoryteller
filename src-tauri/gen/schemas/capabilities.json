@@ -10,13 +10,22 @@
       "core:window:allow-set-focus",
       "core:event:default",
       "dialog:default",
-      "global-shortcut:allow-is-registered",
-      "global-shortcut:allow-register",
-      "global-shortcut:allow-unregister",
-      "global-shortcut:allow-unregister-all",
       "log:default",
       "opener:default"
     ]
+  },
+  "desktop-shortcuts": {
+    "identifier": "desktop-shortcuts",
+    "description": "Desktop-only global shortcut permissions",
+    "local": true,
+    "windows": ["main", "editor", "player"],
+    "permissions": [
+      "global-shortcut:allow-is-registered",
+      "global-shortcut:allow-register",
+      "global-shortcut:allow-unregister",
+      "global-shortcut:allow-unregister-all"
+    ],
+    "platforms": ["linux", "macOS", "windows"]
   },
   "editor": {
     "identifier": "editor",
@@ -24,6 +33,14 @@
     "local": true,
     "windows": ["editor"],
     "permissions": ["core:window:allow-destroy"]
+  },
+  "mobile-player": {
+    "identifier": "mobile-player",
+    "description": "Mobile shell permissions used by the embedded player",
+    "local": true,
+    "windows": ["main"],
+    "permissions": ["core:window:allow-set-fullscreen"],
+    "platforms": ["android", "iOS"]
   },
   "player": {
     "identifier": "player",

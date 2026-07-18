@@ -28,18 +28,21 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FolderOpen, RotateCcw } from 'lucide-react'
 import { describeError, logger } from '@/lib/logger'
+import { isMobileRuntime } from '@/lib/platform'
 import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 export default function SettingsPage(): JSX.Element {
   const { t } = useTranslation()
+  const mobileRuntime: boolean = isMobileRuntime()
   const {
     language,
     appearance,
     playback,
     shortcuts,
     onboarding,
+    interaction,
     workspaceDir,
     setLanguage,
     setFollowSystem,
@@ -49,6 +52,7 @@ export default function SettingsPage(): JSX.Element {
     setPlaybackFont,
     setShortcuts,
     setOnboarding,
+    setTouchMode,
     setWorkspaceDir
   } = useSettings()
   const navigate = useNavigate()
@@ -189,8 +193,8 @@ export default function SettingsPage(): JSX.Element {
   }, [handleShortcutChange, recordingShortcutId])
 
   return (
-    <div className="flex flex-col h-screen overflow-y-auto overscroll-none px-8 py-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
-      <div className="w-full max-w-2xl space-y-1 mb-2">
+    <div className="flex h-full flex-col overflow-y-auto overscroll-none px-5 py-6 pb-8 select-none scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent sm:px-8 sm:py-8">
+      <div className="mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.storage')}</h2>
         <p className="text-sm text-muted-foreground">{t('settings.storageDescription')}</p>
       </div>
@@ -201,19 +205,37 @@ export default function SettingsPage(): JSX.Element {
           description={workspaceDir ?? t('common.missing')}
         >
           <Button variant="outline" size="sm" onClick={handleChangeWorkspace}>
-            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+            <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
             {t('common.change')}
           </Button>
         </SettingRow>
         <SettingRow title={t('settings.logs')} description={logPath}>
           <Button variant="outline" size="sm" onClick={handleOpenLogDirectory}>
-            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+            <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
             {t('common.open')}
           </Button>
         </SettingRow>
       </div>
 
-      <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+      <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
+        <h2 className="text-2xl leading-tight font-semibold">{t('settings.interaction')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.interactionDescription')}</p>
+      </div>
+
+      <div className="w-full max-w-2xl divide-y divide-border">
+        <SettingRow
+          title={t('settings.touchMode')}
+          description={t('settings.touchModeDescription')}
+        >
+          <Switch
+            checked={interaction.touchMode}
+            aria-label={t('settings.touchModeAria')}
+            onCheckedChange={setTouchMode}
+          />
+        </SettingRow>
+      </div>
+
+      <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.appearance')}</h2>
         <p className="text-sm text-muted-foreground">{t('settings.appearanceDescription')}</p>
       </div>
@@ -333,29 +355,33 @@ export default function SettingsPage(): JSX.Element {
         </SettingRow>
       </div>
 
-      <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">{t('settings.shortcuts')}</h2>
-        <p className="text-sm text-muted-foreground">{t('settings.shortcutsDescription')}</p>
-      </div>
+      {!mobileRuntime ? (
+        <>
+          <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+            <h2 className="text-2xl font-semibold leading-tight">{t('settings.shortcuts')}</h2>
+            <p className="text-sm text-muted-foreground">{t('settings.shortcutsDescription')}</p>
+          </div>
 
-      <ShortcutGroup
-        title={t('settings.editor')}
-        commands={EDITOR_SHORTCUT_COMMANDS}
-        shortcuts={shortcuts}
-        conflict={shortcutConflict}
-        recordingShortcutId={recordingShortcutId}
-        onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
-        onReset={handleShortcutReset}
-      />
-      <ShortcutGroup
-        title={t('settings.player')}
-        commands={PLAYER_SHORTCUT_COMMANDS}
-        shortcuts={shortcuts}
-        conflict={shortcutConflict}
-        recordingShortcutId={recordingShortcutId}
-        onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
-        onReset={handleShortcutReset}
-      />
+          <ShortcutGroup
+            title={t('settings.editor')}
+            commands={EDITOR_SHORTCUT_COMMANDS}
+            shortcuts={shortcuts}
+            conflict={shortcutConflict}
+            recordingShortcutId={recordingShortcutId}
+            onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
+            onReset={handleShortcutReset}
+          />
+          <ShortcutGroup
+            title={t('settings.player')}
+            commands={PLAYER_SHORTCUT_COMMANDS}
+            shortcuts={shortcuts}
+            conflict={shortcutConflict}
+            recordingShortcutId={recordingShortcutId}
+            onRecordingShortcutIdChange={handleRecordingShortcutIdChange}
+            onReset={handleShortcutReset}
+          />
+        </>
+      ) : null}
 
       <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.onboarding')}</h2>

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use zip::ZipArchive;
@@ -127,8 +127,12 @@ pub fn get_model_registry(app: AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub fn inspect_model_archive(source_path: String) -> Result<ModelArchiveInspection, String> {
-    inspect_archive(Path::new(&source_path))
+pub fn inspect_model_archive(
+    app: AppHandle,
+    source_path: String,
+) -> Result<ModelArchiveInspection, String> {
+    let source = super::materialize_picked_file(&app, &source_path, Some("zip"))?;
+    inspect_archive(&source.path)
 }
 
 #[tauri::command]
@@ -138,7 +142,8 @@ pub fn import_global_model(
     name: Option<String>,
     archive_entry: Option<String>,
 ) -> Result<ImportedModelResult, String> {
-    let source_entry = PathBuf::from(source_path);
+    let materialized = super::materialize_picked_file(&app, &source_path, None)?;
+    let source_entry = materialized.path;
     if !source_entry.is_file() {
         return Err("选择的模型入口不存在或不是普通文件".into());
     }
@@ -155,10 +160,7 @@ pub fn import_global_model(
         .canonicalize()
         .map_err(|error| format!("读取全局模型目录失败: {error}"))?;
 
-    let is_archive = source_entry
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"));
+    let is_archive = is_zip_archive(&source_entry)?;
     let (entry_name, entry_json, directory_name, source_dir, selected_archive_entry) = if is_archive
     {
         let inspection = inspect_archive(&source_entry)?;
@@ -189,6 +191,12 @@ pub fn import_global_model(
             .to_string();
         (entry_name, entry_json, directory_name, None, Some(selected))
     } else {
+        if materialized.copied {
+            return Err(
+                "移动端无法从单个 JSON 取得模型贴图和动作文件，请将完整模型目录打包为 ZIP 后导入"
+                    .into(),
+            );
+        }
         let entry_name = source_entry
             .file_name()
             .and_then(|value| value.to_str())
@@ -267,6 +275,19 @@ pub fn import_global_model(
     }
 
     Ok(ImportedModelResult { model_id, registry })
+}
+
+fn is_zip_archive(path: &Path) -> Result<bool, String> {
+    let mut file = File::open(path).map_err(|error| format!("读取模型文件失败: {error}"))?;
+    let mut signature = [0_u8; 4];
+    let read = file
+        .read(&mut signature)
+        .map_err(|error| format!("读取模型文件失败: {error}"))?;
+    Ok(read == signature.len()
+        && matches!(
+            signature,
+            [0x50, 0x4b, 0x03, 0x04] | [0x50, 0x4b, 0x05, 0x06] | [0x50, 0x4b, 0x07, 0x08]
+        ))
 }
 
 fn inspect_archive(source: &Path) -> Result<ModelArchiveInspection, String> {
@@ -636,8 +657,8 @@ fn unique_suffix() -> String {
 mod tests {
     use super::{
         extract_archive_model, inspect_archive, is_model_entry_json, is_model_entry_name,
-        motion_catalog_from_json, next_model_id, normalize_model_id, read_archive_json,
-        select_archive_entry,
+        is_zip_archive, motion_catalog_from_json, next_model_id, normalize_model_id,
+        read_archive_json, select_archive_entry,
     };
     use serde_json::json;
     use std::fs;
@@ -694,6 +715,9 @@ mod tests {
                 ("wrapper/settings.json", "{}"),
             ],
         );
+        let extensionless_archive = root.join("model-content");
+        fs::copy(&archive_path, &extensionless_archive).expect("copy extensionless zip fixture");
+        assert!(is_zip_archive(&extensionless_archive).expect("detect extensionless zip content"));
 
         let inspection = inspect_archive(&archive_path).expect("inspect archive");
         assert_eq!(inspection.candidates.len(), 2);

@@ -7,6 +7,7 @@ import {
   type Window as TauriWindow
 } from '@tauri-apps/api/window'
 import {
+  ArrowLeft,
   ChevronRight,
   CirclePlay,
   Clapperboard,
@@ -19,6 +20,8 @@ import {
   Save,
   Undo2
 } from 'lucide-react'
+import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
+import { closeEditorWindow } from '@/windows/api'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +44,7 @@ import {
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/style'
+import { isMobileRuntime } from '@/lib/platform'
 import { describeError as describeLogError, logger } from '@/lib/logger'
 import type {
   ImportedModelResult,
@@ -79,7 +83,6 @@ import { getDataPath } from '@/workspace/api'
 import { openPlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import {
-  ASSET_KIND_LABELS,
   filterTreeNodes,
   flattenTreeNodes,
   formatNodePath,
@@ -105,9 +108,11 @@ import {
   type EditorStory
 } from './editorDocument'
 import { moveSnippetSubtree, type SnippetDropPlacement } from './editorTree'
+import { localizeAssetKind } from './editorLocalization'
 import { EditorProductTour } from '@/onboarding/EditorProductTour'
 import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
 import { useTranslation } from 'react-i18next'
+import { i18n } from '@/i18n'
 
 type LoadedEditorProject = {
   metadata: ProjectMetadata
@@ -163,13 +168,20 @@ const SAVE_RETRY_DELAY_MS: number = 600
 
 export default function App({
   settings,
-  onCompleteEditorTour
+  onCompleteEditorTour,
+  preferredProjectName = null,
+  embedInShell = false
 }: {
   settings: AppSettings | null
   onCompleteEditorTour: () => void
+  preferredProjectName?: string | null
+  embedInShell?: boolean
 }): JSX.Element {
   const { t } = useTranslation()
-  const requestedProjectName = useWindowProjectName()
+  const requestedProjectName = useWindowProjectName(preferredProjectName)
+  const viewportMode: ViewportMode = useViewportMode()
+  const [mobileBottomTab, setMobileBottomTab] = useState<'outline' | 'properties'>('outline')
+
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
     createDocumentHistory(INITIAL_STORY)
@@ -236,12 +248,12 @@ export default function App({
   const isDirty: boolean = !storiesEqual(history.present, history.saved)
   const editorSaving: boolean = savingStory || savingAssets || projectMutationInProgress
   const saveButtonTitle: string = editorSaving
-    ? '正在保存'
+    ? t('editor.saving')
     : storySaveStatus === 'error'
-      ? '保存失败，点击重试'
+      ? t('editor.saveFailedRetry')
       : isDirty
-        ? '立即保存'
-        : '已保存'
+        ? t('editor.saveNow')
+        : t('editor.saved')
   const visibleError: string | null = storySaveError ?? actionError
   const loadedProjectName: string | null = loadedProject?.previewInput.projectName ?? null
   const selectedNode = findEditorNode(story, selectedNodeId)
@@ -292,7 +304,9 @@ export default function App({
     return (): void => window.removeEventListener('keydown', saveOnShortcut, true)
   }, [saveShortcut])
 
-  useEffect((): (() => void) => {
+  useEffect((): (() => void) | undefined => {
+    if (embedInShell) return undefined
+
     const currentWindow: TauriWindow = getCurrentWindow()
     let unlisten: (() => void) | null = null
     let disposed: boolean = false
@@ -310,7 +324,7 @@ export default function App({
           await currentWindow.destroy()
         } catch (error: unknown) {
           allowWindowCloseRef.current = false
-          setActionError(describeError(error, '关闭编辑器窗口失败'))
+          setActionError(describeError(error, t('editor.closeEditorFailed')))
           logger.error('editor.window_close_failed', {
             error: describeLogError(error)
           })
@@ -325,7 +339,7 @@ export default function App({
       disposed = true
       unlisten?.()
     }
-  }, [])
+  }, [embedInShell, t])
 
   useEffect((): void => {
     if (!requestedProjectName || requestedProjectName === activeProjectName) return
@@ -401,13 +415,16 @@ export default function App({
           durationMs: Math.round(performance.now() - startedAt),
           error: describeLogError(error)
         })
-        setLoadState({ status: 'error', error: describeError(error, '加载项目失败') })
+        setLoadState({
+          status: 'error',
+          error: describeError(error, t('editor.loadProjectFailed'))
+        })
       })
 
     return (): void => {
       cancelled = true
     }
-  }, [activeProjectName])
+  }, [activeProjectName, t])
 
   useEffect((): void => {
     if (selectedNodeId && !selectedNode) {
@@ -548,7 +565,7 @@ export default function App({
         return true
       } catch (error: unknown) {
         if (session !== saveSessionRef.current) return false
-        const message: string = describeError(error, '保存 story.json 失败')
+        const message: string = describeError(error, t('editor.saveStoryFailed'))
         setStorySaveStatus('error')
         setStorySaveError(message)
         logger.error('editor.story_save_failed', {
@@ -607,7 +624,7 @@ export default function App({
       } catch (error: unknown) {
         if (session !== saveSessionRef.current) return false
         if (!pendingAssetWriteRef.current) pendingAssetWriteRef.current = write
-        setActionError(describeError(error, '保存 assets.json 失败'))
+        setActionError(describeError(error, t('editor.saveAssetsFailed')))
         logger.error('editor.assets_save_failed', {
           projectName: write.projectName,
           error: describeLogError(error)
@@ -653,7 +670,7 @@ export default function App({
       if (!saved) return false
       if (!pendingAssetWriteRef.current) return true
     }
-    setActionError('资源仍在持续变化，请稍后重试。')
+    setActionError(t('editor.assetsChanging'))
     return false
   }
 
@@ -682,7 +699,7 @@ export default function App({
       if (!saved) return
       await openPlayerWindow(loadedProject.previewInput.projectName)
     } catch (error: unknown) {
-      setActionError(describeError(error, '打开播放器失败'))
+      setActionError(describeError(error, t('editor.openPlayerFailed')))
     }
   }
 
@@ -758,7 +775,7 @@ export default function App({
     }
 
     setStorySaveStatus('error')
-    setStorySaveError('Story 仍在持续变化，请稍后重试。')
+    setStorySaveError(t('editor.storyChanging'))
     return false
   }
 
@@ -806,7 +823,7 @@ export default function App({
       setActivePanel('story')
       setAddDialogOpen(false)
     } catch (error: unknown) {
-      setActionError(describeError(error, '添加片段失败'))
+      setActionError(describeError(error, t('editor.addSnippetFailed')))
     }
   }
 
@@ -863,8 +880,8 @@ export default function App({
       kind === 'backgrounds' ? ['png', 'jpg', 'jpeg', 'webp'] : ['ogg', 'mp3', 'wav', 'm4a']
     const sourcePath = await openFileDialog({
       multiple: false,
-      title: `导入${ASSET_KIND_LABELS[kind]}`,
-      filters: [{ name: ASSET_KIND_LABELS[kind], extensions: [...extensions] }]
+      title: t('editor.importAssetTitle', { kind: localizeAssetKind(kind) }),
+      filters: [{ name: localizeAssetKind(kind), extensions: [...extensions] }]
     })
     if (!sourcePath || Array.isArray(sourcePath)) return
 
@@ -883,7 +900,9 @@ export default function App({
         setActivePanel('assets')
       })
     } catch (error: unknown) {
-      setActionError(describeError(error, `导入${ASSET_KIND_LABELS[kind]}失败`))
+      setActionError(
+        describeError(error, t('editor.importAssetFailed', { kind: localizeAssetKind(kind) }))
+      )
     }
   }
 
@@ -990,7 +1009,7 @@ export default function App({
         setSelectedAsset({ kind: selection.kind, key: nextKey })
       })
     } catch (error: unknown) {
-      setActionError(describeError(error, '重命名资源键失败'))
+      setActionError(describeError(error, t('editor.renameAssetFailed')))
     }
   }
 
@@ -1004,7 +1023,7 @@ export default function App({
           (reference): ProjectAssetReference => ({
             snippetId: reference.snippetId,
             snippetType: reference.snippetType,
-            path: `当前内存 story · ${reference.snippetId.slice(0, 8)}`
+            path: t('editor.memoryStoryReference', { id: reference.snippetId.slice(0, 8) })
           })
         )
       })
@@ -1020,7 +1039,7 @@ export default function App({
       )
       setAssetDeletePrompt({ selection, references })
     } catch (error: unknown) {
-      setActionError(describeError(error, '检查资源引用失败'))
+      setActionError(describeError(error, t('editor.inspectReferencesFailed')))
     }
   }
 
@@ -1040,7 +1059,7 @@ export default function App({
         setAssetDeletePrompt(null)
       })
     } catch (error: unknown) {
-      setActionError(describeError(error, '删除资源失败'))
+      setActionError(describeError(error, t('editor.deleteAssetFailed')))
       setAssetDeletePrompt(null)
     }
   }
@@ -1078,29 +1097,174 @@ export default function App({
   }
 
   if (!requestedProjectName && !activeProjectName) {
-    return <EditorStateMessage title="没有打开项目" detail="请从项目列表打开一个编辑器窗口。" />
+    return <EditorStateMessage title={t('editor.noProject')} detail={t('editor.openProjectHint')} />
   }
 
   if (loadState.status === 'error') {
-    return <EditorStateMessage title="项目加载失败" detail={loadState.error} onRetry={retryLoad} />
+    return (
+      <EditorStateMessage
+        title={t('editor.projectLoadFailed')}
+        detail={loadState.error}
+        onRetry={retryLoad}
+      />
+    )
   }
 
   if (loadState.status === 'loading' || !loadedProject || !previewInput) {
     return (
-      <EditorStateMessage title="正在加载项目" detail="读取 story、assets 与模型注册表…" loading />
+      <EditorStateMessage
+        title={t('editor.loadingProject')}
+        detail={t('editor.readingProject')}
+        loading
+      />
     )
   }
 
+  const phoneLayout: boolean = viewportMode === 'phone'
+  const tabletLayout: boolean = viewportMode === 'tablet'
+  const compactChrome: boolean = phoneLayout || tabletLayout
+
+  const sidebarNode: JSX.Element = (
+    <EditorSidebar
+      activePanel={activePanel}
+      searchQuery={searchQuery}
+      treeNodes={treeNodes}
+      selectedNodeId={selectedNode?.id ?? null}
+      activeSnippetIds={activeSnippetIds}
+      expandedParallelIds={expandedParallelIds}
+      assets={previewInput.assets}
+      selectedAsset={selectedAsset}
+      addDialogOpen={addDialogOpen}
+      onActivePanelChange={setActivePanel}
+      onSearchQueryChange={setSearchQuery}
+      onSelectNode={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setActivePanel('story')
+        if (phoneLayout) setMobileBottomTab('properties')
+        requestPreview(nodeId, true)
+      }}
+      onContextSelectSnippet={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setActivePanel('story')
+        if (phoneLayout) setMobileBottomTab('properties')
+      }}
+      onPreviewSnippet={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setActivePanel('story')
+        requestPreview(nodeId, false)
+      }}
+      onDuplicateSnippet={duplicateSnippet}
+      onDeleteSnippet={(nodeId: string): void => {
+        setSelectedNodeId(nodeId)
+        setDeleteSnippetId(nodeId)
+      }}
+      onToggleParallel={toggleParallel}
+      onMoveSnippet={moveSnippet}
+      onSelectAsset={(selection: EditorAssetSelection): void => {
+        setSelectedAsset(selection)
+        setActivePanel('assets')
+        if (phoneLayout) setMobileBottomTab('properties')
+      }}
+      onAddDialogOpenChange={setAddDialogOpen}
+      onAddSnippet={addSnippet}
+      onImportAsset={(kind: Exclude<ProjectAssetKind, 'models'>): void => {
+        void importAsset(kind)
+      }}
+      onRegisterModel={(): void => setRegisterModelOpen(true)}
+    />
+  )
+
+  const inspectorNode: JSX.Element =
+    activePanel === 'assets' ? (
+      <EditorAssetInspector
+        assets={previewInput.assets}
+        selectedAsset={selectedAsset}
+        onModelChange={updateModelAsset}
+        onFileAssetChange={updateFileAsset}
+        onRename={(selection: EditorAssetSelection, key: string): void => {
+          void renameAsset(selection, key)
+        }}
+        onDelete={(selection: EditorAssetSelection): void => {
+          void requestDeleteAsset(selection)
+        }}
+      />
+    ) : (
+      <EditorInspector
+        story={story}
+        selectedNode={selectedNode}
+        selectedNodePath={displayedNodePath}
+        assets={previewInput.assets}
+        modelRegistry={previewInput.modelRegistry}
+        onStoryChange={commitStory}
+        onInputBlur={flushInputMerge}
+        onDuplicate={duplicateSelectedSnippet}
+        onDelete={(): void => setDeleteSnippetId(selectedNode?.id ?? null)}
+      />
+    )
+
+  const previewNode: JSX.Element = (
+    <EditorPreview
+      input={previewInput}
+      story={story}
+      previewRequest={previewRequest}
+      previewTargetNodeId={previewTargetNode?.id ?? null}
+      pauseAfterPreviewTarget={pauseAfterPreviewTarget}
+      onActiveSnippetIdsChange={setActiveSnippetIds}
+      onPreviewFromBeginning={(): void => requestPreview(null, false)}
+      compact={compactChrome}
+    />
+  )
+
   return (
-    <main className="flex h-screen min-w-0 flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-[52px] shrink-0 items-center border-b bg-background px-3">
-        <div className="flex min-w-0 items-center gap-2">
+    <main
+      className={cn(
+        'flex min-w-0 flex-col overflow-hidden bg-background text-foreground',
+        embedInShell ? 'h-full' : 'h-screen'
+      )}
+    >
+      <header
+        className={cn(
+          'flex shrink-0 items-center border-b bg-background px-2 sm:px-3',
+          phoneLayout && 'flex-wrap content-start px-2 pb-1',
+          embedInShell && phoneLayout
+            ? 'pt-[env(safe-area-inset-top)]'
+            : embedInShell
+              ? 'h-[calc(52px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]'
+              : phoneLayout
+                ? undefined
+                : 'h-[52px]'
+        )}
+      >
+        <div
+          className={cn('flex min-w-0 items-center gap-1.5 sm:gap-2', phoneLayout && 'h-12 flex-1')}
+        >
+          {embedInShell ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0"
+              aria-label={t('common.back')}
+              title={t('common.back')}
+              onClick={(): void => {
+                void flushEditorWrites()
+                  .then((saved: boolean): void => {
+                    if (saved) void closeEditorWindow()
+                  })
+                  .catch((error: unknown): void => {
+                    setActionError(describeError(error, t('editor.saveProjectFailed')))
+                  })
+              }}
+            >
+              <ArrowLeft className="size-4" />
+            </Button>
+          ) : null}
           <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
             <Clapperboard className="size-4" />
           </div>
           <p className="min-w-0 truncate text-sm font-semibold">{loadedProject.metadata.title}</p>
           <span
-            aria-label={isDirty ? '有未保存修改' : undefined}
+            aria-label={isDirty ? t('editor.unsavedChanges') : undefined}
             className={cn(
               'size-1.5 shrink-0 rounded-full bg-amber-500 transition-opacity duration-300 ease-out',
               isDirty ? 'opacity-100' : 'opacity-0'
@@ -1108,13 +1272,19 @@ export default function App({
           />
         </div>
 
-        <div className="ml-5 flex items-center gap-1 border-l pl-4">
+        <div
+          className={cn(
+            'ml-2 flex items-center gap-0.5 sm:ml-5 sm:gap-1 sm:border-l sm:pl-4',
+            phoneLayout && 'ml-auto h-12'
+          )}
+        >
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="撤销"
-            title="撤销"
+            className="size-9"
+            aria-label={t('common.undo')}
+            title={t('common.undo')}
             disabled={history.past.length === 0}
             onClick={(): void => dispatchHistory({ type: 'undo' })}
           >
@@ -1124,8 +1294,9 @@ export default function App({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="重做"
-            title="重做"
+            className="size-9"
+            aria-label={t('common.redo')}
+            title={t('common.redo')}
             disabled={history.future.length === 0}
             onClick={(): void => dispatchHistory({ type: 'redo' })}
           >
@@ -1135,7 +1306,7 @@ export default function App({
             type="button"
             variant="ghost"
             size="icon"
-            className={cn('ml-1', storySaveStatus === 'error' && 'text-destructive')}
+            className={cn('size-9', storySaveStatus === 'error' && 'text-destructive')}
             aria-label={saveButtonTitle}
             title={saveButtonTitle}
             onClick={(): void => {
@@ -1146,15 +1317,22 @@ export default function App({
           </Button>
         </div>
 
-        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+        <div
+          className={cn(
+            'ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5',
+            phoneLayout && 'ml-0 h-12 w-full border-t px-0.5 pt-1'
+          )}
+        >
           {visibleError && (
-            <span className="max-w-72 truncate text-xs text-destructive">{visibleError}</span>
+            <span className="hidden max-w-40 truncate text-xs text-destructive sm:inline sm:max-w-72">
+              {visibleError}
+            </span>
           )}
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="size-8"
+            className={phoneLayout ? 'size-10 shrink-0' : compactChrome ? 'size-9' : 'size-8'}
             aria-label={t('projectArchive.export')}
             title={t('projectArchive.export')}
             disabled={exportingProject || editorSaving}
@@ -1169,113 +1347,93 @@ export default function App({
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
+            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
             data-tour="editor-preview-button"
             disabled={!selectedNode}
+            aria-label={t('editor.preview')}
+            title={t('editor.preview')}
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
-            {t('editor.preview')}
+            {phoneLayout || !compactChrome ? t('editor.preview') : null}
           </Button>
           <Button
             type="button"
-            size="sm"
+            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
+            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
             data-tour="editor-player-button"
             title={t('editor.playSavedTitle')}
+            aria-label={t('editor.playSaved')}
             onClick={(): void => void playSavedProject()}
           >
             <Play className="size-3.5 fill-current" />
-            {t('editor.playSaved')}
+            {phoneLayout || !compactChrome ? t('editor.playSaved') : null}
           </Button>
         </div>
       </header>
 
-      <div
-        className="grid min-h-0 flex-1 grid-cols-[minmax(240px,0.86fr)_minmax(420px,1.72fr)_minmax(300px,1fr)] overflow-hidden"
-        inert={projectMutationInProgress}
-      >
-        <EditorSidebar
-          activePanel={activePanel}
-          searchQuery={searchQuery}
-          treeNodes={treeNodes}
-          selectedNodeId={selectedNode?.id ?? null}
-          activeSnippetIds={activeSnippetIds}
-          expandedParallelIds={expandedParallelIds}
-          assets={previewInput.assets}
-          selectedAsset={selectedAsset}
-          addDialogOpen={addDialogOpen}
-          onActivePanelChange={setActivePanel}
-          onSearchQueryChange={setSearchQuery}
-          onSelectNode={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setActivePanel('story')
-            requestPreview(nodeId, true)
-          }}
-          onContextSelectSnippet={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setActivePanel('story')
-          }}
-          onPreviewSnippet={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setActivePanel('story')
-            requestPreview(nodeId, false)
-          }}
-          onDuplicateSnippet={duplicateSnippet}
-          onDeleteSnippet={(nodeId: string): void => {
-            setSelectedNodeId(nodeId)
-            setDeleteSnippetId(nodeId)
-          }}
-          onToggleParallel={toggleParallel}
-          onMoveSnippet={moveSnippet}
-          onSelectAsset={(selection: EditorAssetSelection): void => {
-            setSelectedAsset(selection)
-            setActivePanel('assets')
-          }}
-          onAddDialogOpenChange={setAddDialogOpen}
-          onAddSnippet={addSnippet}
-          onImportAsset={(kind: Exclude<ProjectAssetKind, 'models'>): void => {
-            void importAsset(kind)
-          }}
-          onRegisterModel={(): void => setRegisterModelOpen(true)}
-        />
-
-        <EditorPreview
-          input={previewInput}
-          story={story}
-          previewRequest={previewRequest}
-          previewTargetNodeId={previewTargetNode?.id ?? null}
-          pauseAfterPreviewTarget={pauseAfterPreviewTarget}
-          onActiveSnippetIdsChange={setActiveSnippetIds}
-          onPreviewFromBeginning={(): void => requestPreview(null, false)}
-        />
-
-        {activePanel === 'assets' ? (
-          <EditorAssetInspector
-            assets={previewInput.assets}
-            selectedAsset={selectedAsset}
-            onModelChange={updateModelAsset}
-            onFileAssetChange={updateFileAsset}
-            onRename={(selection: EditorAssetSelection, key: string): void => {
-              void renameAsset(selection, key)
-            }}
-            onDelete={(selection: EditorAssetSelection): void => {
-              void requestDeleteAsset(selection)
-            }}
-          />
-        ) : (
-          <EditorInspector
-            story={story}
-            selectedNode={selectedNode}
-            selectedNodePath={displayedNodePath}
-            assets={previewInput.assets}
-            modelRegistry={previewInput.modelRegistry}
-            onStoryChange={commitStory}
-            onInputBlur={flushInputMerge}
-            onDuplicate={duplicateSelectedSnippet}
-            onDelete={(): void => setDeleteSnippetId(selectedNode?.id ?? null)}
-          />
-        )}
-      </div>
+      {phoneLayout ? (
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          inert={projectMutationInProgress}
+        >
+          <div className="h-[calc(56.25vw+5.25rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
+            {previewNode}
+          </div>
+          <div className="flex h-12 shrink-0 items-center border-b bg-muted/25 px-3">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+              <button
+                type="button"
+                className={cn(
+                  'h-9 rounded-md text-sm font-medium transition-colors',
+                  mobileBottomTab === 'outline'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground'
+                )}
+                onClick={(): void => setMobileBottomTab('outline')}
+              >
+                {t('editor.outline')}
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'h-9 rounded-md text-sm font-medium transition-colors',
+                  mobileBottomTab === 'properties'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground'
+                )}
+                onClick={(): void => setMobileBottomTab('properties')}
+              >
+                {t('editor.properties')}
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden [&>aside]:border-r-0">
+            {mobileBottomTab === 'outline' ? sidebarNode : inspectorNode}
+          </div>
+        </div>
+      ) : tabletLayout ? (
+        <div
+          className="grid min-h-0 flex-1 grid-cols-[minmax(220px,0.9fr)_minmax(320px,1.4fr)] overflow-hidden"
+          inert={projectMutationInProgress}
+        >
+          <div className="min-h-0 overflow-hidden border-r">{sidebarNode}</div>
+          <div className="grid min-h-0 grid-rows-[minmax(240px,1.1fr)_minmax(220px,0.9fr)] overflow-hidden">
+            <div className="min-h-0 overflow-hidden border-b">{previewNode}</div>
+            <div className="min-h-0 overflow-hidden">{inspectorNode}</div>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="grid min-h-0 flex-1 grid-cols-[minmax(240px,0.86fr)_minmax(420px,1.72fr)_minmax(300px,1fr)] overflow-hidden"
+          inert={projectMutationInProgress}
+        >
+          {sidebarNode}
+          {previewNode}
+          {inspectorNode}
+        </div>
+      )}
 
       <EditorProductTour
         active={
@@ -1303,20 +1461,26 @@ export default function App({
       >
         <AlertDialogContent className="select-none">
           <AlertDialogHeader>
-            <AlertDialogTitle>删除 {deleteSnippetNode?.type ?? '片段'}？</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t('editor.deleteSnippetTitle', {
+                type: deleteSnippetNode?.type ?? t('editor.unknownSnippet')
+              })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteSnippetNode && countDescendants(deleteSnippetNode) > 1
-                ? `这会同时删除 ${countDescendants(deleteSnippetNode)} 个嵌套片段。`
-                : '这会从当前故事中移除该片段。'}
+                ? t('editor.deleteSnippetNested', {
+                    count: countDescendants(deleteSnippetNode)
+                  })
+                : t('editor.deleteSnippetSingle')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={deleteSelectedSnippet}
             >
-              删除
+              {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1339,7 +1503,7 @@ export default function App({
         onRegister={async (modelId: string, key: string, name: string): Promise<void> => {
           try {
             const saved: boolean = await flushEditorWrites()
-            if (!saved) throw new Error('保存当前编辑器修改失败')
+            if (!saved) throw new Error(t('editor.saveCurrentChangesFailed'))
             await runProjectMutation(async (): Promise<void> => {
               const result: ProjectAssetMutationResult = await registerProjectModel(
                 previewInput.projectName,
@@ -1353,7 +1517,7 @@ export default function App({
               setRegisterModelOpen(false)
             })
           } catch (error: unknown) {
-            setActionError(describeError(error, '注册模型失败'))
+            setActionError(describeError(error, t('editor.registerModelFailed')))
             throw error
           }
         }}
@@ -1365,7 +1529,7 @@ export default function App({
         ): Promise<void> => {
           try {
             const saved: boolean = await flushEditorWrites()
-            if (!saved) throw new Error('保存当前编辑器修改失败')
+            if (!saved) throw new Error(t('editor.saveCurrentChangesFailed'))
             await runProjectMutation(async (): Promise<void> => {
               const imported: ImportedModelResult = await importGlobalModel(
                 sourcePath,
@@ -1385,7 +1549,7 @@ export default function App({
               setRegisterModelOpen(false)
             })
           } catch (error: unknown) {
-            setActionError(describeError(error, '导入模型失败'))
+            setActionError(describeError(error, t('editor.importModelFailed')))
             throw error
           }
         }}
@@ -1405,6 +1569,7 @@ function EditorStateMessage({
   loading?: boolean
   onRetry?: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <main className="flex h-screen items-center justify-center bg-background p-8 text-center">
       <div className="max-w-md">
@@ -1415,7 +1580,7 @@ function EditorStateMessage({
         <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{detail}</p>
         {onRetry && (
           <Button type="button" variant="outline" size="sm" className="mt-5" onClick={onRetry}>
-            重试
+            {t('common.retry')}
           </Button>
         )}
       </div>
@@ -1432,13 +1597,14 @@ function ProjectSwitchDialog({
   saving: boolean
   onAction: (action: 'save' | 'discard' | 'cancel') => Promise<void>
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <AlertDialog open={targetProjectName !== null}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>自动保存失败</AlertDialogTitle>
+          <AlertDialogTitle>{t('editor.autosaveFailed')}</AlertDialogTitle>
           <AlertDialogDescription>
-            切换到「{targetProjectName ?? ''}」前无法保存当前修改。可以重试、放弃修改，或取消切换。
+            {t('editor.projectSwitchSaveFailed', { name: targetProjectName ?? '' })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1448,7 +1614,7 @@ function ProjectSwitchDialog({
             disabled={saving}
             onClick={(): void => void onAction('cancel')}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -1456,10 +1622,10 @@ function ProjectSwitchDialog({
             disabled={saving}
             onClick={(): void => void onAction('discard')}
           >
-            放弃修改
+            {t('editor.discardChanges')}
           </Button>
           <Button type="button" disabled={saving} onClick={(): void => void onAction('save')}>
-            重试并切换
+            {t('editor.retryAndSwitch')}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1476,6 +1642,7 @@ function AssetDeleteDialog({
   onCancel: () => void
   onConfirm: () => Promise<void>
 }): JSX.Element {
+  const { t } = useTranslation()
   const blocked: boolean = Boolean(prompt && prompt.references.length > 0)
   return (
     <AlertDialog
@@ -1486,11 +1653,18 @@ function AssetDeleteDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{blocked ? '无法删除被引用的资源' : '删除资源？'}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {blocked ? t('editor.referencedAssetTitle') : t('editor.deleteAssetTitle')}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {blocked
-              ? `以下 ${prompt?.references.length ?? 0} 个片段仍在引用「${prompt?.selection.key ?? ''}」：`
-              : `将从项目中删除「${prompt?.selection.key ?? ''}」以及其受管文件。`}
+              ? t('editor.referencedAssetDescription', {
+                  count: prompt?.references.length ?? 0,
+                  key: prompt?.selection.key ?? ''
+                })
+              : t('editor.deleteAssetDescription', {
+                  key: prompt?.selection.key ?? ''
+                })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {blocked && (
@@ -1505,13 +1679,15 @@ function AssetDeleteDialog({
           </ul>
         )}
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>{blocked ? '知道了' : '取消'}</AlertDialogCancel>
+          <AlertDialogCancel onClick={onCancel}>
+            {blocked ? t('editor.acknowledged') : t('common.cancel')}
+          </AlertDialogCancel>
           {!blocked && (
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={(): void => void onConfirm()}
             >
-              删除
+              {t('common.delete')}
             </AlertDialogAction>
           )}
         </AlertDialogFooter>
@@ -1538,6 +1714,8 @@ function ModelRegistrationDialog({
     name: string
   ) => Promise<void>
 }): JSX.Element {
+  const { t } = useTranslation()
+  const mobileRuntime: boolean = isMobileRuntime()
   const modelEntries = useMemo(
     (): [string, ModelRegistry['models'][string]][] =>
       Object.entries(registry.models).sort(([left], [right]): number => left.localeCompare(right)),
@@ -1579,13 +1757,18 @@ function ModelRegistrationDialog({
     const selected = await openFileDialog({
       multiple: false,
       directory: false,
-      title: '选择 Live2D 模型入口',
-      filters: [{ name: 'Live2D 模型', extensions: ['json', 'zip'] }]
+      title: t('editor.chooseLive2dEntry'),
+      filters: [
+        {
+          name: t('editor.live2dModel'),
+          extensions: mobileRuntime ? ['zip'] : ['json', 'zip']
+        }
+      ]
     })
     if (typeof selected !== 'string') return
 
     setError('')
-    if (!selected.toLocaleLowerCase().endsWith('.zip')) {
+    if (!mobileRuntime && !selected.toLocaleLowerCase().endsWith('.zip')) {
       setSourcePath(selected)
       setArchiveEntry(undefined)
       return
@@ -1605,14 +1788,21 @@ function ModelRegistrationDialog({
         return
       }
 
+      const firstCandidate: ModelArchiveCandidate | undefined =
+        recognized[0] ?? inspection.candidates[0]
+      if (!firstCandidate) {
+        setError(t('editor.noJsonEntry'))
+        return
+      }
+
       setPendingArchivePath(selected)
       setArchiveCandidates(recognized.length > 1 ? recognized : inspection.candidates)
-      setSelectedArchiveEntry((recognized[0] ?? inspection.candidates[0]).path)
+      setSelectedArchiveEntry(firstCandidate.path)
       setArchiveSelectionOpen(true)
     } catch (inspectionError: unknown) {
       setSourcePath('')
       setArchiveEntry(undefined)
-      setError(describeError(inspectionError, '检查模型 ZIP 失败'))
+      setError(describeError(inspectionError, t('editor.inspectModelZipFailed')))
     } finally {
       setInspectingArchive(false)
     }
@@ -1629,7 +1819,12 @@ function ModelRegistrationDialog({
         await onImport(sourcePath, archiveEntry, key, name)
       }
     } catch (submitError: unknown) {
-      setError(describeError(submitError, mode === 'existing' ? '注册模型失败' : '导入模型失败'))
+      setError(
+        describeError(
+          submitError,
+          mode === 'existing' ? t('editor.registerModelFailed') : t('editor.importModelFailed')
+        )
+      )
     } finally {
       setSubmitting(false)
     }
@@ -1639,10 +1834,8 @@ function ModelRegistrationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg min-w-0 overflow-hidden">
         <DialogHeader className="min-w-0">
-          <DialogTitle>添加模型</DialogTitle>
-          <DialogDescription>
-            使用全局 models 中的已有模型，或从新的 Live2D 模型目录导入。
-          </DialogDescription>
+          <DialogTitle>{t('editor.addModel')}</DialogTitle>
+          <DialogDescription>{t('editor.addModelDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className="grid min-w-0 grid-cols-2 rounded-md bg-muted p-1">
@@ -1660,7 +1853,7 @@ function ModelRegistrationDialog({
               setError('')
             }}
           >
-            全局已有模型
+            {t('editor.existingModels')}
           </button>
           <button
             type="button"
@@ -1676,14 +1869,14 @@ function ModelRegistrationDialog({
               setError('')
             }}
           >
-            导入新模型
+            {t('editor.importModel')}
           </button>
         </div>
 
         <div className="min-w-0 space-y-4">
           {mode === 'existing' ? (
             <label className="block min-w-0 text-xs font-medium text-muted-foreground">
-              全局模型
+              {t('editor.globalModel')}
               {modelEntries.length > 0 ? (
                 <select
                   className="mt-2 h-9 w-full min-w-0 max-w-full rounded-md border bg-background px-2 text-sm text-foreground"
@@ -1703,15 +1896,15 @@ function ModelRegistrationDialog({
                 </select>
               ) : (
                 <span className="mt-2 block rounded-md border border-dashed px-3 py-4 text-sm font-normal">
-                  全局 models 中还没有可用模型
+                  {t('editor.noGlobalModels')}
                 </span>
               )}
             </label>
           ) : (
             <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-dashed p-4">
-              <p className="text-sm font-medium">选择模型入口或 ZIP</p>
+              <p className="text-sm font-medium">{t('editor.chooseModelSource')}</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                支持 *.model3.json、*.model.json、model.json 与 ZIP 压缩包。
+                {mobileRuntime ? t('editor.mobileModelZipHint') : t('editor.desktopModelHint')}
               </p>
               <Button
                 type="button"
@@ -1721,7 +1914,7 @@ function ModelRegistrationDialog({
                 disabled={submitting || inspectingArchive}
                 onClick={(): void => void chooseModelEntry()}
               >
-                {inspectingArchive ? '正在检查 ZIP…' : '选择文件'}
+                {inspectingArchive ? t('editor.inspectingZip') : t('common.chooseFile')}
               </Button>
               {sourcePath && (
                 <p
@@ -1736,7 +1929,7 @@ function ModelRegistrationDialog({
           )}
 
           <label className="block min-w-0 text-xs font-medium text-muted-foreground">
-            显示名称（可选）
+            {t('editor.optionalDisplayName')}
             <Input
               value={name}
               disabled={submitting}
@@ -1749,15 +1942,15 @@ function ModelRegistrationDialog({
           <details className="group min-w-0 max-w-full overflow-hidden rounded-md border bg-muted/15">
             <summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 text-xs font-medium text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
               <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
-              高级选项
+              {t('editor.advanced')}
             </summary>
             <div className="border-t px-3 py-3">
               <label className="block text-xs font-medium text-muted-foreground">
-                项目资源键
+                {t('editor.projectAssetKey')}
                 <Input
                   value={key}
                   disabled={submitting}
-                  placeholder="留空自动生成"
+                  placeholder={t('editor.autoGeneratePlaceholder')}
                   className="mt-2 h-9 font-mono text-xs"
                   onChange={(event: ChangeEvent<HTMLInputElement>): void =>
                     setKey(event.currentTarget.value)
@@ -1776,7 +1969,7 @@ function ModelRegistrationDialog({
             disabled={submitting}
             onClick={(): void => onOpenChange(false)}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -1785,19 +1978,23 @@ function ModelRegistrationDialog({
             }
             onClick={(): void => void submit()}
           >
-            {submitting ? '处理中…' : mode === 'existing' ? '加入项目' : '导入并加入'}
+            {submitting
+              ? t('common.processing')
+              : mode === 'existing'
+                ? t('editor.addToProject')
+                : t('editor.importAndAdd')}
           </Button>
         </DialogFooter>
         <Dialog open={archiveSelectionOpen} onOpenChange={setArchiveSelectionOpen}>
           <DialogContent className="max-w-xl min-w-0 overflow-hidden">
             <DialogHeader>
-              <DialogTitle>选择 ZIP 中的模型入口</DialogTitle>
+              <DialogTitle>{t('editor.chooseZipEntry')}</DialogTitle>
               <DialogDescription>
                 {archiveCandidates.some(
                   (candidate: ModelArchiveCandidate): boolean => candidate.recognized
                 )
-                  ? '检测到多个可用入口，请选择要导入的模型。'
-                  : '未能根据文件名识别入口，请从 JSON 文件中手动选择。'}
+                  ? t('editor.chooseRecognizedEntry')
+                  : t('editor.chooseJsonEntry')}
               </DialogDescription>
             </DialogHeader>
             <div className="max-h-80 space-y-1 overflow-y-auto rounded-md border bg-muted/15 p-1.5 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
@@ -1833,7 +2030,7 @@ function ModelRegistrationDialog({
                           : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
                       )}
                     >
-                      {candidate.recognized ? '已识别' : '普通 JSON'}
+                      {candidate.recognized ? t('editor.recognized') : t('editor.plainJson')}
                     </span>
                   </button>
                 )
@@ -1845,7 +2042,7 @@ function ModelRegistrationDialog({
                 variant="outline"
                 onClick={(): void => setArchiveSelectionOpen(false)}
               >
-                取消
+                {t('common.cancel')}
               </Button>
               <Button
                 type="button"
@@ -1856,7 +2053,7 @@ function ModelRegistrationDialog({
                   setArchiveSelectionOpen(false)
                 }}
               >
-                使用此入口
+                {t('editor.useEntry')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1878,7 +2075,7 @@ async function loadEditorProject(projectName: string): Promise<LoadedEditorProje
       getProjectPath(projectName)
     ])
   if (!metadata) {
-    throw new Error(`项目 metadata.json 不存在: ${projectName}`)
+    throw new Error(i18n.t('project.metadataMissing', { name: projectName }))
   }
   return {
     metadata,

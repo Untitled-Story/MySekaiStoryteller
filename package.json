@@ -18,7 +18,10 @@
     "tauri": "tauri",
     "format": "prettier --write .",
     "lint": "eslint --cache .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "android:init": "tauri android init",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.6.0",
