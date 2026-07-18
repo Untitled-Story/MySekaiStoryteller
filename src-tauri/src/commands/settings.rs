@@ -109,6 +109,19 @@ pub enum PlaybackFontSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExportPreferences {
+    #[serde(default = "default_export_width")]
+    pub width: u32,
+    #[serde(default = "default_export_height")]
+    pub height: u32,
+    #[serde(default = "default_export_fps")]
+    pub fps: u32,
+    #[serde(default = "default_export_concurrency")]
+    pub concurrency: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     #[serde(default = "default_language")]
     pub language: String,
@@ -122,6 +135,8 @@ pub struct AppSettings {
     pub onboarding: OnboardingSettings,
     #[serde(default)]
     pub interaction: InteractionSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<ExportPreferences>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_dir: Option<String>,
 }
@@ -239,6 +254,20 @@ fn ensure_parent(path: &PathBuf) {
     }
 }
 
+
+fn default_export_width() -> u32 { 1920 }
+fn default_export_height() -> u32 { 1080 }
+fn default_export_fps() -> u32 { 60 }
+fn default_export_concurrency() -> u32 { 2 }
+
+fn read_settings_file(path: &PathBuf) -> Option<AppSettings> {
+    if !path.exists() {
+        return None;
+    }
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Option<AppSettings> {
     let started_at = Instant::now();
@@ -274,23 +303,37 @@ pub fn get_settings(app: AppHandle) -> Option<AppSettings> {
 pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     let started_at = Instant::now();
     let path = config_path(&app);
+    let mut merged = settings;
+    if let Some(existing) = read_settings_file(&path) {
+        if merged.workspace_dir.is_none() {
+            if existing.workspace_dir.is_some() {
+                log::info!(target: "backend::settings", "settings.save preserved existing workspace_dir (incoming was null)");
+            }
+            merged.workspace_dir = existing.workspace_dir;
+        }
+        if merged.export.is_none() {
+            merged.export = existing.export;
+        }
+    }
     ensure_parent(&path);
-    let json = serde_json::to_string_pretty(&settings).map_err(|error| {
+    let json = serde_json::to_string_pretty(&merged).map_err(|error| {
         log::error!(target: "backend::settings", "settings.save serialize_failed error={error}");
         error.to_string()
     })?;
-    fs::write(&path, json).map_err(|error| {
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, json.as_bytes()).map_err(|error| {
         log::error!(target: "backend::settings", "settings.save write_failed error={error}");
         error.to_string()
     })?;
-    if let Err(error) = app.emit("settings-changed", &settings) {
+    fs::rename(&tmp_path, &path).map_err(|error| {
+        let _ = fs::remove_file(&tmp_path);
+        log::error!(target: "backend::settings", "settings.save rename_failed error={error}");
+        error.to_string()
+    })?;
+    if let Err(error) = app.emit("settings-changed", &merged) {
         log::warn!(target: "backend::settings", "settings.save emit_failed error={error}");
     }
-    log::debug!(
-        target: "backend::settings",
-        "settings.save completed duration_ms={}",
-        started_at.elapsed().as_millis()
-    );
+    log::info!(target: "backend::settings", "settings.save completed duration_ms={} has_workspace={}", started_at.elapsed().as_millis(), merged.workspace_dir.is_some());
     Ok(())
 }
 

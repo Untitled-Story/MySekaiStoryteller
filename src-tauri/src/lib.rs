@@ -1,7 +1,8 @@
 mod commands;
 mod protocol;
 
-use commands::{file_open, project, settings, window};
+use commands::render::RenderManager;
+use commands::{file_open, project, render, settings, window};
 use log::LevelFilter;
 #[cfg(desktop)]
 use std::path::PathBuf;
@@ -45,7 +46,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(file_open::PendingProjectImports::default());
+        .manage(file_open::PendingProjectImports::default())
+        .manage(RenderManager::new());
 
     #[cfg(desktop)]
     {
@@ -150,6 +152,14 @@ pub fn run() {
             project::story::set_project_story,
             window::open_editor,
             window::open_player,
+            window::close_export_worker,
+            render::start_render_session,
+            render::stream_frame,
+            render::stop_render_session,
+            render::prepare_parallel_export,
+            render::concat_render_segments,
+            render::cleanup_export_temp,
+            render::validate_render_segment,
         ]);
 
     builder = protocol::register_story_protocol(builder);

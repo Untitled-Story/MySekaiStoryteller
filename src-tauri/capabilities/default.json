@@ -2,7 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for all windows",
-  "windows": ["main", "editor", "player"],
+  "windows": [
+    "main",
+    "editor",
+    "player",
+    "export-coordinator",
+    "export-debug",
+    "export-worker-*"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-close",

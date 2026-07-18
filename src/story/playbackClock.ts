@@ -14,6 +14,8 @@ export class StoryPlaybackClock {
   private readonly tick = (ticker: Ticker): void => this.advance(ticker.elapsedMS)
   private paused = false
   private destroyed = false
+  /** Virtual wall time for export-driven Pixi/Live2D updates (ms). */
+  private syntheticAppTimeMs = 0
 
   constructor(app: Application) {
     this.app = app
@@ -83,12 +85,15 @@ export class StoryPlaybackClock {
     }, signal)
   }
 
-  waitUntil(predicate: () => boolean, signal?: AbortSignal): Promise<void> {
+  waitUntil(
+    predicate: (deltaMs?: number) => boolean,
+    signal?: AbortSignal
+  ): Promise<void> {
     this.throwIfUnavailable(signal)
-    if (predicate()) return Promise.resolve()
+    if (predicate(0)) return Promise.resolve()
 
-    return this.createTask((_deltaMs: number, complete: () => void): void => {
-      if (predicate()) complete()
+    return this.createTask((deltaMs: number, complete: () => void): void => {
+      if (predicate(deltaMs)) complete()
     }, signal)
   }
 
@@ -128,6 +133,60 @@ export class StoryPlaybackClock {
       resolve()
     }
     this.resumeWaiters.clear()
+  }
+
+
+  /**
+   * Manual export step: advance pending clock tasks by a fixed delta.
+   * Does NOT apply the realtime 20ms cap — export must honor exact frame intervals
+   * (including multi-frame warm steps).
+   */
+  advanceManual(deltaMs: number): void {
+    if (this.destroyed || this.paused) return
+
+    const delta: number = Math.max(0, deltaMs)
+    if (delta <= 0) return
+
+    this.syntheticAppTimeMs += delta
+    for (const task of [...this.tasks]) {
+      task.tick(delta)
+    }
+  }
+
+  /** Synthetic app time for `app.ticker.update(currentTime)` during export. */
+  getSyntheticAppTimeMs(): number {
+    return this.syntheticAppTimeMs
+  }
+
+  /** True while delay/animate/waitUntil tasks are still open. */
+  hasPendingTasks(): boolean {
+    return this.tasks.size > 0
+  }
+
+  /** Re-run tasks with 0dt after Live2D/ticker side effects (motion finish checks). */
+  pollTasks(): void {
+    if (this.destroyed || this.paused) return
+    for (const task of [...this.tasks]) {
+      task.tick(0)
+    }
+  }
+
+  /**
+   * Detach from Pixi ticker while export drives the clock manually.
+   * When disabling, resets synthetic time and aligns ticker.lastTime so the first
+   * manual update sees the correct deltaMS for Live2D.
+   */
+  setTickerDriven(enabled: boolean): void {
+    if (this.destroyed) return
+    this.app.ticker.remove(this.tick)
+    if (enabled) {
+      this.app.ticker.add(this.tick)
+      // Avoid a huge first delta after leaving manual export mode.
+      this.app.ticker.lastTime = performance.now()
+    } else {
+      this.syntheticAppTimeMs = 0
+      this.app.ticker.lastTime = 0
+    }
   }
 
   private advance(rawDeltaMs: number): void {
