@@ -68,15 +68,25 @@ pub fn run_mobile_encode_worker(
     {
         let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10)
             .clamp(400_000, 20_000_000) as u32;
-        let hw_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::commands::mobile_hw_encoder::hw_encoder_create(
-                &export_path,
-                width,
-                height,
-                fps,
-                bitrate,
-            )
-        }));
+        if !crate::commands::mobile_hw_encoder::java_vm_ready() {
+            log::warn!(
+                target: "backend::render",
+                "mobile MediaCodec skipped: JavaVM not installed yet; using openh264"
+            );
+        }
+        let hw_result = if crate::commands::mobile_hw_encoder::java_vm_ready() {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::commands::mobile_hw_encoder::hw_encoder_create(
+                    &export_path,
+                    width,
+                    height,
+                    fps,
+                    bitrate,
+                )
+            }))
+        } else {
+            Ok(Err("JavaVM not ready".into()))
+        };
         match hw_result {
             Ok(Ok(session)) => {
                 log::info!(

@@ -9,35 +9,22 @@ const CLASS: &str = "org/untitled_story/storyteller/encode/HwH264Encoder";
 
 static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
 
-/// Call once from app setup on the Android UI/JNI thread.
+/// Call once from MainActivity (JNI) so worker threads can attach.
 pub fn install_java_vm(vm: JavaVM) {
-    let _ = JAVA_VM.set(vm);
+    match JAVA_VM.set(vm) {
+        Ok(()) => log::info!(target: "backend::render", "JavaVM stored for MediaCodec"),
+        Err(_) => log::debug!(target: "backend::render", "JavaVM already stored"),
+    }
+}
+
+pub fn java_vm_ready() -> bool {
+    JAVA_VM.get().is_some()
 }
 
 fn java_vm() -> Result<&'static JavaVM, String> {
-    if let Some(vm) = JAVA_VM.get() {
-        return Ok(vm);
-    }
-    // Best-effort fallback: ndk-context (may be uninitialized on some Tauri builds).
-    let ctx = std::panic::catch_unwind(|| ndk_context::android_context());
-    match ctx {
-        Ok(ctx) => {
-            let vm_ptr = ctx.vm();
-            if vm_ptr.is_null() {
-                return Err("Android JavaVM is null".into());
-            }
-            let vm = unsafe { JavaVM::from_raw(vm_ptr.cast()) }
-                .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
-            let _ = JAVA_VM.set(vm);
-            JAVA_VM
-                .get()
-                .ok_or_else(|| "JavaVM install race".to_string())
-        }
-        Err(_) => Err(
-            "Android JavaVM not installed (call install_java_vm from setup; ndk-context missing)"
-                .into(),
-        ),
-    }
+    JAVA_VM.get().ok_or_else(|| {
+        "Android JavaVM not installed (MainActivity.mssInstallJavaVm not called / failed)".into()
+    })
 }
 
 fn attach() -> Result<AttachGuard<'static>, String> {
@@ -54,6 +41,9 @@ pub fn hw_encoder_create(
     fps: u32,
     bitrate: u32,
 ) -> Result<i64, String> {
+    if !java_vm_ready() {
+        return Err("JavaVM not ready".into());
+    }
     let mut env = attach()?;
     let path_j = env
         .new_string(path)
@@ -143,8 +133,7 @@ pub fn hw_encoder_destroy(session_id: i64) {
     }
 }
 
-
-/// Called from MainActivity.onCreate so worker threads can attach to the process JavaVM.
+/// Called from MainActivity so worker threads can attach to the process JavaVM.
 #[no_mangle]
 pub extern "system" fn Java_org_untitled_story_storyteller_MainActivity_mssInstallJavaVm(
     mut env: jni::JNIEnv,
@@ -153,7 +142,10 @@ pub extern "system" fn Java_org_untitled_story_storyteller_MainActivity_mssInsta
     match env.get_java_vm() {
         Ok(vm) => {
             install_java_vm(vm);
-            log::info!(target: "backend::render", "Android JavaVM installed via MainActivity JNI");
+            log::info!(
+                target: "backend::render",
+                "Android JavaVM installed via MainActivity JNI"
+            );
         }
         Err(e) => {
             log::error!(target: "backend::render", "MainActivity mssInstallJavaVm failed: {e}");

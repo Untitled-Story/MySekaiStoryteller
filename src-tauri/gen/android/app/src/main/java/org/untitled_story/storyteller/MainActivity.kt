@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Bundle
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -15,8 +16,16 @@ class MainActivity : TauriActivity() {
   private var immersiveModeEnabled: Boolean = false
 
   companion object {
+    private const val TAG = "MainActivity"
+    private const val NATIVE_LIB = "my_sekai_storyteller_lib"
+
     init {
-      // Ensure native symbols resolve for mssInstallJavaVm (lib already loaded by Tauri).
+      try {
+        System.loadLibrary(NATIVE_LIB)
+      } catch (error: Throwable) {
+        // Tauri may already have loaded the lib; ignore duplicate/already-loaded cases.
+        Log.w(TAG, "loadLibrary($NATIVE_LIB): $error")
+      }
     }
 
     @JvmStatic
@@ -26,10 +35,12 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?): Unit {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Install JavaVM after native lib is ready so MediaCodec worker threads can attach.
     try {
       mssInstallJavaVm()
+      Log.i(TAG, "mssInstallJavaVm ok")
     } catch (error: Throwable) {
-      android.util.Log.e("MainActivity", "mssInstallJavaVm failed: $error")
+      Log.e(TAG, "mssInstallJavaVm failed: $error")
     }
     applySystemBarVisibility()
   }
@@ -50,6 +61,11 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView): Unit {
     super.onWebViewCreate(webView)
     webView.addJavascriptInterface(OrientationBridge(this), "MssOrientation")
+    // Second chance after WebView/native fully up.
+    try {
+      mssInstallJavaVm()
+    } catch (_: Throwable) {
+    }
   }
 
   private fun setImmersiveMode(enabled: Boolean): Unit {
