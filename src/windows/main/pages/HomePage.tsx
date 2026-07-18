@@ -25,7 +25,6 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 
-
 export default function HomePage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
@@ -98,7 +97,6 @@ export default function HomePage(): JSX.Element {
         <div className="min-w-0 flex-1">
           <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
             {t('home.recent')}
-
           </h3>
           {latest ? (
             <div className="space-y-4">
@@ -116,7 +114,6 @@ export default function HomePage(): JSX.Element {
                 >
                   <Edit3 className="h-3.5 w-3.5" />
                   {t('home.continueEditing')}
-
                 </button>
                 <button
                   onClick={() => handleOpenPlayer(latest.title)}
@@ -124,7 +121,6 @@ export default function HomePage(): JSX.Element {
                 >
                   <Play className="h-3.5 w-3.5" />
                   {t('common.play')}
-
                 </button>
               </div>
             </div>
@@ -136,7 +132,6 @@ export default function HomePage(): JSX.Element {
         <div className={cn(stackSections ? 'w-full' : 'w-48 shrink-0')}>
           <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
             {t('home.quickActions')}
-
           </h3>
           <nav className="space-y-1">
             <button
@@ -146,7 +141,6 @@ export default function HomePage(): JSX.Element {
             >
               <Plus className="h-4 w-4 text-muted-foreground" />
               {t('project.new')}
-
             </button>
             <button
               onClick={() => navigate('/projects')}
@@ -154,7 +148,6 @@ export default function HomePage(): JSX.Element {
             >
               <Folder className="h-4 w-4 text-muted-foreground" />
               {t('home.allProjects')}
-
             </button>
             <button
               onClick={() => navigate('/settings')}
@@ -162,7 +155,6 @@ export default function HomePage(): JSX.Element {
             >
               <Settings className="h-4 w-4 text-muted-foreground" />
               {t('nav.settings')}
-
             </button>
           </nav>
         </div>
@@ -186,28 +178,26 @@ export default function HomePage(): JSX.Element {
       >
         <DialogContent className="max-w-md select-none">
           <DialogHeader>
-            <DialogTitle>开启触控模式？</DialogTitle>
-            <DialogDescription>
-              触控模式下会减少对鼠标悬停的依赖，例如项目列表的操作按钮会始终显示，更适合手指操作。
-            </DialogDescription>
+            <DialogTitle>{t('home.touchPromptTitle')}</DialogTitle>
+            <DialogDescription>{t('home.touchPromptDescription')}</DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-between rounded-lg border px-3 py-3">
             <div className="pr-4">
-              <p className="text-sm font-medium">触控模式</p>
-              <p className="text-xs text-muted-foreground">可随时在设置里修改</p>
+              <p className="text-sm font-medium">{t('home.touchMode')}</p>
+              <p className="text-xs text-muted-foreground">{t('home.touchModeHint')}</p>
             </div>
             <Switch
               checked={touchPromptValue}
-              aria-label="切换触控模式"
+              aria-label={t('home.touchModeAria')}
               onCheckedChange={setTouchPromptValue}
             />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={(): void => finishTouchPrompt(false)}>
-              暂不开启
+              {t('home.touchNotNow')}
             </Button>
             <Button type="button" onClick={(): void => finishTouchPrompt(touchPromptValue)}>
-              确认
+              {t('common.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

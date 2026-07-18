@@ -39,6 +39,15 @@
 - Frontend communicates with backend via `invoke()` from `@tauri-apps/api/core`.
 - Inter-window communication uses Tauri event system (`emit`/`listen`).
 
+## Internationalization
+
+- All user-facing frontend text must use the shared i18n system; do not add hard-coded UI strings in components, dialogs, notifications, accessibility labels, empty states, error messages, or onboarding steps.
+- Keep `en`, `ja`, `zh-CN`, and `zh-HK` locale resources in sync whenever adding or changing a translation key. Do not rely on another locale as a permanent fallback.
+- Use locale-aware helpers for generated labels and runtime summaries, including snippet descriptions, asset kinds, save/playback states, and legacy-data fallbacks.
+- Treat onboarding as part of the product UI: every tour title, description, action, skip label, and interactive prompt must be translated in all supported locales.
+- Preserve proper names, credited biographies, and user-authored project content unless a product requirement explicitly calls for translating them.
+- Before finishing frontend work, search the touched UI for newly introduced hard-coded user-facing text and run `pnpm typecheck` to catch missing or structurally inconsistent locale keys.
+
 ## Testing Guidelines
 
 - No formal test suite present. Add targeted tests alongside new logic when feasible; follow `*.test.ts` or `*.spec.ts` naming. For renderer logic, consider React Testing Library; for Rust commands, use `#[cfg(test)]` modules. Ensure `pnpm typecheck` and `cargo check` stay clean.

@@ -36,7 +36,9 @@ pub struct ProjectMetadata {
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let settings = get_settings(app.clone());
-    if let Some(dir) = settings.and_then(|s| s.workspace_dir).filter(|value| !value.trim().is_empty())
+    if let Some(dir) = settings
+        .and_then(|s| s.workspace_dir)
+        .filter(|value| !value.trim().is_empty())
     {
         return Ok(PathBuf::from(dir));
     }
@@ -315,11 +317,16 @@ fn now_millis() -> u64 {
 /// Resolve a picker path that may be a local file path or an Android `content://` URI.
 /// When the source is a content URI (or otherwise not a regular local file), copy it into
 /// the app cache so subsequent filesystem APIs can open it as a normal path.
+pub(crate) struct MaterializedPickedFile {
+    pub path: PathBuf,
+    pub copied: bool,
+}
+
 pub(crate) fn materialize_picked_file(
     app: &AppHandle,
     source_path: &str,
     preferred_extension: Option<&str>,
-) -> Result<PathBuf, String> {
+) -> Result<MaterializedPickedFile, String> {
     let trimmed = source_path.trim();
     if trimmed.is_empty() {
         return Err("选择的文件路径为空".into());
@@ -336,7 +343,12 @@ pub(crate) fn materialize_picked_file(
     let local = PathBuf::from(trimmed);
     if local.is_file() {
         match fs::File::open(&local) {
-            Ok(_) => return Ok(local),
+            Ok(_) => {
+                return Ok(MaterializedPickedFile {
+                    path: local,
+                    copied: false,
+                })
+            }
             Err(error) => {
                 log::warn!(
                     target: "backend::fs",
@@ -362,7 +374,10 @@ pub(crate) fn materialize_picked_file(
                         "materialize_picked_file using decoded local path={}",
                         decoded_local.display()
                     );
-                    return Ok(decoded_local);
+                    return Ok(MaterializedPickedFile {
+                        path: decoded_local,
+                        copied: false,
+                    });
                 }
                 Err(error) => {
                     log::warn!(
@@ -394,11 +409,12 @@ pub(crate) fn materialize_picked_file(
 
     // Prefer bulk read via the FS plugin (handles content:// descriptors reliably),
     // then fall back to streaming copy if needed.
-    let copied_len = match app.fs().read(FilePath::from_str(trimmed).map_err(|error| {
-        format!("解析选择的文件路径失败: {error}")
-    })?) {
+    let copied_len = match app.fs().read(
+        FilePath::from_str(trimmed).map_err(|error| format!("解析选择的文件路径失败: {error}"))?,
+    ) {
         Ok(bytes) => {
-            fs::write(&destination, &bytes).map_err(|error| format!("写入临时文件失败: {error}"))?;
+            fs::write(&destination, &bytes)
+                .map_err(|error| format!("写入临时文件失败: {error}"))?;
             bytes.len() as u64
         }
         Err(read_error) => {
@@ -410,9 +426,9 @@ pub(crate) fn materialize_picked_file(
             );
             let mut open_options = OpenOptions::new();
             open_options.read(true);
-            let mut source = open_picked_path(app, trimmed, open_options).map_err(|error| {
-                format!("无法打开选择的文件 ({error}; read_error={read_error}; source={trimmed})")
-            })?;
+            let mut source =
+                open_picked_path(app, trimmed, open_options, PickedPathAccess::Read)
+                    .map_err(|error| picked_file_read_error(&error, &read_error, trimmed))?;
             let mut target = fs::File::create(&destination)
                 .map_err(|error| format!("创建临时文件失败: {error}"))?;
             let written = std::io::copy(&mut source, &mut target)
@@ -440,7 +456,10 @@ pub(crate) fn materialize_picked_file(
         destination.display(),
         copied_len
     );
-    Ok(destination)
+    Ok(MaterializedPickedFile {
+        path: destination,
+        copied: true,
+    })
 }
 
 /// Write bytes to a save-dialog destination that may be a local path or content URI.
@@ -477,7 +496,7 @@ pub(crate) fn write_picked_destination(
 
     let mut open_options = OpenOptions::new();
     open_options.write(true).truncate(true).create(true);
-    let mut target = open_picked_path(app, trimmed, open_options)?;
+    let mut target = open_picked_path(app, trimmed, open_options, PickedPathAccess::Write)?;
     let mut source =
         fs::File::open(source_file).map_err(|error| format!("打开导出临时文件失败: {error}"))?;
     let written = std::io::copy(&mut source, &mut target)
@@ -497,10 +516,21 @@ pub(crate) fn write_picked_destination(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum PickedPathAccess {
+    Read,
+    Write,
+}
+
+fn picked_file_read_error(open_error: &str, read_error: &std::io::Error, source: &str) -> String {
+    format!("无法打开选择的文件 ({open_error}; read_error={read_error}; source={source})")
+}
+
 fn open_picked_path(
     app: &AppHandle,
     path: &str,
     options: OpenOptions,
+    access: PickedPathAccess,
 ) -> Result<fs::File, String> {
     let file_path =
         FilePath::from_str(path).map_err(|error| format!("解析文件路径失败: {error}"))?;
@@ -508,16 +538,20 @@ fn open_picked_path(
         Ok(file) => Ok(file),
         Err(primary_error) => {
             // Android providers are picky about mode strings ("r", "w", "wt", "rw" ...).
-            let mut attempts: Vec<OpenOptions> = Vec::new();
-            let mut read_only = OpenOptions::new();
-            read_only.read(true);
-            attempts.push(read_only);
-            let mut write_only = OpenOptions::new();
-            write_only.write(true).truncate(true);
-            attempts.push(write_only);
-            let mut read_write = OpenOptions::new();
-            read_write.read(true).write(true).truncate(true);
-            attempts.push(read_write);
+            let attempts: Vec<OpenOptions> = match access {
+                PickedPathAccess::Read => {
+                    let mut read_only = OpenOptions::new();
+                    read_only.read(true);
+                    vec![read_only]
+                }
+                PickedPathAccess::Write => {
+                    let mut write_only = OpenOptions::new();
+                    write_only.write(true).truncate(true);
+                    let mut read_write = OpenOptions::new();
+                    read_write.read(true).write(true).truncate(true);
+                    vec![write_only, read_write]
+                }
+            };
             for attempt in attempts {
                 if let Ok(file) = app.fs().open(file_path.clone(), attempt) {
                     return Ok(file);
@@ -534,7 +568,6 @@ fn is_uri_like_path(path: &str) -> bool {
         || lowered.starts_with("file://")
         || (lowered.contains("://") && !Path::new(path).exists())
 }
-
 
 fn decode_android_raw_content_path(source_path: &str) -> Option<PathBuf> {
     let lowered = source_path.to_ascii_lowercase();

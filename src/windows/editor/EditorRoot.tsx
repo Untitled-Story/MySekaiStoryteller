@@ -94,7 +94,7 @@ export function EditorRoot({
         preferredProjectName={preferredProjectName}
         embedInShell={embedInShell}
       />
-      {import.meta.env.DEV && <Agentation />}
+      {import.meta.env.DEV && !embedInShell && <Agentation />}
     </>
   )
 

@@ -36,7 +36,7 @@ export default function LeftSidebar({ mode = 'rail' }: { mode?: LeftSidebarMode 
     return (
       <nav
         className="fixed inset-x-0 bottom-0 z-50 flex h-[calc(4.25rem+env(safe-area-inset-bottom))] items-stretch border-t border-sidebar-border/80 bg-sidebar/95 pt-2 text-sidebar-foreground shadow-[0_-8px_24px_rgb(0_0_0/0.06)] backdrop-blur-md pb-[env(safe-area-inset-bottom)] dark:shadow-[0_-8px_24px_rgb(0_0_0/0.28)]"
-        aria-label="主导航"
+        aria-label={t('nav.mainNavigation')}
       >
         {navItems.map(({ to, icon: Icon, label }) => {
           const isActive = location.pathname === to
@@ -78,19 +78,24 @@ export default function LeftSidebar({ mode = 'rail' }: { mode?: LeftSidebarMode 
             variant="ghost"
             size="icon"
             className="size-9"
-            aria-label={drawerOpen ? '关闭菜单' : '打开菜单'}
+            aria-label={drawerOpen ? t('nav.closeMenu') : t('nav.openMenu')}
             onClick={(): void => setDrawerOpen((open: boolean): boolean => !open)}
           >
             {drawerOpen ? <X className="size-4" /> : <Menu className="size-4" />}
           </Button>
-          <img src={logo} draggable={false} alt="Logo" className="size-6 object-contain" />
+          <img
+            src={logo}
+            draggable={false}
+            alt={t('common.appLogo')}
+            className="size-6 object-contain"
+          />
           <span className="text-sm font-semibold">MySekaiStoryteller</span>
         </div>
         {drawerOpen ? (
           <button
             type="button"
             className="fixed inset-0 z-40 bg-black/40"
-            aria-label="关闭菜单遮罩"
+            aria-label={t('nav.closeMenuOverlay')}
             onClick={(): void => setDrawerOpen(false)}
           />
         ) : null}
@@ -138,7 +143,12 @@ export default function LeftSidebar({ mode = 'rail' }: { mode?: LeftSidebarMode 
   return (
     <aside className="fixed top-0 left-0 z-50 flex h-full w-65 flex-col items-center border-r border-sidebar-border bg-sidebar py-4 text-sidebar-foreground shadow-sm transition-colors duration-300">
       <div className="mt-4 mb-5 flex select-none items-center">
-        <img src={logo} draggable={false} alt="Logo" className="mr-2 h-7 w-7 object-contain" />
+        <img
+          src={logo}
+          draggable={false}
+          alt={t('common.appLogo')}
+          className="mr-2 h-7 w-7 object-contain"
+        />
         <h1 className="text-lg font-bold">MySekaiStoryteller</h1>
       </div>
       <nav draggable={false} className="relative w-full flex-1 space-y-2 p-3 select-none">

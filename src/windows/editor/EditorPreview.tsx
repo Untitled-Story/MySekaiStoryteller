@@ -24,6 +24,7 @@ import {
 } from '@/story'
 import type { EditorStory } from './editorDocument'
 import { useTranslation } from 'react-i18next'
+import { i18n } from '@/i18n'
 
 export type EditorPreviewInput = {
   projectName: string
@@ -210,9 +211,9 @@ export function EditorPreview({
         setStatus('running')
         setMessage(
           previewTargetNodeId
-            ? '正在恢复选中片段前状态'
+            ? t('editor.restoringSelectedState')
             : preloadedModels.length > 0
-              ? `已加载 ${preloadedModels.length} 个模型`
+              ? t('player.loadedModels', { count: preloadedModels.length })
               : t('editor.playing')
         )
         if (previewTargetNodeId) {
@@ -456,11 +457,15 @@ function resolveRenderPrecision(settings: AppSettings | null): number {
 
 function describePreviewError(error: unknown): string {
   if (error instanceof StoryModelPreloadError) {
-    return `模型加载失败：${error.modelName}`
+    return i18n.t('editor.modelLoadFailed', { model: error.modelName })
   }
   if (error instanceof StorySnippetError) {
     const reason: string = error.cause instanceof Error ? `：${error.cause.message}` : ''
-    return `片段 ${error.path.join('.')} (${error.snippet.type}) 执行失败${reason}`
+    return i18n.t('editor.snippetExecutionFailed', {
+      path: error.path.join('.'),
+      type: error.snippet.type,
+      reason
+    })
   }
-  return error instanceof Error ? error.message : '预览初始化失败'
+  return error instanceof Error ? error.message : i18n.t('editor.previewInitializationFailed')
 }

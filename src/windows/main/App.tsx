@@ -15,6 +15,7 @@ import { AppNavigator } from '@/windows/shell/AppNavigator'
 import { prefersInAppNavigation } from '@/lib/platform'
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
 import { cn } from '@/lib/style'
+import { useTranslation } from 'react-i18next'
 
 const MobileEditorPage = lazy(async () => {
   const module = await import('@/windows/shell/MobileEditorPage')
@@ -25,7 +26,6 @@ const MobilePlayerPage = lazy(async () => {
   const module = await import('@/windows/shell/MobilePlayerPage')
   return { default: module.MobilePlayerPage }
 })
-
 
 export default function App(): React.JSX.Element {
   return (
@@ -38,6 +38,7 @@ export default function App(): React.JSX.Element {
 }
 
 function AppContent(): React.JSX.Element {
+  const { t } = useTranslation()
   const { appearance, loaded, workspaceDir, setWorkspaceDir } = useSettings()
   const activeTheme = appearance.activeTheme
   const location = useLocation()
@@ -69,7 +70,7 @@ function AppContent(): React.JSX.Element {
       <Suspense
         fallback={
           <main className="flex h-full items-center justify-center bg-background text-sm text-muted-foreground">
-            加载中…
+            {t('mobile.loading')}
           </main>
         }
       >
@@ -98,7 +99,6 @@ function AppContent(): React.JSX.Element {
             'left-0 right-0 top-0 pt-[env(safe-area-inset-top)] bottom-[calc(4.25rem+env(safe-area-inset-bottom))]'
         )}
       >
-
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/projects" element={<ProjectsPage />} />
@@ -109,7 +109,7 @@ function AppContent(): React.JSX.Element {
               <Route
                 path="/editor/:projectName"
                 element={
-                  <Suspense fallback={<RouteFallback label="编辑器" />}>
+                  <Suspense fallback={<RouteFallback label={t('mobile.editor')} />}>
                     <MobileEditorPage />
                   </Suspense>
                 }
@@ -117,7 +117,7 @@ function AppContent(): React.JSX.Element {
               <Route
                 path="/player/:projectName"
                 element={
-                  <Suspense fallback={<RouteFallback label="播放器" />}>
+                  <Suspense fallback={<RouteFallback label={t('mobile.player')} />}>
                     <MobilePlayerPage />
                   </Suspense>
                 }
@@ -132,9 +132,10 @@ function AppContent(): React.JSX.Element {
 }
 
 function RouteFallback({ label }: { label: string }): React.JSX.Element {
+  const { t } = useTranslation()
   return (
     <main className="flex h-full items-center justify-center bg-background text-sm text-muted-foreground">
-      正在打开{label}…
+      {t('mobile.opening', { label })}
     </main>
   )
 }
