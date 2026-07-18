@@ -61,20 +61,28 @@ pub fn run_mobile_encode_worker(
         }
     }
 
-    // Prefer MediaCodec on Android; openh264 is the portable fallback.
-    // catch_unwind: missing JavaVM previously *panicked* and killed the worker
-    // (stream then saw "disconnected channel" / frames=0).
+    // MediaCodec is gated: OEM configure/start can *native-crash the whole process*
+    // (uncatchable from Java/Rust). Logs showed death right after "create begin".
+    // Default: openh264 only. Opt-in with env MSS_ANDROID_MEDIACODEC=1 after device-safe path.
     #[cfg(target_os = "android")]
     {
+        let allow_hw = std::env::var("MSS_ANDROID_MEDIACODEC")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
         let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10)
             .clamp(400_000, 20_000_000) as u32;
-        if !crate::commands::mobile_hw_encoder::java_vm_ready() {
+        if !allow_hw {
+            log::warn!(
+                target: "backend::render",
+                "mobile MediaCodec disabled by default (set MSS_ANDROID_MEDIACODEC=1 to try); using openh264"
+            );
+        } else if !crate::commands::mobile_hw_encoder::java_vm_ready() {
             log::warn!(
                 target: "backend::render",
                 "mobile MediaCodec skipped: JavaVM not installed yet; using openh264"
             );
         }
-        let hw_result = if crate::commands::mobile_hw_encoder::java_vm_ready() {
+        let hw_result = if allow_hw && crate::commands::mobile_hw_encoder::java_vm_ready() {
             log::info!(
                 target: "backend::render",
                 "mobile MediaCodec create begin {}x{}@{} bitrate={bitrate}",
@@ -92,7 +100,7 @@ pub fn run_mobile_encode_worker(
                 )
             }))
         } else {
-            Ok(Err("JavaVM not ready".into()))
+            Ok(Err("MediaCodec not enabled or JavaVM not ready".into()))
         };
         match hw_result {
             Ok(Ok(session)) => {
@@ -143,7 +151,7 @@ pub fn run_mobile_encode_worker(
     }
 
     // Soft path: tighter bitrate for CPU encode.
-    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 12_000_000) as u32;
+    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 6_000_000) as u32;
     let enc_config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(bitrate))
         .max_frame_rate(FrameRate::from_hz(fps as f32))
