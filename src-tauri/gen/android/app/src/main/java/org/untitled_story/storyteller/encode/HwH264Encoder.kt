@@ -55,7 +55,8 @@ object HwH264Encoder {
           MediaCodec.createEncoderByType(MIME)
         }
 
-      val colorFormats = colorFormatCandidates(codec!!.codecInfo)
+      var activeCodec = codec ?: throw IllegalStateException("codec null")
+      val colorFormats = colorFormatCandidates(activeCodec.codecInfo)
       var started = false
       var colorFormat = colorFormats.first()
       var lastError: Throwable? = null
@@ -70,8 +71,8 @@ object HwH264Encoder {
           }
         try {
           Log.i(TAG, "configure color=$fmt")
-          codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-          codec.start()
+          activeCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+          activeCodec.start()
           colorFormat = fmt
           started = true
           Log.i(TAG, "start ok color=$fmt")
@@ -80,18 +81,20 @@ object HwH264Encoder {
           lastError = t
           Log.w(TAG, "configure/start failed color=$fmt err=$t")
           try {
-            codec.reset()
+            activeCodec.reset()
           } catch (_: Throwable) {
             try {
-              codec.release()
+              activeCodec.release()
             } catch (_: Throwable) {
             }
-            codec =
+            activeCodec =
               if (codecName != null) MediaCodec.createByCodecName(codecName)
               else MediaCodec.createEncoderByType(MIME)
+            codec = activeCodec
           }
         }
       }
+      codec = activeCodec
       if (!started) {
         throw (lastError as? Exception)
           ?: IllegalStateException("MediaCodec configure failed: $lastError")
