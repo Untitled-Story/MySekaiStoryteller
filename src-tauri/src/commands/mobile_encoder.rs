@@ -15,9 +15,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-const MAX_W: u32 = 1280;
-const MAX_H: u32 = 720;
-const MAX_FPS: u32 = 24;
+const MAX_W: u32 = 960;
+const MAX_H: u32 = 540;
+const MAX_FPS: u32 = 18;
 
 pub fn clamp_mobile_config(config: &RenderConfig) -> RenderConfig {
     let mut c = config.clone();
@@ -53,13 +53,13 @@ pub fn run_mobile_encode_worker(
         }
     }
 
-    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10).clamp(350_000, 3_500_000) as u32;
+    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 1_800_000) as u32;
     let enc_config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(bitrate))
         .max_frame_rate(FrameRate::from_hz(fps as f32))
         .skip_frames(false)
         .complexity(Complexity::Low)
-        .intra_frame_period(IntraFramePeriod::from_num_frames(fps.saturating_mul(2).max(1)));
+        .intra_frame_period(IntraFramePeriod::from_num_frames(fps.saturating_mul(3).max(1)));
 
     let mut encoder = match Encoder::with_api_config(OpenH264API::from_source(), enc_config)
     {

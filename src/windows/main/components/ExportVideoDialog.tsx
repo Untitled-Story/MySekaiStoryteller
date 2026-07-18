@@ -54,10 +54,10 @@ export function ExportVideoDialog({
         if (cancelled || !projectTitle) return
         const prefs = normalizeExportPrefs(exportPrefs)
         // Android/iOS: thermal/memory-safe defaults + single worker only.
-        const width = mobileRuntime ? Math.min(prefs.width, 1280) : prefs.width
-        const height = mobileRuntime ? Math.min(prefs.height, 720) : prefs.height
-        // Soft encode is CPU-bound; 24fps is a better production default than 30+.
-        const fps = mobileRuntime ? Math.min(prefs.fps, 24) : prefs.fps
+        // Soft openh264 budget: 960x540@18 keeps RGBA ~2MB/frame and fewer encodes.
+        const width = mobileRuntime ? Math.min(prefs.width, 960) : prefs.width
+        const height = mobileRuntime ? Math.min(prefs.height, 540) : prefs.height
+        const fps = mobileRuntime ? Math.min(prefs.fps, 18) : prefs.fps
         let exportPath = buildDefaultExportPath(dataPath, projectTitle)
         if (mobileRuntime) {
           try {
@@ -110,7 +110,16 @@ export function ExportVideoDialog({
       const width = Math.max(160, Math.floor(config.width) || DEFAULT_EXPORT_PREFS.width)
       const height = Math.max(90, Math.floor(config.height) || DEFAULT_EXPORT_PREFS.height)
       let fps = Math.max(1, Math.floor(config.fps) || DEFAULT_EXPORT_PREFS.fps)
-      if (mobileRuntime) fps = Math.min(fps, 24)
+      let widthClamped = width
+      let heightClamped = height
+      if (mobileRuntime) {
+        // Hard caps match mobile_encoder + pipeline clamps.
+        fps = Math.min(fps, 18)
+        widthClamped = Math.min(width, 960)
+        heightClamped = Math.min(height, 540)
+        widthClamped -= widthClamped % 2
+        heightClamped -= heightClamped % 2
+      }
       const concurrency = mobileRuntime ? 1 : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
       const dataPath = await getDataPath()
       // Display path (Movies on mobile). Encode may use private path then publish.
@@ -130,7 +139,7 @@ export function ExportVideoDialog({
         displayPath = encodePath
       }
       // Persist last-used export options (not path).
-      setExportPrefs({ width, height, fps, concurrency })
+      setExportPrefs({ width: widthClamped, height: heightClamped, fps, concurrency })
       onOpenChange(false)
       const exportGroupId = `exp_ui_${Date.now()}`
       const role = concurrency > 1 ? 'coordinator' : 'single'
@@ -138,8 +147,8 @@ export function ExportVideoDialog({
         projectTitle,
         exportPath: displayPath,
         encodePath,
-        width,
-        height,
+        width: widthClamped,
+        height: heightClamped,
         fps,
         concurrency,
         role,
@@ -150,8 +159,8 @@ export function ExportVideoDialog({
         exportPath: encodePath,
         // Final public location for mobile share/publish after encode.
         publishPath: mobileRuntime ? displayPath : undefined,
-        width,
-        height,
+        width: widthClamped,
+        height: heightClamped,
         fps,
         concurrency,
         role,

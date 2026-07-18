@@ -4,6 +4,7 @@ import {
   editorRoutePath,
   exportRoutePath,
   homeRoutePath,
+  isMobileRuntime,
   playerRoutePath,
   prefersInAppNavigation
 } from '@/lib/platform'
@@ -209,29 +210,57 @@ export function validateRenderSegment(
   })
 }
 
+const streamFrameSlotBySession: Map<string, number> = new Map()
+
 /** Push packed RGBA frame bytes into the native encode queue. */
 export async function streamFrame(projectName: string, data: Uint8Array | number[]): Promise<void> {
   const bytes: Uint8Array = data instanceof Uint8Array ? data : Uint8Array.from(data)
+  // Do NOT Array.from() multi-MB frames into number[] (JSON freezes Android WebView).
 
-  // 1) Prefer raw binary IPC (Uint8Array → Vec<u8>). Do NOT Array.from() into number[]:
-  //    that expands multi-MB frames into JSON and freezes Android WebView.
-  try {
+  const preferFileBridge: boolean = isMobileRuntime()
+  const safeName = projectName.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 48)
+  // Double-buffer file names so the encoder can read slot A while we write slot B.
+  const slot: number = (streamFrameSlotBySession.get(safeName) ?? 0) ^ 1
+  streamFrameSlotBySession.set(safeName, slot)
+  const fileName: string = `render-frame-${safeName}-${slot}.rgba`
+
+  async function viaFile(): Promise<void> {
+    await writeFile(fileName, bytes, { baseDir: BaseDirectory.Cache })
+    await invoke('stream_frame_file', {
+      projectName,
+      path: fileName
+    })
+  }
+
+  async function viaIpc(): Promise<void> {
     await invoke('stream_frame', {
       projectName,
       data: bytes
     })
+  }
+
+  if (preferFileBridge) {
+    try {
+      await viaFile()
+      return
+    } catch (fileError: unknown) {
+      try {
+        await viaIpc()
+        return
+      } catch (directError: unknown) {
+        const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
+        const directMsg = directError instanceof Error ? directError.message : String(directError)
+        throw new Error(`Frame stream failed (file: ${fileMsg}; ipc: ${directMsg})`)
+      }
+    }
+  }
+
+  try {
+    await viaIpc()
     return
   } catch (directError: unknown) {
-    // 2) Fallback: write cache file then let Rust read it (works when binary IPC is blocked).
-    const fileName: string = `render-frame-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}.rgba`
     try {
-      await writeFile(fileName, bytes, { baseDir: BaseDirectory.Cache })
-      await invoke('stream_frame_file', {
-        projectName,
-        path: fileName
-      })
+      await viaFile()
       return
     } catch (fileError: unknown) {
       const directMsg = directError instanceof Error ? directError.message : String(directError)

@@ -714,8 +714,9 @@ pub fn start_render_session(
         // Bounded queue for backpressure. Keep modest: each frame is width*height*4 bytes.
     // HTTP path uses send_timeout so a full queue returns 503 instead of hanging forever.
     // Mobile soft-encode is slow; keep the queue tiny to bound RAM (~frame_bytes * N).
+    // Soft encoder is slow; keep a few frames buffered without multi-100MB RAM.
     #[cfg(mobile)]
-    let (tx, rx) = bounded::<RenderMessage>(2);
+    let (tx, rx) = bounded::<RenderMessage>(3);
     #[cfg(desktop)]
     let (tx, rx) = bounded::<RenderMessage>(48);
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -1019,10 +1020,19 @@ pub fn stream_frame(
             .ok_or_else(|| "No active render session found for this project".to_string())?
     };
 
-    // Bounded wait: soft encoder can lag; don't freeze the WebView forever.
-    tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(4_000))
-        .map_err(|e| format!("frame queue: {e}"))?;
-    Ok(())
+    // Soft encoder can lag hard on phones; wait longer than the old 2–4s so capture
+    // does not abort while openh264 is still chewing a prior frame.
+    let bytes = data.len();
+    match tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(20_000)) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            log::warn!(
+                target: "backend::render",
+                "stream_frame queue fail project={project_name} bytes={bytes} err={e}"
+            );
+            Err(format!("frame queue: {e}"))
+        }
+    }
 }
 
 /// Prefer this on mobile: read a temp RGBA batch file instead of huge JSON number arrays.
@@ -1057,10 +1067,22 @@ pub fn stream_frame_file(
             .map(|session| session.tx.clone())
             .ok_or_else(|| "No active render session found for this project".to_string())?
     };
-    tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(2_000))
-        .map_err(|e| format!("frame queue: {e}"))?;
-    let _ = std::fs::remove_file(&resolved);
-    Ok(())
+    let bytes = data.len();
+    match tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(20_000)) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&resolved);
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!(
+                target: "backend::render",
+                "stream_frame_file queue fail project={project_name} bytes={bytes} path={} err={e}",
+                resolved.display()
+            );
+            // Keep file for a possible retry by the same slot name.
+            Err(format!("frame queue: {e}"))
+        }
+    }
 }
 
 #[tauri::command]

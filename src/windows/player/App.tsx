@@ -1102,9 +1102,10 @@ async function runExportPipeline({
   let exportHeight = Math.max(1, Math.floor(Number(renderConfig.height) || 720))
   let exportFps = Math.max(1, Math.floor(Number(renderConfig.fps) || 60))
   if (mobileClamp) {
-    exportWidth = Math.min(exportWidth, 1280)
-    exportHeight = Math.min(exportHeight, 720)
-    exportFps = Math.min(exportFps, 24)
+    // Soft openh264: 720p30 is often unusable; default budget ~540p@18.
+    exportWidth = Math.min(exportWidth, 960)
+    exportHeight = Math.min(exportHeight, 540)
+    exportFps = Math.min(exportFps, 18)
     exportWidth -= exportWidth % 2
     exportHeight -= exportHeight % 2
   }
@@ -1315,7 +1316,8 @@ async function runExportPipeline({
       uploadUrl === 'stream_frame' ||
       isMobileRuntime()
     if (useIpc) {
-      const maxAttempts = 3
+      // Mobile soft-encode backpressure can last seconds; retry queue timeouts longer.
+      const maxAttempts = isMobileRuntime() ? 12 : 3
       let lastError: Error | null = null
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
@@ -1329,14 +1331,17 @@ async function runExportPipeline({
                 ? error
                 : 'Frame stream failed'
           lastError = new Error(msg)
+          const queueBackpressure = /frame queue/i.test(msg)
           logger.warn('export.frame_stream_attempt_failed', {
             attempt,
             maxAttempts,
+            queueBackpressure,
             error: describeError(error),
             bytes: payload.byteLength
           })
           if (attempt < maxAttempts) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 80 * attempt))
+            const delayMs = queueBackpressure ? Math.min(2500, 200 * attempt) : 80 * attempt
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
             continue
           }
           throw lastError
