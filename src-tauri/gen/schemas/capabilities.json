@@ -34,13 +34,6 @@
     "windows": ["editor"],
     "permissions": ["core:window:allow-destroy"]
   },
-  "player": {
-    "identifier": "player",
-    "description": "Additional permissions for the borderless player window",
-    "local": true,
-    "windows": ["player"],
-    "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
-  },
   "mobile-player": {
     "identifier": "mobile-player",
     "description": "Mobile shell permissions used by the embedded player",
@@ -48,5 +41,12 @@
     "windows": ["main"],
     "permissions": ["core:window:allow-set-fullscreen"],
     "platforms": ["android", "iOS"]
+  },
+  "player": {
+    "identifier": "player",
+    "description": "Additional permissions for the borderless player window",
+    "local": true,
+    "windows": ["player"],
+    "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
   }
 }
