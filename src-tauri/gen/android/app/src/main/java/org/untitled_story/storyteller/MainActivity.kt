@@ -14,9 +14,23 @@ import androidx.core.view.WindowInsetsControllerCompat
 class MainActivity : TauriActivity() {
   private var immersiveModeEnabled: Boolean = false
 
+  companion object {
+    init {
+      // Ensure native symbols resolve for mssInstallJavaVm (lib already loaded by Tauri).
+    }
+
+    @JvmStatic
+    private external fun mssInstallJavaVm()
+  }
+
   override fun onCreate(savedInstanceState: Bundle?): Unit {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    try {
+      mssInstallJavaVm()
+    } catch (error: Throwable) {
+      android.util.Log.e("MainActivity", "mssInstallJavaVm failed: $error")
+    }
     applySystemBarVisibility()
   }
 

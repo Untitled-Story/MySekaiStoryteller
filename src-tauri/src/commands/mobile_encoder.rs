@@ -62,18 +62,23 @@ pub fn run_mobile_encode_worker(
     }
 
     // Prefer MediaCodec on Android; openh264 is the portable fallback.
+    // catch_unwind: missing JavaVM previously *panicked* and killed the worker
+    // (stream then saw "disconnected channel" / frames=0).
     #[cfg(target_os = "android")]
     {
         let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10)
             .clamp(400_000, 20_000_000) as u32;
-        match crate::commands::mobile_hw_encoder::hw_encoder_create(
-            &export_path,
-            width,
-            height,
-            fps,
-            bitrate,
-        ) {
-            Ok(session) => {
+        let hw_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::commands::mobile_hw_encoder::hw_encoder_create(
+                &export_path,
+                width,
+                height,
+                fps,
+                bitrate,
+            )
+        }));
+        match hw_result {
+            Ok(Ok(session)) => {
                 log::info!(
                     target: "backend::render",
                     "mobile encoder: MediaCodec session={session} path={export_path} {}x{}@{} bitrate={bitrate}",
@@ -81,13 +86,38 @@ pub fn run_mobile_encode_worker(
                     height,
                     fps
                 );
-                run_hw_encode_loop(rx, stop_flag, session, frame_bytes, fps);
-                return;
+                let loop_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_hw_encode_loop(
+                        rx.clone(),
+                        std::sync::Arc::clone(&stop_flag),
+                        session,
+                        frame_bytes,
+                        fps,
+                    );
+                }));
+                match loop_result {
+                    Ok(()) => return,
+                    Err(_) => {
+                        log::error!(
+                            target: "backend::render",
+                            "mobile MediaCodec encode loop panicked; falling back is impossible mid-stream"
+                        );
+                        crate::commands::mobile_hw_encoder::hw_encoder_destroy(session);
+                        // Channel may still be alive if panic was in JNI; try soft only if we never started.
+                        return;
+                    }
+                }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 log::warn!(
                     target: "backend::render",
                     "mobile MediaCodec unavailable, falling back to openh264: {e}"
+                );
+            }
+            Err(_) => {
+                log::warn!(
+                    target: "backend::render",
+                    "mobile MediaCodec init panicked (JavaVM?), falling back to openh264"
                 );
             }
         }

@@ -84,6 +84,7 @@ pub fn run() {
                 let paths = file_open::project_paths_from_args(&args, &current_dir);
                 file_open::queue_paths(app.handle(), paths);
             }
+
             #[cfg(all(debug_assertions, target_os = "android"))]
             {
                 // Automated AVD/device smoke test:

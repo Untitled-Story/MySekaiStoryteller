@@ -4,7 +4,6 @@ import {
   editorRoutePath,
   exportRoutePath,
   homeRoutePath,
-  isMobileRuntime,
   playerRoutePath,
   prefersInAppNavigation
 } from '@/lib/platform'
@@ -211,18 +210,20 @@ export function validateRenderSegment(
 }
 
 const streamFrameSlotBySession: Map<string, number> = new Map()
+/** After IPC fails, prefer file bridge until this timestamp (ms). */
+const streamFramePreferFileUntil: Map<string, number> = new Map()
 
 /** Push packed RGBA frame bytes into the native encode queue. */
 export async function streamFrame(projectName: string, data: Uint8Array | number[]): Promise<void> {
   const bytes: Uint8Array = data instanceof Uint8Array ? data : Uint8Array.from(data)
   // Do NOT Array.from() multi-MB frames into number[] (JSON freezes Android WebView).
 
-  const preferFileBridge: boolean = isMobileRuntime()
   const safeName = projectName.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 48)
-  // Double-buffer file names so the encoder can read slot A while we write slot B.
   const slot: number = (streamFrameSlotBySession.get(safeName) ?? 0) ^ 1
   streamFrameSlotBySession.set(safeName, slot)
   const fileName: string = `render-frame-${safeName}-${slot}.rgba`
+  // Prefer binary IPC (no multi-MB disk I/O). File bridge only as fallback.
+  const preferFile = (streamFramePreferFileUntil.get(safeName) ?? 0) > Date.now()
 
   async function viaFile(): Promise<void> {
     await writeFile(fileName, bytes, { baseDir: BaseDirectory.Cache })
@@ -239,33 +240,35 @@ export async function streamFrame(projectName: string, data: Uint8Array | number
     })
   }
 
-  if (preferFileBridge) {
+  if (!preferFile) {
     try {
-      await viaFile()
+      await viaIpc()
       return
-    } catch (fileError: unknown) {
+    } catch (directError: unknown) {
       try {
-        await viaIpc()
+        await viaFile()
+        streamFramePreferFileUntil.set(safeName, Date.now() + 5_000)
         return
-      } catch (directError: unknown) {
-        const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
+      } catch (fileError: unknown) {
         const directMsg = directError instanceof Error ? directError.message : String(directError)
-        throw new Error(`Frame stream failed (file: ${fileMsg}; ipc: ${directMsg})`)
+        const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
+        throw new Error(`Frame stream failed (ipc: ${directMsg}; file: ${fileMsg})`)
       }
     }
   }
 
   try {
-    await viaIpc()
+    await viaFile()
     return
-  } catch (directError: unknown) {
+  } catch (fileError: unknown) {
     try {
-      await viaFile()
+      await viaIpc()
+      streamFramePreferFileUntil.delete(safeName)
       return
-    } catch (fileError: unknown) {
-      const directMsg = directError instanceof Error ? directError.message : String(directError)
+    } catch (directError: unknown) {
       const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
-      throw new Error(`Frame stream failed (ipc: ${directMsg}; file: ${fileMsg})`)
+      const directMsg = directError instanceof Error ? directError.message : String(directError)
+      throw new Error(`Frame stream failed (file: ${fileMsg}; ipc: ${directMsg})`)
     }
   }
 }
