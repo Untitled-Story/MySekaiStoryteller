@@ -39,3 +39,22 @@ export function useIsTouchViewport(): boolean {
   const mode: ViewportMode = useViewportMode()
   return mode === 'phone' || mode === 'tablet'
 }
+
+export function useIsLandscapeViewport(): boolean {
+  const [isLandscape, setIsLandscape] = useState<boolean>((): boolean => {
+    if (typeof window === 'undefined') return false
+    return window.innerWidth > window.innerHeight
+  })
+
+  useEffect((): (() => void) => {
+    function updateOrientation(): void {
+      setIsLandscape(window.innerWidth > window.innerHeight)
+    }
+
+    updateOrientation()
+    window.addEventListener('resize', updateOrientation)
+    return (): void => window.removeEventListener('resize', updateOrientation)
+  }, [])
+
+  return isLandscape
+}

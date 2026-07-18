@@ -2,6 +2,7 @@ package org.untitled_story.storyteller
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.os.Bundle
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -16,12 +17,18 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?): Unit {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    applySystemBarVisibility()
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration): Unit {
+    super.onConfigurationChanged(newConfig)
+    applySystemBarVisibility()
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean): Unit {
     super.onWindowFocusChanged(hasFocus)
-    if (hasFocus && immersiveModeEnabled) {
-      applyImmersiveMode(true)
+    if (hasFocus) {
+      applySystemBarVisibility()
     }
   }
 
@@ -33,17 +40,20 @@ class MainActivity : TauriActivity() {
 
   private fun setImmersiveMode(enabled: Boolean): Unit {
     immersiveModeEnabled = enabled
-    applyImmersiveMode(enabled)
+    applySystemBarVisibility()
   }
 
-  private fun applyImmersiveMode(enabled: Boolean): Unit {
+  private fun applySystemBarVisibility(): Unit {
     val controller: WindowInsetsControllerCompat =
       WindowCompat.getInsetsController(window, window.decorView)
+    controller.systemBarsBehavior =
+      WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-    if (enabled) {
-      controller.systemBarsBehavior =
-        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    if (immersiveModeEnabled) {
       controller.hide(WindowInsetsCompat.Type.systemBars())
+    } else if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+      controller.show(WindowInsetsCompat.Type.navigationBars())
+      controller.hide(WindowInsetsCompat.Type.statusBars())
     } else {
       controller.show(WindowInsetsCompat.Type.systemBars())
     }

@@ -20,7 +20,7 @@ import {
   Save,
   Undo2
 } from 'lucide-react'
-import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
+import { useIsLandscapeViewport, useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
 import { closeEditorWindow } from '@/windows/api'
 import {
   AlertDialog,
@@ -180,6 +180,8 @@ export default function App({
   const { t } = useTranslation()
   const requestedProjectName = useWindowProjectName(preferredProjectName)
   const viewportMode: ViewportMode = useViewportMode()
+  const landscapeViewport: boolean = useIsLandscapeViewport()
+  const mobileLandscapeLayout: boolean = isMobileRuntime() && landscapeViewport
   const [mobileBottomTab, setMobileBottomTab] = useState<'outline' | 'properties'>('outline')
 
   const [history, dispatchHistory] = useReducer(
@@ -1123,9 +1125,9 @@ export default function App({
     )
   }
 
-  const phoneLayout: boolean = viewportMode === 'phone'
-  const tabletLayout: boolean = viewportMode === 'tablet'
-  const compactChrome: boolean = phoneLayout || tabletLayout
+  const phoneLayout: boolean = viewportMode === 'phone' && !mobileLandscapeLayout
+  const tabletLayout: boolean = viewportMode === 'tablet' && !mobileLandscapeLayout
+  const compactChrome: boolean = phoneLayout || tabletLayout || mobileLandscapeLayout
 
   const sidebarNode: JSX.Element = (
     <EditorSidebar
@@ -1376,7 +1378,16 @@ export default function App({
         </div>
       </header>
 
-      {phoneLayout ? (
+      {mobileLandscapeLayout ? (
+        <div
+          className="grid min-h-0 flex-1 grid-cols-[minmax(160px,0.8fr)_minmax(260px,1.4fr)_minmax(200px,1fr)] overflow-hidden"
+          inert={projectMutationInProgress}
+        >
+          <div className="min-h-0 overflow-hidden border-r">{sidebarNode}</div>
+          <div className="min-h-0 overflow-hidden border-r bg-black">{previewNode}</div>
+          <div className="min-h-0 overflow-hidden">{inspectorNode}</div>
+        </div>
+      ) : phoneLayout ? (
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           inert={projectMutationInProgress}
