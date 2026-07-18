@@ -27,6 +27,7 @@ const FIELD_KEYS: Readonly<Record<string, string>> = {
   过渡时长: 'transitionDuration',
   '内部 Effect ID': 'internalEffectId',
   要移除的效果: 'effectToRemove',
+  出现位置: 'appearPosition',
   起点: 'start',
   终点: 'end',
   移动速度: 'moveSpeed',

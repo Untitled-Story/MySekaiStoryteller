@@ -211,6 +211,7 @@ export const builtinSnippetDefinitions = [
       delay: 0,
       data: {
         model: requireAssetKey(assets, 'models'),
+        position: defaultPosition(),
         motion: undefined,
         facial: undefined,
         hologram: false
@@ -520,6 +521,7 @@ function modelMoveFields(): readonly StorySnippetFieldDefinition[] {
 function modelAppearanceFields(): readonly StorySnippetFieldDefinition[] {
   return [
     { kind: 'asset', path: ['data', 'model'], label: '模型', assetKind: 'models' },
+    { kind: 'position', path: ['data', 'position'], label: '出现位置' },
     {
       kind: 'model-motion',
       path: ['data', 'motion'],

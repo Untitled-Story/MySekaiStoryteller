@@ -135,6 +135,7 @@ export const LayoutAppearSnippetSchema = SnippetBaseSchema.extend({
   type: z.literal('LayoutAppear'),
   data: z.object({
     model: AssetKeySchema,
+    position: PositionSchema.default({ side: Sides.Center, offset: 0 }),
     motion: OptionalAssetKeySchema,
     facial: OptionalAssetKeySchema,
     hologram: z.boolean().default(false)

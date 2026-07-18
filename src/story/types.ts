@@ -53,6 +53,7 @@ export type StoryPixiAccessApi = {
 
 export type StoryModelAppearOptions = {
   modelKey: string
+  position: PositionData
   motion?: string
   facial?: string
   hologram: boolean

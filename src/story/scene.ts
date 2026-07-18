@@ -278,6 +278,8 @@ export function createStoryScene({
     },
     async showModel(options: StoryModelAppearOptions): Promise<void> {
       const { model } = attachModel(options.modelKey)
+      setModelPositionRel(model, getStageSize(app), sideToPosition(options.position, layoutMode))
+      positionedModelKeys.add(options.modelKey)
       await setLayoutHologram(options.modelKey, options.hologram)
 
       if (fastForwarding) {
