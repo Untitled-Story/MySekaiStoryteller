@@ -15,12 +15,11 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    // Keep namespace aligned with existing Kotlin sources under org.untitled_story.storyteller.
-    // applicationId is the install identity and can differ from the source package.
+    // Keep the namespace and install identity aligned with the package Tauri launches.
     namespace = "org.untitled_story.storyteller"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "org.untitled_story.storyteller.android"
+        applicationId = "org.untitled_story.storyteller"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

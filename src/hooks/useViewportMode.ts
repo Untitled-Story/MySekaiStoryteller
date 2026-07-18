@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isDesktopRuntime } from '@/lib/platform'
 
 export type ViewportMode = 'phone' | 'tablet' | 'desktop'
 
@@ -13,13 +14,13 @@ export function resolveViewportMode(width: number): ViewportMode {
 
 export function useViewportMode(): ViewportMode {
   const [mode, setMode] = useState<ViewportMode>((): ViewportMode => {
-    if (typeof window === 'undefined') return 'desktop'
+    if (typeof window === 'undefined' || isDesktopRuntime()) return 'desktop'
     return resolveViewportMode(window.innerWidth)
   })
 
   useEffect((): (() => void) => {
     function updateMode(): void {
-      setMode(resolveViewportMode(window.innerWidth))
+      setMode(isDesktopRuntime() ? 'desktop' : resolveViewportMode(window.innerWidth))
     }
 
     updateMode()
