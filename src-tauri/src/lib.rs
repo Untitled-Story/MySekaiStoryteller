@@ -160,6 +160,7 @@ pub fn run() {
             render::stop_render_session,
             render::prepare_parallel_export,
             render::concat_render_segments,
+            render::finalize_render_delivery,
             render::cleanup_export_temp,
             render::validate_render_segment,
             render::publish_render_output,

@@ -163,6 +163,20 @@ export function prepareParallelExport(args: {
   return invoke<PrepareParallelExportResult>('prepare_parallel_export', { args })
 }
 
+export function finalizeRenderDelivery(
+  sourcePath: string,
+  exportPath: string,
+  totalDurationSec?: number
+): Promise<void> {
+  return invoke('finalize_render_delivery', {
+    args: {
+      sourcePath,
+      exportPath,
+      totalDurationSec
+    }
+  })
+}
+
 export function concatRenderSegments(
   segmentPaths: string[],
   exportPath: string,
@@ -196,12 +210,8 @@ export function validateRenderSegment(
 }
 
 /** Push packed RGBA frame bytes into the native encode queue. */
-export async function streamFrame(
-  projectName: string,
-  data: Uint8Array | number[]
-): Promise<void> {
-  const bytes: Uint8Array =
-    data instanceof Uint8Array ? data : Uint8Array.from(data)
+export async function streamFrame(projectName: string, data: Uint8Array | number[]): Promise<void> {
+  const bytes: Uint8Array = data instanceof Uint8Array ? data : Uint8Array.from(data)
 
   // 1) Prefer raw binary IPC (Uint8Array → Vec<u8>). Do NOT Array.from() into number[]:
   //    that expands multi-MB frames into JSON and freezes Android WebView.
@@ -224,14 +234,12 @@ export async function streamFrame(
       })
       return
     } catch (fileError: unknown) {
-      const directMsg =
-        directError instanceof Error ? directError.message : String(directError)
+      const directMsg = directError instanceof Error ? directError.message : String(directError)
       const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
       throw new Error(`Frame stream failed (ipc: ${directMsg}; file: ${fileMsg})`)
     }
   }
 }
-
 
 export function publishRenderOutput(sourcePath: string, destination: string): Promise<void> {
   return invoke('publish_render_output', {

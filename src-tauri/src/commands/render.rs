@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
+#[cfg_attr(mobile, allow(unused_imports))]
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -424,6 +425,160 @@ fn concat_render_segments_blocking(app: AppHandle, args: ConcatSegmentsArgs) -> 
     Ok(())
 }
 
+/// Desktop single-path final delivery: re-encode a capture MP4 with quality preset (prefer libx265).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinalizeRenderDeliveryArgs {
+    pub source_path: String,
+    pub export_path: String,
+    pub total_duration_sec: Option<f64>,
+}
+
+#[tauri::command]
+pub async fn finalize_render_delivery(
+    app: AppHandle,
+    args: FinalizeRenderDeliveryArgs,
+) -> Result<(), String> {
+    log::info!(
+        target: "backend::render",
+        "finalize_render_delivery source={} dest={}",
+        args.source_path,
+        args.export_path
+    );
+    tauri::async_runtime::spawn_blocking(move || finalize_render_delivery_blocking(app, args))
+        .await
+        .map_err(|e| format!("finalize delivery join failed: {e}"))?
+}
+
+fn finalize_render_delivery_blocking(
+    app: AppHandle,
+    args: FinalizeRenderDeliveryArgs,
+) -> Result<(), String> {
+    let source = args.source_path.trim().to_string();
+    let export_path = args.export_path.trim().to_string();
+    if source.is_empty() || export_path.is_empty() {
+        return Err("finalize paths empty".into());
+    }
+    if !Path::new(&source).is_file() {
+        return Err(format!("source missing: {source}"));
+    }
+    let probed = validate_render_segment(source.clone(), 0.01)?;
+    let total_duration_sec = args
+        .total_duration_sec
+        .filter(|d| d.is_finite() && *d > 0.05)
+        .unwrap_or(probed)
+        .max(0.05);
+
+    if let Some(parent) = Path::new(&export_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create export directory: {e}"))?;
+        }
+    }
+
+    // If source == dest, write to temp then rename.
+    let same_path = Path::new(&source)
+        .canonicalize()
+        .ok()
+        .and_then(|s| Path::new(&export_path).canonicalize().ok().map(|d| (s, d)))
+        .map(|(s, d)| s == d)
+        .unwrap_or(source == export_path);
+    let out_tmp = if same_path {
+        format!("{export_path}.finalizing.mp4")
+    } else {
+        export_path.clone()
+    };
+
+    let encode_args = final_delivery_encode_args();
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostats",
+        "-progress",
+        "pipe:1",
+        "-y",
+        "-i",
+        &source,
+        "-an",
+    ]);
+    cmd.args(&encode_args);
+    cmd.arg(&out_tmp);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    log::info!(
+        target: "backend::render",
+        "single-path final encode: {}",
+        encode_args.join(" ")
+    );
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn ffmpeg final encode: {e}"))?;
+
+    if let Some(stdout) = child.stdout.take() {
+        let app_progress = app.clone();
+        let total = total_duration_sec;
+        thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            let mut out_time_sec = 0.0_f64;
+            for line in reader.lines().flatten() {
+                let line = line.trim();
+                if let Some(rest) = line.strip_prefix("out_time_ms=") {
+                    if let Ok(ms) = rest.parse::<f64>() {
+                        out_time_sec = (ms / 1000.0).max(0.0);
+                    }
+                } else if let Some(rest) = line.strip_prefix("out_time_us=") {
+                    if let Ok(us) = rest.parse::<f64>() {
+                        out_time_sec = (us / 1_000_000.0).max(0.0);
+                    }
+                } else if let Some(rest) = line.strip_prefix("out_time=") {
+                    if let Some(sec) = parse_ffmpeg_clock(rest) {
+                        out_time_sec = sec;
+                    }
+                } else if line == "progress=continue" || line == "progress=end" {
+                    let ratio = (out_time_sec / total).clamp(0.0, 1.0);
+                    let payload = FfmpegProgressPayload {
+                        ratio,
+                        out_time_sec,
+                        total_duration_sec: total,
+                    };
+                    let _ = app_progress.emit("export-ffmpeg-progress", &payload);
+                    if line == "progress=end" {
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait ffmpeg final encode: {e}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&out_tmp);
+        return Err(format!("ffmpeg final encode failed with status {status}"));
+    }
+
+    if same_path {
+        std::fs::rename(&out_tmp, &export_path).map_err(|e| {
+            let _ = std::fs::remove_file(&out_tmp);
+            format!("replace final output failed: {e}")
+        })?;
+    }
+
+    let _ = app.emit(
+        "export-ffmpeg-progress",
+        &FfmpegProgressPayload {
+            ratio: 1.0,
+            out_time_sec: total_duration_sec,
+            total_duration_sec,
+        },
+    );
+    Ok(())
+}
+
 fn parse_ffmpeg_clock(value: &str) -> Option<f64> {
     // "HH:MM:SS.micro" or "MM:SS.micro"
     let parts: Vec<&str> = value.split(':').collect();
@@ -509,6 +664,17 @@ pub fn start_render_session(
     config: RenderConfig,
 ) -> Result<StartRenderResult, String> {
     log::info!(target: "backend::render", "start_render_session requested project={} path={} {}x{}@{}", project_name, config.export_path, config.width, config.height, config.fps);
+    #[cfg(mobile)]
+    let config = crate::commands::mobile_encoder::clamp_mobile_config(&config);
+    #[cfg(mobile)]
+    log::info!(
+        target: "backend::render",
+        "mobile clamped render config {}x{}@{}",
+        config.width,
+        config.height,
+        config.fps
+    );
+
 
     if config.width == 0 || config.height == 0 {
         return Err("Invalid render size".to_string());
@@ -543,6 +709,10 @@ pub fn start_render_session(
 
         // Bounded queue for backpressure. Keep modest: each frame is width*height*4 bytes.
     // HTTP path uses send_timeout so a full queue returns 503 instead of hanging forever.
+    // Mobile soft-encode is slow; keep the queue tiny to bound RAM (~frame_bytes * N).
+    #[cfg(mobile)]
+    let (tx, rx) = bounded::<RenderMessage>(2);
+    #[cfg(desktop)]
     let (tx, rx) = bounded::<RenderMessage>(48);
     let stop_flag = Arc::new(AtomicBool::new(false));
     let ffmpeg_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
@@ -686,110 +856,113 @@ pub fn start_render_session(
         }
     });
 
-    let server =
-        Server::http("127.0.0.1:0").map_err(|e| format!("Failed to bind frame server: {e}"))?;
-    let stop_addr = match server.server_addr() {
-        tiny_http::ListenAddr::IP(socket) => socket,
-        _ => return Err("Frame server bound to unsupported address".to_string()),
-    };
-    let upload_url = {
-        #[cfg(mobile)]
-        {
-            let _ = &stop_addr;
-            String::from("ipc://stream_frame")
-        }
-        #[cfg(desktop)]
-        {
-            format!("http://{stop_addr}/frame")
-        }
+    #[cfg(mobile)]
+    let (upload_url, stop_addr, server_handle) = {
+        // Mobile uses binary IPC (`stream_frame`); skip tiny_http entirely.
+        (
+            String::from("ipc://stream_frame"),
+            SocketAddr::from(([127, 0, 0, 1], 0)),
+            None::<thread::JoinHandle<()>>,
+        )
     };
 
-    let server_stop = Arc::clone(&stop_flag);
-    let http_tx = tx.clone();
-    let expected_bytes = (config.width as usize) * (config.height as usize) * 4;
-    let server_handle = thread::spawn(move || {
-        for mut request in server.incoming_requests() {
-            if server_stop.load(Ordering::Relaxed) {
-                let _ = request.respond(with_cors(Response::empty(StatusCode(503))));
-                break;
-            }
-
-            let method = request.method().clone();
-            let url = request.url().to_string();
-
-            if method == Method::Options {
-                let _ = request.respond(with_cors(Response::empty(StatusCode(204))));
-                continue;
-            }
-
-            if method == Method::Post && (url == "/frame" || url.starts_with("/frame?")) {
-                let mut body = Vec::new();
-                if let Err(e) = request.as_reader().read_to_end(&mut body) {
-                    let _ = request.respond(with_cors(
-                        Response::from_string(format!("read error: {e}"))
-                            .with_status_code(StatusCode(400)),
-                    ));
-                    continue;
-                }
-
-                if body.is_empty() || body.len() % expected_bytes != 0 {
-                    let _ = request.respond(with_cors(
-                        Response::from_string(format!(
-                            "bad body size: {} (frame size {})",
-                            body.len(),
-                            expected_bytes
-                        ))
-                        .with_status_code(StatusCode(400)),
-                    ));
-                    continue;
-                }
-
-                // Move whole batch once — avoid per-frame to_vec copies.
-                let mut send_failed = false;
-                let mut overloaded = false;
-                match http_tx.send_timeout(
-                    RenderMessage::FrameBatch(body),
-                    Duration::from_secs(5),
-                ) {
-                    Ok(()) => {}
-                    Err(crossbeam_channel::SendTimeoutError::Timeout(_)) => {
-                        overloaded = true;
-                    }
-                    Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => {
-                        send_failed = true;
-                    }
-                }
-
-                if send_failed {
+    #[cfg(desktop)]
+    let (upload_url, stop_addr, server_handle) = {
+        let server =
+            Server::http("127.0.0.1:0").map_err(|e| format!("Failed to bind frame server: {e}"))?;
+        let stop_addr = match server.server_addr() {
+            tiny_http::ListenAddr::IP(socket) => socket,
+            _ => return Err("Frame server bound to unsupported address".to_string()),
+        };
+        let upload_url = format!("http://{stop_addr}/frame");
+        let server_stop = Arc::clone(&stop_flag);
+        let http_tx = tx.clone();
+        let expected_bytes = (config.width as usize) * (config.height as usize) * 4;
+        let server_handle = thread::spawn(move || {
+            for mut request in server.incoming_requests() {
+                if server_stop.load(Ordering::Relaxed) {
                     let _ = request.respond(with_cors(Response::empty(StatusCode(503))));
                     break;
                 }
-                if overloaded {
-                    let _ = request.respond(with_cors(
-                        Response::from_string("frame queue full")
-                            .with_status_code(StatusCode(503)),
-                    ));
+
+                let method = request.method().clone();
+                let url = request.url().to_string();
+
+                if method == Method::Options {
+                    let _ = request.respond(with_cors(Response::empty(StatusCode(204))));
                     continue;
                 }
 
-                let _ = request.respond(with_cors(Response::empty(StatusCode(204))));
-                continue;
-            }
+                if method == Method::Post && (url == "/frame" || url.starts_with("/frame?")) {
+                    let mut body = Vec::new();
+                    if let Err(e) = request.as_reader().read_to_end(&mut body) {
+                        let _ = request.respond(with_cors(
+                            Response::from_string(format!("read error: {e}"))
+                                .with_status_code(StatusCode(400)),
+                        ));
+                        continue;
+                    }
 
-            if method == Method::Post && (url == "/stop" || url.starts_with("/stop?")) {
-                let _ = http_tx.try_send(RenderMessage::Stop);
-                server_stop.store(true, Ordering::Relaxed);
+                    if body.is_empty() || body.len() % expected_bytes != 0 {
+                        let _ = request.respond(with_cors(
+                            Response::from_string(format!(
+                                "bad body size: {} (frame size {})",
+                                body.len(),
+                                expected_bytes
+                            ))
+                            .with_status_code(StatusCode(400)),
+                        ));
+                        continue;
+                    }
+
+                    // Move whole batch once — avoid per-frame to_vec copies.
+                    let mut send_failed = false;
+                    let mut overloaded = false;
+                    match http_tx.send_timeout(
+                        RenderMessage::FrameBatch(body),
+                        Duration::from_secs(5),
+                    ) {
+                        Ok(()) => {}
+                        Err(crossbeam_channel::SendTimeoutError::Timeout(_)) => {
+                            overloaded = true;
+                        }
+                        Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => {
+                            send_failed = true;
+                        }
+                    }
+
+                    if send_failed {
+                        let _ = request.respond(with_cors(Response::empty(StatusCode(503))));
+                        break;
+                    }
+                    if overloaded {
+                        let _ = request.respond(with_cors(
+                            Response::from_string("frame queue full")
+                                .with_status_code(StatusCode(503)),
+                        ));
+                        continue;
+                    }
+
+                    let _ = request.respond(with_cors(Response::empty(StatusCode(204))));
+                    continue;
+                }
+
+                if method == Method::Post && (url == "/stop" || url.starts_with("/stop?")) {
+                    let _ = http_tx.try_send(RenderMessage::Stop);
+                    server_stop.store(true, Ordering::Relaxed);
+                    let _ = request.respond(with_cors(
+                        Response::from_string("stopped").with_status_code(StatusCode(200)),
+                    ));
+                    break;
+                }
+
                 let _ = request.respond(with_cors(
-                    Response::from_string("stopped").with_status_code(StatusCode(200)),
+                    Response::from_string("not found").with_status_code(StatusCode(404)),
                 ));
-                break;
             }
-
-            let _ = request.respond(with_cors(
-                Response::from_string("not found").with_status_code(StatusCode(404)),
-            ));
-        }
-    });
+        });
+        (upload_url, stop_addr, Some(server_handle))
+    };
 
     {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
@@ -814,7 +987,7 @@ pub fn start_render_session(
             RenderSession {
                 tx,
                 worker_handle: Some(worker_handle),
-                server_handle: Some(server_handle),
+                server_handle,
                 stop_flag,
                 stop_addr,
                 ffmpeg_pid,
@@ -842,8 +1015,9 @@ pub fn stream_frame(
             .ok_or_else(|| "No active render session found for this project".to_string())?
     };
 
-    tx.send(RenderMessage::FrameBatch(data))
-        .map_err(|e| e.to_string())?;
+    // Bounded wait: soft encoder can lag; don't freeze the WebView forever.
+    tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(4_000))
+        .map_err(|e| format!("frame queue: {e}"))?;
     Ok(())
 }
 
@@ -1042,6 +1216,7 @@ fn plan_chunks(total_frames: u32, workers: u32) -> Vec<(u32, u32, u32)> {
     out
 }
 
+#[cfg_attr(mobile, allow(dead_code))]
 fn with_cors<R: std::io::Read>(response: Response<R>) -> Response<R> {
     let mut response = response;
     if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]) {
@@ -1057,6 +1232,10 @@ fn with_cors<R: std::io::Read>(response: Response<R>) -> Response<R> {
 }
 
 fn kick_stop(addr: SocketAddr) -> Result<(), String> {
+    // Mobile IPC sessions use a dummy 127.0.0.1:0 address (no tiny_http server).
+    if addr.port() == 0 {
+        return Ok(());
+    }
     let addrs = addr
         .to_socket_addrs()
         .map_err(|e| e.to_string())?

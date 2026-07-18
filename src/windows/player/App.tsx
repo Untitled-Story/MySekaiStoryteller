@@ -1,6 +1,8 @@
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { ArrowLeft, RotateCcw } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
 import { Application } from 'pixi.js'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
@@ -34,6 +36,7 @@ import {
   cleanupExportTemp,
   closeExportWorker,
   concatRenderSegments,
+  finalizeRenderDelivery,
   openPlayerWindow,
   prepareParallelExport,
   startRenderSession,
@@ -41,6 +44,7 @@ import {
   streamFrame,
   publishRenderOutput,
   validateRenderSegment,
+  closePlayerWindow,
   type FfmpegProgressEvent
 } from '@/windows/api'
 import {
@@ -49,6 +53,7 @@ import {
   takePendingRenderConfig
 } from '@/export/pendingRenderConfig'
 import { isMobileRuntime, prefersInAppNavigation } from '@/lib/platform'
+import { cn } from '@/lib/style'
 import {
   enterImmersiveMode,
   exitImmersiveMode,
@@ -74,6 +79,7 @@ import {
 } from '@/export/exportUi'
 import { ExportDebugDashboard } from '@/windows/player/ExportDebugDashboard'
 import { ExportProgressDashboard } from '@/windows/player/ExportProgressDashboard'
+import { useTranslation } from 'react-i18next'
 
 export type PlayerStoryInput = {
   projectName: string
@@ -152,10 +158,7 @@ function scaleCaptureProgress(capture01: number): number {
 /** Map ffmpeg out_time ratio (0–1) into the merge band 90%–99%. */
 function scaleMergeProgressFromFfmpeg(ratio: number): number {
   const t = Math.min(1, Math.max(0, ratio))
-  return (
-    EXPORT_MERGE_PROGRESS_START +
-    (EXPORT_MERGE_PROGRESS_END - EXPORT_MERGE_PROGRESS_START) * t
-  )
+  return EXPORT_MERGE_PROGRESS_START + (EXPORT_MERGE_PROGRESS_END - EXPORT_MERGE_PROGRESS_START) * t
 }
 
 type RenderStats = {
@@ -190,7 +193,6 @@ type RenderStats = {
   totalWorkers?: number
 }
 
-
 const PLAYER_STAGE_STYLE: CSSProperties = {
   width: 'min(100vw, 177.77777778dvh)',
   height: 'min(100dvh, 56.25vw)'
@@ -222,6 +224,7 @@ export default function App({
 }: {
   preferredProjectName?: string | null
 } = {}): JSX.Element {
+  const { t } = useTranslation()
   const projectName = useWindowProjectName(preferredProjectName)
   const { appearance, loaded: settingsLoaded } = useSettings()
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), [])
@@ -247,13 +250,56 @@ export default function App({
     stashedRenderConfigRef.current = normalized
     return normalized
   }, [searchParams, preferredProjectName, projectName, mobileRuntime, inAppNavigation])
-  const isRenderMode =
-    searchParams.get('render') === 'true' || Boolean(renderConfig)
+  const isRenderMode = searchParams.get('render') === 'true' || Boolean(renderConfig)
   const exportRole = renderConfig?.role ?? (isRenderMode ? 'single' : undefined)
   const isExportDebug = isRenderMode && exportRole === 'debug'
-  const concurrency = mobileRuntime || inAppNavigation
-    ? 1
-    : clampConcurrency(renderConfig?.concurrency)
+  const concurrency =
+    mobileRuntime || inAppNavigation ? 1 : clampConcurrency(renderConfig?.concurrency)
+
+  // Master behavior: force landscape + immersive for all in-app player sessions (play + export).
+  useEffect((): (() => void) | undefined => {
+    if (!inAppNavigation) return undefined
+
+    let cancelled = false
+    void (async (): Promise<void> => {
+      // Window fullscreen is desktop-oriented; ignore failures on Android single-webview.
+      try {
+        await getCurrentWindow().setFullscreen(true)
+        logger.info('player.mobile_fullscreen_entered')
+      } catch (error: unknown) {
+        logger.warn('player.mobile_fullscreen_enter_failed', { error: describeError(error) })
+      }
+      if (cancelled) {
+        exitImmersiveMode()
+        return
+      }
+
+      const immersive: boolean = enterImmersiveMode()
+      if (immersive) logger.info('player.immersive_mode_entered')
+
+      const locked: boolean = await lockLandscapeOrientation()
+      if (cancelled) {
+        if (locked) unlockOrientation()
+        exitImmersiveMode()
+        return
+      }
+      if (locked) logger.info('player.orientation_locked', { orientation: 'landscape' })
+    })()
+
+    return (): void => {
+      cancelled = true
+      unlockOrientation()
+      void getCurrentWindow()
+        .setFullscreen(false)
+        .catch((error: unknown): void => {
+          logger.warn('player.mobile_fullscreen_exit_failed', { error: describeError(error) })
+        })
+        .finally((): void => {
+          exitImmersiveMode()
+        })
+      logger.info('player.orientation_unlocked')
+    }
+  }, [inAppNavigation])
 
   // Align export chrome (and player shell) with app light/dark tokens.
   useEffect(() => {
@@ -264,6 +310,32 @@ export default function App({
   }, [appearance.activeTheme, settingsLoaded])
 
   const stageRef = useRef<HTMLDivElement | null>(null)
+  const controlsHideTimerRef = useRef<number | null>(null)
+  const [mobileControlsVisible, setMobileControlsVisible] = useState<boolean>(false)
+  const [reloadRequest, setReloadRequest] = useState<number>(0)
+
+  const clearControlsHideTimer = (): void => {
+    if (controlsHideTimerRef.current !== null) {
+      window.clearTimeout(controlsHideTimerRef.current)
+      controlsHideTimerRef.current = null
+    }
+  }
+
+  const scheduleControlsHide = useCallback((): void => {
+    clearControlsHideTimer()
+    if (!inAppNavigation) return
+    controlsHideTimerRef.current = window.setTimeout((): void => {
+      setMobileControlsVisible(false)
+      controlsHideTimerRef.current = null
+    }, 2600)
+  }, [inAppNavigation])
+
+  const revealMobileControls = useCallback((): void => {
+    if (!inAppNavigation) return
+    setMobileControlsVisible(true)
+    scheduleControlsHide()
+  }, [inAppNavigation, scheduleControlsHide])
+
   const [storyInput, setStoryInput] = useState<PlayerStoryInput | null>(null)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
   const [modelLoadState, setModelLoadState] = useState<ModelLoadState>({ status: 'idle' })
@@ -419,8 +491,7 @@ export default function App({
   useEffect(() => {
     if (!isExportDebug) return
     let unlisten: (() => void) | undefined
-    const preferredSession =
-      renderConfig?.exportGroupId ?? renderConfig?.sessionId ?? undefined
+    const preferredSession = renderConfig?.exportGroupId ?? renderConfig?.sessionId ?? undefined
     void listen<ExportDebugStatsEvent>(EXPORT_DEBUG_STATS_EVENT, (event) => {
       const payload = event.payload
       // Accept prepared sessionId or original UI exportGroupId (coordinator rebinds id).
@@ -523,7 +594,7 @@ export default function App({
     return () => {
       cancelled = true
     }
-  }, [projectName, isExportDebug, isRenderMode, exportRole, renderConfig?.dataPath])
+  }, [projectName, isExportDebug, isRenderMode, exportRole, renderConfig?.dataPath, reloadRequest])
 
   useEffect(() => {
     if (isExportDebug) return
@@ -551,11 +622,7 @@ export default function App({
 
     async function startStory(): Promise<void> {
       // Coordinator only schedules workers + Dashboard — skip GL/Live2D preload.
-      if (
-        isRenderMode &&
-        exportRole === 'coordinator' &&
-        concurrency > 1
-      ) {
+      if (isRenderMode && exportRole === 'coordinator' && concurrency > 1) {
         if (!renderConfig) {
           throw new Error('渲染配置无效，请重新从主界面启动渲染')
         }
@@ -792,14 +859,11 @@ export default function App({
     exportRole
   ])
 
-  const showExportChrome =
-    isRenderMode && exportRole !== 'worker' && exportRole !== 'debug'
+  const showExportChrome = isRenderMode && exportRole !== 'worker' && exportRole !== 'debug'
   const handleOpenExportDetails = (): void => {
     if (!projectName || !renderConfig) return
     const groupId =
-      exportControlRef.current.groupId ??
-      renderConfig.exportGroupId ??
-      renderConfig.sessionId
+      exportControlRef.current.groupId ?? renderConfig.exportGroupId ?? renderConfig.sessionId
     void openPlayerWindow(projectName, true, {
       exportPath: renderConfig.exportPath,
       width: renderConfig.width,
@@ -864,29 +928,69 @@ export default function App({
       data-snippet-count={storyInput?.story.snippets.length ?? 0}
       data-model-status={modelLoadState.status}
       data-render={isRenderMode ? 'true' : 'false'}
+      onClick={!isRenderMode && inAppNavigation ? revealMobileControls : undefined}
     >
-      {!isRenderMode ? (
+      {!isRenderMode && !inAppNavigation ? (
         <div className="absolute inset-x-0 top-0 z-20 h-8" onMouseDown={startWindowDrag} />
+      ) : null}
+      {!isRenderMode && inAppNavigation ? (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center gap-2 bg-gradient-to-b from-black/75 to-transparent px-3 pb-10 pt-[max(0.5rem,env(safe-area-inset-top))] transition-opacity duration-200',
+            mobileControlsVisible ? 'opacity-100' : 'opacity-0'
+          )}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
+            aria-label={t('common.back')}
+            title={t('common.back')}
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+              event.stopPropagation()
+              void closePlayerWindow()
+            }}
+          >
+            <ArrowLeft className="size-5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto size-10 text-white hover:bg-white/10 hover:text-white"
+            aria-label={t('common.reload')}
+            title={t('common.reload')}
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+              event.stopPropagation()
+              setReloadRequest((current: number): number => current + 1)
+              revealMobileControls()
+            }}
+          >
+            <RotateCcw className="size-5" />
+          </Button>
+          <span className="min-w-0 truncate text-sm text-white/80">
+            {storyInput?.metadata.title ?? projectName ?? t('player.playerFallback')}
+          </span>
+        </div>
       ) : null}
       {isRenderMode ? (
         <div
           ref={stageRef}
           className="pointer-events-none fixed opacity-0"
           style={{
-            width:
-              exportRole === 'coordinator'
-                ? 1
-                : Math.max(160, renderConfig?.width ?? 1920),
-            height:
-              exportRole === 'coordinator'
-                ? 1
-                : Math.max(90, renderConfig?.height ?? 1080),
+            width: exportRole === 'coordinator' ? 1 : Math.max(160, renderConfig?.width ?? 1920),
+            height: exportRole === 'coordinator' ? 1 : Math.max(90, renderConfig?.height ?? 1080),
             left: -10000,
             top: 0
           }}
         />
       ) : (
-        <div className="relative overflow-hidden" style={PLAYER_STAGE_STYLE}>
+        <div
+          className="relative shrink-0 overflow-hidden bg-black"
+          style={PLAYER_STAGE_STYLE}
+          data-player-stage="16:9"
+        >
           <div ref={stageRef} className="absolute inset-0 overflow-hidden" />
         </div>
       )}
@@ -1000,7 +1104,7 @@ async function runExportPipeline({
   if (mobileClamp) {
     exportWidth = Math.min(exportWidth, 1280)
     exportHeight = Math.min(exportHeight, 720)
-    exportFps = Math.min(exportFps, 30)
+    exportFps = Math.min(exportFps, 24)
     exportWidth -= exportWidth % 2
     exportHeight -= exportHeight % 2
   }
@@ -1133,7 +1237,6 @@ async function runExportPipeline({
     await emit('export-worker-progress', payload)
   }
 
-
   let captureTotal =
     Number.isFinite(endFrame) && endFrame > startFrame
       ? endFrame - startFrame
@@ -1153,7 +1256,7 @@ async function runExportPipeline({
 
   const pixelReader = createPixelReader(app, exportWidth, exportHeight, frameByteLength)
   // Higher inflight + larger batches; HTTP 503 still provides backpressure.
-  const maxInflight = isWorker ? 3 : 4
+  const maxInflight = isMobileRuntime() ? 1 : isWorker ? 3 : 4
   const freeBatches: Uint8Array[] = Array.from(
     { length: maxInflight },
     () => new Uint8Array(frameByteLength * batchFrames)
@@ -1341,10 +1444,7 @@ async function runExportPipeline({
     } finally {
       await releaseExportWakeLock(exportWakeLock)
       exportWakeLock = null
-      if (isMobileRuntime()) {
-        unlockOrientation()
-        exitImmersiveMode()
-      }
+      // Keep landscape/immersive until the export route unmounts.
     }
     const minDur = Math.max(0.05, (Math.max(1, expectedFrames) - 2) / exportFps)
     // Brief FS settle.
@@ -1357,11 +1457,40 @@ async function runExportPipeline({
     })
     logger.info('export.pipeline_done', {
       projectName,
-      role: isWorker ? 'worker' : renderConfig.role ?? 'single',
+      role: isWorker ? 'worker' : (renderConfig.role ?? 'single'),
       outputPath,
       framesProcessed,
       workerIndex: isWorker ? workerIndex : undefined
     })
+
+    // Desktop single-path: capture is ultrafast H.264; re-encode to final quality (prefer H.265).
+    // Multi-worker final already re-encodes in concat_render_segments.
+    // Mobile soft-encode stays H.264 (no host ffmpeg).
+    const role = isWorker ? 'worker' : (renderConfig.role ?? 'single')
+    if (!isWorker && role === 'single' && !isMobileRuntime()) {
+      const finalPath = renderConfig.exportPath || outputPath
+      try {
+        logger.info('export.single_final_encode_start', {
+          source: outputPath,
+          destination: finalPath
+        })
+        await finalizeRenderDelivery(
+          outputPath,
+          finalPath,
+          Math.max(0.05, framesProcessed / exportFps)
+        )
+        if (finalPath !== outputPath) {
+          outputPath = finalPath
+        }
+        logger.info('export.single_final_encode_done', { path: finalPath })
+      } catch (error: unknown) {
+        // Non-fatal: keep capture MP4 if quality re-encode fails.
+        logger.warn('export.single_final_encode_failed', {
+          error: describeError(error),
+          path: outputPath
+        })
+      }
+    }
 
     const publishPath =
       typeof renderConfig.publishPath === 'string' && renderConfig.publishPath.trim().length > 0
@@ -1541,8 +1670,7 @@ async function runExportPipeline({
       : startFrame > 0
         ? 1
         : 0
-    const status: RenderStats['status'] =
-      forceStatus ?? (isWarming ? 'warming' : 'rendering')
+    const status: RenderStats['status'] = forceStatus ?? (isWarming ? 'warming' : 'rendering')
     const wallElapsedSec = wallElapsedSecNow()
     if (isWarming) {
       if (warmStartSec === null) warmStartSec = wallElapsedSec
@@ -2382,7 +2510,7 @@ async function runCoordinatorExport(options: {
       if (slot.warmStartSec !== null) {
         const end =
           slot.warmEndSec ??
-          (slot.status === 'warming' ? nowSec : slot.warmEndSec ?? slot.warmStartSec)
+          (slot.status === 'warming' ? nowSec : (slot.warmEndSec ?? slot.warmStartSec))
         spans.push({
           id: `w${idx}-warm`,
           label: `${lane} 预热`,
@@ -2403,7 +2531,7 @@ async function runCoordinatorExport(options: {
       if (slot.captureStartSec !== null) {
         const end =
           slot.captureEndSec ??
-          (slot.status === 'rendering' ? nowSec : slot.captureEndSec ?? slot.captureStartSec)
+          (slot.status === 'rendering' ? nowSec : (slot.captureEndSec ?? slot.captureStartSec))
         spans.push({
           id: `w${idx}-cap`,
           label: `${lane} 捕获`,
@@ -2424,7 +2552,7 @@ async function runCoordinatorExport(options: {
       if (slot.finalizeStartSec !== null) {
         const end =
           slot.finalizeEndSec ??
-          (slot.status === 'finalizing' ? nowSec : slot.finalizeEndSec ?? slot.finalizeStartSec)
+          (slot.status === 'finalizing' ? nowSec : (slot.finalizeEndSec ?? slot.finalizeStartSec))
         spans.push({
           id: `w${idx}-fin`,
           label: `${lane} 收尾`,
@@ -2673,10 +2801,10 @@ async function runCoordinatorExport(options: {
     knownEndFrame = knownEndFrame === null ? locked : Math.min(knownEndFrame, locked)
     if (knownEndFrame >= totalFrames) {
       logger.info('export.story_end_detected', {
-      endFrameAbs,
-      planFrames: totalFrames,
-      shrunk: false
-    })
+        endFrameAbs,
+        planFrames: totalFrames,
+        shrunk: false
+      })
       return
     }
     const prev = totalFrames
@@ -2797,9 +2925,7 @@ async function runCoordinatorExport(options: {
       .filter((v) => v.status === 'rendering' || v.status === 'finalizing')
     const fpsSum = writing.reduce((s, v) => s + (v.fps || 0), 0)
     const speedAvg =
-      writing.length > 0
-        ? writing.reduce((s, v) => s + (v.speed || 0), 0) / writing.length
-        : 0
+      writing.length > 0 ? writing.reduce((s, v) => s + (v.speed || 0), 0) / writing.length : 0
     const wallElapsedSec = wallElapsedSecNow()
     const efficiency = wallElapsedSec > 0 ? captured / exportFps / wallElapsedSec : 0
     const runningJobs = entries.filter(([, v]) => v.job).length
@@ -2816,7 +2942,7 @@ async function runCoordinatorExport(options: {
       speed: v.speed,
       message: v.job
         ? `job#${v.job.jobId} [${v.job.startFrame},${v.job.endFrame})`
-        : v.message ?? 'idle'
+        : (v.message ?? 'idle')
     }))
 
     const chunkSegments: ChunkBarSegment[] = []
@@ -2836,11 +2962,7 @@ async function runCoordinatorExport(options: {
       const job = slot.job
       const span = Math.max(1, job.endFrame - job.startFrame)
       const state: ChunkBarSegment['state'] =
-        slot.status === 'warming'
-          ? 'warming'
-          : slot.status === 'error'
-            ? 'error'
-            : 'running'
+        slot.status === 'warming' ? 'warming' : slot.status === 'error' ? 'error' : 'running'
       chunkSegments.push({
         id: `run-${job.jobId}`,
         jobId: job.jobId,
@@ -2909,8 +3031,7 @@ async function runCoordinatorExport(options: {
           return a.lagging
             .map(
               (l) =>
-                `W${l.slotId}预热ETA ${l.etaSec.toFixed(0)}s` +
-                (l.canCatchUp ? '·正常' : '·偏慢')
+                `W${l.slotId}预热ETA ${l.etaSec.toFixed(0)}s` + (l.canCatchUp ? '·正常' : '·偏慢')
             )
             .join(' · ')
         })()
@@ -2927,18 +3048,24 @@ async function runCoordinatorExport(options: {
 
   const openedSlots = new Set<number>()
 
-  async function launchSlot(slotId: number, job: ExportJob, mode: 'open' | 'assign'): Promise<void> {
+  async function launchSlot(
+    slotId: number,
+    job: ExportJob,
+    mode: 'open' | 'assign'
+  ): Promise<void> {
     const slot = slots.get(slotId)
     if (!slot) return
     // continueFrom is the worker clock to keep (lastEnd). Equal start → pure sticky;
     // start > continueFrom → forward catch-up warm (not from 0).
-    const continueFrom =
-      mode === 'assign' && slot.lastEndFrame !== null ? slot.lastEndFrame : null
-    const needsCatchupWarm =
-      continueFrom !== null && job.startFrame > continueFrom
+    const continueFrom = mode === 'assign' && slot.lastEndFrame !== null ? slot.lastEndFrame : null
+    const needsCatchupWarm = continueFrom !== null && job.startFrame > continueFrom
     const pureSticky = continueFrom !== null && job.startFrame === continueFrom
     slot.job = job
-    slot.status = pureSticky ? 'rendering' : job.startFrame > 0 || needsCatchupWarm ? 'warming' : 'rendering'
+    slot.status = pureSticky
+      ? 'rendering'
+      : job.startFrame > 0 || needsCatchupWarm
+        ? 'warming'
+        : 'rendering'
     // New job: reset open phase ends so multi-job sticky still draws new spans.
     if (!pureSticky) {
       if (job.startFrame > 0 || needsCatchupWarm) {
@@ -2964,7 +3091,7 @@ async function runCoordinatorExport(options: {
     slot.frameCount = 0
     slot.totalFrames = Math.max(1, job.endFrame - job.startFrame)
     slot.warmProgress = pureSticky ? 1 : 0
-    slot.warmFrameCount = pureSticky ? job.startFrame : continueFrom ?? 0
+    slot.warmFrameCount = pureSticky ? job.startFrame : (continueFrom ?? 0)
     slot.warmTotalFrames = Math.max(0, job.startFrame)
     slot.message = needsCatchupWarm
       ? `追赶 ${continueFrom}→${job.startFrame}`
@@ -3023,8 +3150,7 @@ async function runCoordinatorExport(options: {
     if (!job) {
       const slot = slots.get(slotId)
       const moreWork =
-        planner.remainingInSlot(slotId) > 0 ||
-        (freeJobsBySlot.get(slotId)?.length ?? 0) > 0
+        planner.remainingInSlot(slotId) > 0 || (freeJobsBySlot.get(slotId)?.length ?? 0) > 0
       if (slot) {
         slot.job = null
         // Stay idle (not terminal done) if other workers still hold earlier ranges we may sticky later.
@@ -3052,8 +3178,7 @@ async function runCoordinatorExport(options: {
     if (!slot) return
     const isFirst = slot.lastEndFrame === null
     const sticky = slot.lastEndFrame !== null && slot.lastEndFrame === job.startFrame
-    const forwardCatchup =
-      slot.lastEndFrame !== null && job.startFrame > slot.lastEndFrame
+    const forwardCatchup = slot.lastEndFrame !== null && job.startFrame > slot.lastEndFrame
     // Backward jump would require rewind/restart from 0 — forbidden.
     if (slot.lastEndFrame !== null && job.startFrame < slot.lastEndFrame) {
       logger.error('export.job_rejected_backward', {
@@ -3275,7 +3400,9 @@ async function runCoordinatorExport(options: {
     if (ordered.length === 0) throw new Error('没有可合并的分段')
     // Contiguous coverage — gaps would produce short/wrong-duration videos.
     if (ordered[0].startFrame !== 0) {
-      throw new Error(`渲染覆盖缺口：首块从 ${ordered[0].startFrame} 开始，缺少 [0,${ordered[0].startFrame})`)
+      throw new Error(
+        `渲染覆盖缺口：首块从 ${ordered[0].startFrame} 开始，缺少 [0,${ordered[0].startFrame})`
+      )
     }
     for (let i = 1; i < ordered.length; i += 1) {
       if (ordered[i].startFrame !== ordered[i - 1].endFrame) {
@@ -3351,16 +3478,13 @@ async function runCoordinatorExport(options: {
       window.setTimeout(resolve, 0)
     })
 
-    const unlistenFfmpeg = await listen<FfmpegProgressEvent>(
-      'export-ffmpeg-progress',
-      (event) => {
-        const ratio = Number(event.payload?.ratio)
-        if (!Number.isFinite(ratio)) return
-        // Monotonic: never go backwards if a late/out-of-order event arrives.
-        ffmpegMergeRatio = Math.max(ffmpegMergeRatio, Math.min(1, Math.max(0, ratio)))
-        publishMergeStats(wallElapsedSecNow(), '正在合成视频…')
-      }
-    )
+    const unlistenFfmpeg = await listen<FfmpegProgressEvent>('export-ffmpeg-progress', (event) => {
+      const ratio = Number(event.payload?.ratio)
+      if (!Number.isFinite(ratio)) return
+      // Monotonic: never go backwards if a late/out-of-order event arrives.
+      ffmpegMergeRatio = Math.max(ffmpegMergeRatio, Math.min(1, Math.max(0, ratio)))
+      publishMergeStats(wallElapsedSecNow(), '正在合成视频…')
+    })
 
     const mergeHeartbeat = window.setInterval(() => {
       // Keep wall clock / remaining estimate fresh even if ffmpeg is quiet at start.
@@ -3612,12 +3736,7 @@ function createSyncPixelReader(app: Application, width: number, height: number):
   }
 }
 
-function readFramePixels(
-  app: Application,
-  width: number,
-  height: number,
-  out: Uint8Array
-): void {
+function readFramePixels(app: Application, width: number, height: number, out: Uint8Array): void {
   const gl = getWebGlContext(app)
   if (gl) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
@@ -3634,9 +3753,7 @@ function readFramePixels(
   out.set(pixels.pixels.subarray(0, Math.min(out.length, pixels.pixels.length)))
 }
 
-function getWebGlContext(
-  app: Application
-): WebGLRenderingContext | WebGL2RenderingContext | null {
+function getWebGlContext(app: Application): WebGLRenderingContext | WebGL2RenderingContext | null {
   const renderer = app.renderer as unknown as {
     gl?: WebGLRenderingContext | WebGL2RenderingContext
     context?: { gl?: WebGLRenderingContext | WebGL2RenderingContext }
@@ -3697,7 +3814,6 @@ function parseRenderConfig(raw: string | null): RenderConfig | null {
     return null
   }
 }
-
 
 function formatTime(seconds: number): string {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0

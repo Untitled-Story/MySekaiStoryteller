@@ -13,10 +13,7 @@ import {
 } from '@/components/ui/Dialog'
 import type { RenderConfig } from '@/settings/types'
 import { useSettings } from '@/settings/useSettings'
-import {
-  DEFAULT_EXPORT_PREFS,
-  normalizeExportPrefs
-} from '@/settings/useSettingsState'
+import { DEFAULT_EXPORT_PREFS, normalizeExportPrefs } from '@/settings/useSettingsState'
 import { getDataPath, getPublicMoviesDir } from '@/workspace/api'
 import { openPlayerWindow } from '@/windows/api'
 import {
@@ -59,7 +56,8 @@ export function ExportVideoDialog({
         // Android/iOS: thermal/memory-safe defaults + single worker only.
         const width = mobileRuntime ? Math.min(prefs.width, 1280) : prefs.width
         const height = mobileRuntime ? Math.min(prefs.height, 720) : prefs.height
-        const fps = mobileRuntime ? Math.min(prefs.fps, 30) : prefs.fps
+        // Soft encode is CPU-bound; 24fps is a better production default than 30+.
+        const fps = mobileRuntime ? Math.min(prefs.fps, 24) : prefs.fps
         let exportPath = buildDefaultExportPath(dataPath, projectTitle)
         if (mobileRuntime) {
           try {
@@ -111,10 +109,9 @@ export function ExportVideoDialog({
     try {
       const width = Math.max(160, Math.floor(config.width) || DEFAULT_EXPORT_PREFS.width)
       const height = Math.max(90, Math.floor(config.height) || DEFAULT_EXPORT_PREFS.height)
-      const fps = Math.max(1, Math.floor(config.fps) || DEFAULT_EXPORT_PREFS.fps)
-      const concurrency = mobileRuntime
-        ? 1
-        : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
+      let fps = Math.max(1, Math.floor(config.fps) || DEFAULT_EXPORT_PREFS.fps)
+      if (mobileRuntime) fps = Math.min(fps, 24)
+      const concurrency = mobileRuntime ? 1 : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
       const dataPath = await getDataPath()
       // Display path (Movies on mobile). Encode may use private path then publish.
       let displayPath: string = config.exportPath
@@ -128,10 +125,7 @@ export function ExportVideoDialog({
         }
         // Encoder always writes private first (reliable). Publish to Movies on success.
         encodePath = buildPrivateEncodePath(dataPath, projectTitle)
-      } else if (
-        displayPath.startsWith('content://') ||
-        displayPath.startsWith('file://')
-      ) {
+      } else if (displayPath.startsWith('content://') || displayPath.startsWith('file://')) {
         encodePath = buildDefaultExportPath(dataPath, projectTitle)
         displayPath = encodePath
       }
@@ -260,29 +254,31 @@ export function ExportVideoDialog({
             />
           </div>
           {!mobileRuntime ? (
-          <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">并发数（工作线程）</label>
-            <Input
-              type="number"
-              min={1}
-              step={1}
-              value={config?.concurrency ?? 2}
-              onChange={(e) => {
-                const raw = Number.parseInt(e.target.value, 10)
-                setConfig((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        concurrency: Number.isFinite(raw) ? Math.max(1, raw) : 1
-                      }
-                    : prev
-                )
-              }}
-            />
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              同时渲染的任务数，任意正整数，推荐 2，过高会占更多内存/显存。
-            </p>
-          </div>
+            <div className="grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                并发数（工作线程）
+              </label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={config?.concurrency ?? 2}
+                onChange={(e) => {
+                  const raw = Number.parseInt(e.target.value, 10)
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          concurrency: Number.isFinite(raw) ? Math.max(1, raw) : 1
+                        }
+                      : prev
+                  )
+                }}
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                同时渲染的任务数，任意正整数，推荐 2，过高会占更多内存/显存。
+              </p>
+            </div>
           ) : (
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               移动端使用应用内单路渲染（并发固定为 1）。

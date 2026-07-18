@@ -1,1 +1,86 @@
-{"default":{"identifier":"default","description":"Capability for all windows","local":true,"windows":["main","editor","player","export-coordinator","export-debug","export-worker-*"],"permissions":["core:default","core:window:allow-close","core:window:allow-set-focus","core:event:default","dialog:default","log:default","opener:default"]},"desktop-shortcuts":{"identifier":"desktop-shortcuts","description":"Desktop-only global shortcut permissions","local":true,"windows":["main","editor","player"],"permissions":["global-shortcut:allow-is-registered","global-shortcut:allow-register","global-shortcut:allow-unregister","global-shortcut:allow-unregister-all"],"platforms":["linux","macOS","windows"]},"editor":{"identifier":"editor","description":"Additional permissions for the editor window","local":true,"windows":["editor"],"permissions":["core:window:allow-destroy"]},"mobile-player":{"identifier":"mobile-player","description":"Mobile shell permissions used by the embedded player","local":true,"windows":["main"],"permissions":["core:window:allow-set-fullscreen"],"platforms":["android","iOS"]},"player":{"identifier":"player","description":"Additional permissions for the borderless player and export windows","local":true,"windows":["player","export-coordinator","export-debug","export-worker-*"],"permissions":["core:window:allow-start-dragging","core:window:allow-set-fullscreen"]}}
+{
+  "default": {
+    "identifier": "default",
+    "description": "Capability for all windows",
+    "local": true,
+    "windows": [
+      "main",
+      "editor",
+      "player",
+      "export-coordinator",
+      "export-debug",
+      "export-worker-*"
+    ],
+    "permissions": [
+      "core:default",
+      "core:window:allow-close",
+      "core:window:allow-set-focus",
+      "core:event:default",
+      "dialog:default",
+      "log:default",
+      "opener:default"
+    ]
+  },
+  "desktop-shortcuts": {
+    "identifier": "desktop-shortcuts",
+    "description": "Desktop-only global shortcut permissions",
+    "local": true,
+    "windows": ["main", "editor", "player"],
+    "permissions": [
+      "global-shortcut:allow-is-registered",
+      "global-shortcut:allow-register",
+      "global-shortcut:allow-unregister",
+      "global-shortcut:allow-unregister-all"
+    ],
+    "platforms": ["linux", "macOS", "windows"]
+  },
+  "editor": {
+    "identifier": "editor",
+    "description": "Additional permissions for the editor window",
+    "local": true,
+    "windows": ["editor"],
+    "permissions": ["core:window:allow-destroy"]
+  },
+  "mobile-player": {
+    "identifier": "mobile-player",
+    "description": "Mobile shell permissions used by the embedded player",
+    "local": true,
+    "windows": ["main"],
+    "permissions": [
+      "core:default",
+      "core:event:default",
+      "core:window:allow-set-fullscreen",
+      "dialog:default",
+      "fs:default",
+      "log:default",
+      "opener:default",
+      "fs:allow-write-file",
+      "fs:allow-read-file",
+      "fs:allow-remove",
+      "fs:allow-exists",
+      "fs:allow-mkdir",
+      "fs:allow-app-write",
+      "fs:allow-app-read",
+      "fs:allow-app-meta",
+      "fs:allow-appcache-write",
+      "fs:allow-appcache-read",
+      "fs:allow-appcache-meta",
+      "fs:allow-appcache-write-recursive",
+      "fs:allow-appcache-read-recursive",
+      "fs:allow-app-write-recursive",
+      "fs:allow-app-read-recursive",
+      {
+        "identifier": "fs:scope",
+        "allow": [{ "path": "$APPCACHE/**" }, { "path": "$APPLOCALDATA/**" }, { "path": "$APP/**" }]
+      }
+    ],
+    "platforms": ["android", "iOS"]
+  },
+  "player": {
+    "identifier": "player",
+    "description": "Additional permissions for the borderless player and export windows",
+    "local": true,
+    "windows": ["player", "export-coordinator", "export-debug", "export-worker-*"],
+    "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
+  }
+}

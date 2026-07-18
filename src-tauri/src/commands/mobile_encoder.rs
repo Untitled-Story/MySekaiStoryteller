@@ -6,7 +6,7 @@ use crossbeam_channel::Receiver;
 use mp4::{
     AvcConfig, MediaConfig, Mp4Config, Mp4Sample, Mp4Writer, TrackConfig, TrackType,
 };
-use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod};
+use openh264::encoder::{BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod};
 use openh264::formats::{RgbaSliceU8, YUVBuffer};
 use openh264::OpenH264API;
 use std::fs::File;
@@ -17,7 +17,7 @@ use std::time::Duration;
 
 const MAX_W: u32 = 1280;
 const MAX_H: u32 = 720;
-const MAX_FPS: u32 = 30;
+const MAX_FPS: u32 = 24;
 
 pub fn clamp_mobile_config(config: &RenderConfig) -> RenderConfig {
     let mut c = config.clone();
@@ -53,11 +53,12 @@ pub fn run_mobile_encode_worker(
         }
     }
 
-    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 6).clamp(400_000, 6_000_000) as u32;
+    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10).clamp(350_000, 3_500_000) as u32;
     let enc_config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(bitrate))
         .max_frame_rate(FrameRate::from_hz(fps as f32))
         .skip_frames(false)
+        .complexity(Complexity::Low)
         .intra_frame_period(IntraFramePeriod::from_num_frames(fps.saturating_mul(2).max(1)));
 
     let mut encoder = match Encoder::with_api_config(OpenH264API::from_source(), enc_config)
@@ -140,6 +141,14 @@ pub fn run_mobile_encode_worker(
                     let frame = &data[start..start + frame_bytes];
                     if frame_index == 0 {
                         encoder.force_intra_frame();
+                    }
+                    if frame_index > 0 && frame_index % 30 == 0 {
+                        log::info!(
+                            target: "backend::render",
+                            "mobile encoder progress frames={} path={}",
+                            frame_index,
+                            export_path
+                        );
                     }
                     if let Err(e) = encode_one_frame(
                         &mut encoder,
