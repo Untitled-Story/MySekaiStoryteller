@@ -39,3 +39,8 @@ openh264 = { version = "0.9", default-features = false, features = ["source"] }
 mp4 = "0.14"
 bytes = "1"
 
+# Android MediaCodec JNI bridge.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+

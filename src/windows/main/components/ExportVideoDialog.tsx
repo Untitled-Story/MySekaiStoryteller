@@ -54,10 +54,10 @@ export function ExportVideoDialog({
         if (cancelled || !projectTitle) return
         const prefs = normalizeExportPrefs(exportPrefs)
         // Android/iOS: thermal/memory-safe defaults + single worker only.
-        // Soft openh264 budget: 960x540@18 keeps RGBA ~2MB/frame and fewer encodes.
-        const width = mobileRuntime ? Math.min(prefs.width, 960) : prefs.width
-        const height = mobileRuntime ? Math.min(prefs.height, 540) : prefs.height
-        const fps = mobileRuntime ? Math.min(prefs.fps, 18) : prefs.fps
+        // Hardware MediaCodec path targets up to 720p30; dialog still forces concurrency=1.
+        const width = mobileRuntime ? Math.min(prefs.width, 1280) : prefs.width
+        const height = mobileRuntime ? Math.min(prefs.height, 720) : prefs.height
+        const fps = mobileRuntime ? Math.min(prefs.fps, 30) : prefs.fps
         let exportPath = buildDefaultExportPath(dataPath, projectTitle)
         if (mobileRuntime) {
           try {
@@ -114,9 +114,9 @@ export function ExportVideoDialog({
       let heightClamped = height
       if (mobileRuntime) {
         // Hard caps match mobile_encoder + pipeline clamps.
-        fps = Math.min(fps, 18)
-        widthClamped = Math.min(width, 960)
-        heightClamped = Math.min(height, 540)
+        fps = Math.min(fps, 30)
+        widthClamped = Math.min(width, 1280)
+        heightClamped = Math.min(height, 720)
         widthClamped -= widthClamped % 2
         heightClamped -= heightClamped % 2
       }

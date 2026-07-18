@@ -1102,10 +1102,10 @@ async function runExportPipeline({
   let exportHeight = Math.max(1, Math.floor(Number(renderConfig.height) || 720))
   let exportFps = Math.max(1, Math.floor(Number(renderConfig.fps) || 60))
   if (mobileClamp) {
-    // Soft openh264: 720p30 is often unusable; default budget ~540p@18.
-    exportWidth = Math.min(exportWidth, 960)
-    exportHeight = Math.min(exportHeight, 540)
-    exportFps = Math.min(exportFps, 18)
+    // MediaCodec HW path supports up to 720p30; openh264 fallback still works if HW fails.
+    exportWidth = Math.min(exportWidth, 1280)
+    exportHeight = Math.min(exportHeight, 720)
+    exportFps = Math.min(exportFps, 30)
     exportWidth -= exportWidth % 2
     exportHeight -= exportHeight % 2
   }

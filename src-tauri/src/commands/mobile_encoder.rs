@@ -15,9 +15,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-const MAX_W: u32 = 960;
-const MAX_H: u32 = 540;
-const MAX_FPS: u32 = 18;
+const MAX_W: u32 = 1280;
+const MAX_H: u32 = 720;
+const MAX_FPS: u32 = 30;
 
 pub fn clamp_mobile_config(config: &RenderConfig) -> RenderConfig {
     let mut c = config.clone();
@@ -53,6 +53,39 @@ pub fn run_mobile_encode_worker(
         }
     }
 
+    // Prefer MediaCodec on Android; openh264 is the portable fallback.
+    #[cfg(target_os = "android")]
+    {
+        let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10)
+            .clamp(400_000, 8_000_000) as u32;
+        match crate::commands::mobile_hw_encoder::hw_encoder_create(
+            &export_path,
+            width,
+            height,
+            fps,
+            bitrate,
+        ) {
+            Ok(session) => {
+                log::info!(
+                    target: "backend::render",
+                    "mobile encoder: MediaCodec session={session} path={export_path} {}x{}@{} bitrate={bitrate}",
+                    width,
+                    height,
+                    fps
+                );
+                run_hw_encode_loop(rx, stop_flag, session, frame_bytes, fps);
+                return;
+            }
+            Err(e) => {
+                log::warn!(
+                    target: "backend::render",
+                    "mobile MediaCodec unavailable, falling back to openh264: {e}"
+                );
+            }
+        }
+    }
+
+    // Soft path: tighter bitrate for CPU encode.
     let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 1_800_000) as u32;
     let enc_config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(bitrate))
@@ -111,7 +144,7 @@ pub fn run_mobile_encode_worker(
 
     log::info!(
         target: "backend::render",
-        "mobile encoder started path={export_path} {}x{}@{} bitrate={bitrate}",
+        "mobile encoder: openh264 path={export_path} {}x{}@{} bitrate={bitrate}",
         width,
         height,
         fps
@@ -213,6 +246,102 @@ pub fn run_mobile_encode_worker(
         target: "backend::render",
         "mobile encoder finished path={export_path} frames={wrote_samples} track_ready={track_ready}"
     );
+}
+
+
+#[cfg(target_os = "android")]
+fn run_hw_encode_loop(
+    rx: Receiver<RenderMessage>,
+    stop_flag: std::sync::Arc<AtomicBool>,
+    session: i64,
+    frame_bytes: usize,
+    fps: u32,
+) {
+    let mut frame_index: u64 = 0;
+    let sample_duration_us: i64 = (1_000_000i64 / i64::from(fps.max(1))).max(1);
+    let mut encode_error: Option<String> = None;
+
+    loop {
+        if stop_flag.load(Ordering::Relaxed) {
+            break;
+        }
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(RenderMessage::FrameBatch(data)) => {
+                if stop_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                if data.is_empty() || data.len() % frame_bytes != 0 {
+                    log::error!(
+                        target: "backend::render",
+                        "mobile hw unexpected batch size {} (frame {})",
+                        data.len(),
+                        frame_bytes
+                    );
+                    encode_error = Some("bad batch size".into());
+                    break;
+                }
+                let frame_count = data.len() / frame_bytes;
+                for i in 0..frame_count {
+                    let start = i * frame_bytes;
+                    let frame = &data[start..start + frame_bytes];
+                    let pts = (frame_index as i64).saturating_mul(sample_duration_us);
+                    if let Err(e) =
+                        crate::commands::mobile_hw_encoder::hw_encoder_encode(session, frame, pts)
+                    {
+                        log::error!(target: "backend::render", "mobile MediaCodec encode failed: {e}");
+                        encode_error = Some(e);
+                        stop_flag.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                    frame_index = frame_index.saturating_add(1);
+                    if frame_index > 0 && frame_index % 30 == 0 {
+                        log::info!(
+                            target: "backend::render",
+                            "mobile MediaCodec progress frames={frame_index}"
+                        );
+                    }
+                }
+                if encode_error.is_some() {
+                    break;
+                }
+            }
+            Ok(RenderMessage::Stop) => break,
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    // Drain remaining frames if clean stop.
+    if encode_error.is_none() {
+        while let Ok(msg) = rx.try_recv() {
+            if let RenderMessage::FrameBatch(data) = msg {
+                if data.len() % frame_bytes == 0 {
+                    let frame_count = data.len() / frame_bytes;
+                    for i in 0..frame_count {
+                        let start = i * frame_bytes;
+                        let frame = &data[start..start + frame_bytes];
+                        let pts = (frame_index as i64).saturating_mul(sample_duration_us);
+                        if crate::commands::mobile_hw_encoder::hw_encoder_encode(session, frame, pts)
+                            .is_ok()
+                        {
+                            frame_index = frame_index.saturating_add(1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    match crate::commands::mobile_hw_encoder::hw_encoder_finish(session) {
+        Ok(()) => log::info!(
+            target: "backend::render",
+            "mobile MediaCodec finished frames={frame_index}"
+        ),
+        Err(e) => {
+            log::error!(target: "backend::render", "mobile MediaCodec finish failed: {e}");
+            crate::commands::mobile_hw_encoder::hw_encoder_destroy(session);
+        }
+    }
 }
 
 fn drain_until_stop(rx: &Receiver<RenderMessage>) {

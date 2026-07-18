@@ -5,3 +5,5 @@ pub mod settings;
 pub mod window;
 #[cfg(mobile)]
 pub mod mobile_encoder;
+#[cfg(target_os = "android")]
+pub mod mobile_hw_encoder;
