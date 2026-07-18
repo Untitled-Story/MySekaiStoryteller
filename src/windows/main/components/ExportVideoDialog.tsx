@@ -17,9 +17,13 @@ import {
   DEFAULT_EXPORT_PREFS,
   normalizeExportPrefs
 } from '@/settings/useSettingsState'
-import { getDataPath } from '@/workspace/api'
+import { getDataPath, getPublicMoviesDir } from '@/workspace/api'
 import { openPlayerWindow } from '@/windows/api'
-import { buildDefaultExportPath } from '@/windows/main/utils/exportPath'
+import {
+  buildDefaultExportPath,
+  buildMoviesExportPath,
+  buildPrivateEncodePath
+} from '@/windows/main/utils/exportPath'
 import { describeError, logger } from '@/lib/logger'
 import { isMobileRuntime } from '@/lib/platform'
 
@@ -56,8 +60,21 @@ export function ExportVideoDialog({
         const width = mobileRuntime ? Math.min(prefs.width, 1280) : prefs.width
         const height = mobileRuntime ? Math.min(prefs.height, 720) : prefs.height
         const fps = mobileRuntime ? Math.min(prefs.fps, 30) : prefs.fps
+        let exportPath = buildDefaultExportPath(dataPath, projectTitle)
+        if (mobileRuntime) {
+          try {
+            const moviesDir = await getPublicMoviesDir()
+            exportPath = buildMoviesExportPath(moviesDir, projectTitle)
+          } catch (error: unknown) {
+            logger.warn('export.movies_dir_failed', {
+              error: describeError(error)
+            })
+            // Keep private path as last-resort display if Movies API fails.
+            exportPath = buildPrivateEncodePath(dataPath, projectTitle)
+          }
+        }
         setConfig({
-          exportPath: buildDefaultExportPath(dataPath, projectTitle),
+          exportPath,
           width,
           height,
           fps,
@@ -99,14 +116,24 @@ export function ExportVideoDialog({
         ? 1
         : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
       const dataPath = await getDataPath()
-      // Android/iOS: always write under app private storage first (content:// is not mkdir-able).
-      let exportPath: string = config.exportPath
-      if (
-        mobileRuntime ||
-        exportPath.startsWith('content://') ||
-        exportPath.startsWith('file://')
+      // Display path (Movies on mobile). Encode may use private path then publish.
+      let displayPath: string = config.exportPath
+      let encodePath: string = displayPath
+      if (mobileRuntime) {
+        try {
+          const moviesDir = await getPublicMoviesDir()
+          displayPath = buildMoviesExportPath(moviesDir, projectTitle)
+        } catch {
+          displayPath = buildPrivateEncodePath(dataPath, projectTitle)
+        }
+        // Encoder always writes private first (reliable). Publish to Movies on success.
+        encodePath = buildPrivateEncodePath(dataPath, projectTitle)
+      } else if (
+        displayPath.startsWith('content://') ||
+        displayPath.startsWith('file://')
       ) {
-        exportPath = buildDefaultExportPath(dataPath, projectTitle)
+        encodePath = buildDefaultExportPath(dataPath, projectTitle)
+        displayPath = encodePath
       }
       // Persist last-used export options (not path).
       setExportPrefs({ width, height, fps, concurrency })
@@ -115,7 +142,8 @@ export function ExportVideoDialog({
       const role = concurrency > 1 ? 'coordinator' : 'single'
       logger.info('export.start_requested', {
         projectTitle,
-        exportPath,
+        exportPath: displayPath,
+        encodePath,
         width,
         height,
         fps,
@@ -125,7 +153,9 @@ export function ExportVideoDialog({
         dataPath
       })
       await openPlayerWindow(projectTitle, true, {
-        exportPath,
+        exportPath: encodePath,
+        // Final public location for mobile share/publish after encode.
+        publishPath: mobileRuntime ? displayPath : undefined,
         width,
         height,
         fps,
@@ -159,14 +189,14 @@ export function ExportVideoDialog({
         </DialogHeader>
         <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">渲染路径</label>
+            <label className="text-xs font-medium text-muted-foreground">输出路径</label>
             <div className="flex gap-2">
               <Input
                 value={config?.exportPath ?? ''}
                 onChange={(e) =>
                   setConfig((prev) => (prev ? { ...prev, exportPath: e.target.value } : prev))
                 }
-                placeholder="选择渲染路径..."
+                placeholder="选择输出路径..."
                 className="flex-1"
                 readOnly={mobileRuntime}
               />

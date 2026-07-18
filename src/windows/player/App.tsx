@@ -1,4 +1,4 @@
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
+import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Application } from 'pixi.js'
@@ -39,6 +39,7 @@ import {
   startRenderSession,
   stopRenderSession,
   streamFrame,
+  publishRenderOutput,
   validateRenderSegment,
   type FfmpegProgressEvent
 } from '@/windows/api'
@@ -189,6 +190,11 @@ type RenderStats = {
   totalWorkers?: number
 }
 
+
+const PLAYER_STAGE_STYLE: CSSProperties = {
+  width: 'min(100vw, 177.77777778dvh)',
+  height: 'min(100dvh, 56.25vw)'
+}
 
 async function requestExportWakeLock(): Promise<WakeLockSentinel | null> {
   try {
@@ -844,9 +850,14 @@ export default function App({
   }
 
   // Always mount stageRef: coordinator export effect requires it even without GL.
+  // Playback uses master letterboxed 16:9 stage; export uses fixed offscreen surface.
   return (
     <main
-      className="relative h-screen w-screen overflow-hidden bg-black text-white select-none"
+      className={
+        isRenderMode
+          ? 'relative h-screen w-screen overflow-hidden bg-black text-white select-none'
+          : 'relative flex h-[100dvh] w-screen items-center justify-center overflow-hidden bg-black text-white select-none'
+      }
       data-player-entry="story-json"
       data-status={loadState.status}
       data-project={storyInput?.projectName ?? projectName ?? ''}
@@ -857,32 +868,28 @@ export default function App({
       {!isRenderMode ? (
         <div className="absolute inset-x-0 top-0 z-20 h-8" onMouseDown={startWindowDrag} />
       ) : null}
-      <div
-        ref={stageRef}
-        className={
-          isRenderMode
-            ? 'pointer-events-none fixed opacity-0'
-            : 'h-full w-full overflow-hidden'
-        }
-        style={
-          isRenderMode
-            ? {
-                // Single export needs real-sized offscreen WebGL surface.
-                // Coordinator only needs a mounted node for the start effect.
-                width:
-                  exportRole === 'coordinator'
-                    ? 1
-                    : Math.max(160, renderConfig?.width ?? 1920),
-                height:
-                  exportRole === 'coordinator'
-                    ? 1
-                    : Math.max(90, renderConfig?.height ?? 1080),
-                left: -10000,
-                top: 0
-              }
-            : undefined
-        }
-      />
+      {isRenderMode ? (
+        <div
+          ref={stageRef}
+          className="pointer-events-none fixed opacity-0"
+          style={{
+            width:
+              exportRole === 'coordinator'
+                ? 1
+                : Math.max(160, renderConfig?.width ?? 1920),
+            height:
+              exportRole === 'coordinator'
+                ? 1
+                : Math.max(90, renderConfig?.height ?? 1080),
+            left: -10000,
+            top: 0
+          }}
+        />
+      ) : (
+        <div className="relative overflow-hidden" style={PLAYER_STAGE_STYLE}>
+          <div ref={stageRef} className="absolute inset-0 overflow-hidden" />
+        </div>
+      )}
       {(loadState.status === 'error' || modelLoadState.status === 'error') && (
         <div
           className={
@@ -910,7 +917,7 @@ export default function App({
             role={exportRole}
             stats={renderStats}
             projectTitle={projectName ?? undefined}
-            exportPath={renderConfig?.exportPath}
+            exportPath={renderConfig?.publishPath ?? renderConfig?.exportPath}
             onTogglePause={handleExportPause}
             onStop={handleExportStop}
             onOpenDetails={handleOpenExportDetails}
@@ -1355,6 +1362,27 @@ async function runExportPipeline({
       framesProcessed,
       workerIndex: isWorker ? workerIndex : undefined
     })
+
+    const publishPath =
+      typeof renderConfig.publishPath === 'string' && renderConfig.publishPath.trim().length > 0
+        ? renderConfig.publishPath.trim()
+        : null
+    if (publishPath && publishPath !== outputPath) {
+      try {
+        await publishRenderOutput(outputPath, publishPath)
+        logger.info('export.publish_completed', {
+          source: outputPath,
+          destination: publishPath
+        })
+      } catch (error: unknown) {
+        // Non-fatal: private file remains; UI can still open/share private path.
+        logger.warn('export.publish_failed', {
+          source: outputPath,
+          destination: publishPath,
+          error: describeError(error)
+        })
+      }
+    }
   }
 
   const wallStartedAt = performance.now()
@@ -1427,6 +1455,20 @@ async function runExportPipeline({
     wallElapsedSec: 0,
     canPause: !isWorker,
     canStop: !isWorker,
+    isPaused: false
+  })
+  onStats({
+    progress: 0,
+    frameCount: 0,
+    totalFrames: captureTotal,
+    currentTime: 0,
+    totalDuration: captureTotal / exportFps,
+    fps: 0,
+    speed: 0,
+    status: startFrame > 0 ? 'warming' : 'rendering',
+    message: startFrame > 0 ? '预热中…' : '渲染中…',
+    canPause: true,
+    canStop: true,
     isPaused: false
   })
   await emitWorkerProgress(startFrame > 0 ? 'warming' : 'rendering', 0, 0, captureTotal, {
@@ -3645,6 +3687,7 @@ function parseRenderConfig(raw: string | null): RenderConfig | null {
       startFrame: Number.isFinite(startFrame) ? startFrame : undefined,
       endFrame: Number.isFinite(endFrame) ? endFrame : undefined,
       segmentPath,
+      publishPath: typeof record.publishPath === 'string' ? record.publishPath : undefined,
       jobId: Number.isFinite(Number(record.jobId)) ? Number(record.jobId) : undefined,
       multiJob: record.multiJob === true,
       dataPath: typeof record.dataPath === 'string' ? record.dataPath : undefined

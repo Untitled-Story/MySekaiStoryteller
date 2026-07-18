@@ -89,6 +89,8 @@ export type RenderConfig = {
   endFrame?: number
   /** Per-worker temporary segment output path. */
   segmentPath?: string
+  /** Optional final public path (e.g. Movies/...) after private encode. */
+  publishPath?: string
   /** Queue job id when using multi-job worker pool. */
   jobId?: number
   /** If true, worker stays alive and waits for more job assigns. */

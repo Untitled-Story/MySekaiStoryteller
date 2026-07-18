@@ -129,3 +129,57 @@ fn is_font_file(path: &Path) -> bool {
         "ttf" | "otf" | "woff" | "woff2"
     )
 }
+
+/// Public Movies directory for finished story videos (Android/iOS/desktop best-effort).
+#[tauri::command]
+pub fn get_public_movies_dir() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        // Prefer standard shared Movies locations. Environment.DIRECTORY_MOVIES is typically
+        // "Movies" under the primary external storage root.
+        let candidates = [
+            "/storage/emulated/0/Movies",
+            "/sdcard/Movies",
+            "/storage/self/primary/Movies",
+        ];
+        for candidate in candidates {
+            let path = PathBuf::from(candidate);
+            if path.is_dir() {
+                return Ok(path.to_string_lossy().to_string());
+            }
+            // Parent exists (storage root) — Movies can be created on publish.
+            if let Some(parent) = path.parent() {
+                if parent.is_dir() {
+                    return Ok(path.to_string_lossy().to_string());
+                }
+            }
+        }
+        // Last resort: still return the conventional path for display.
+        return Ok("/storage/emulated/0/Movies".to_string());
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        // Desktop/iOS: prefer platform video/movies style dirs when available.
+        if let Some(dir) = dirs_movies_fallback() {
+            return Ok(dir);
+        }
+        Err("Public Movies directory is unavailable on this platform".into())
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn dirs_movies_fallback() -> Option<String> {
+    // XDG / home Movies or Videos
+    if let Ok(home) = std::env::var("HOME") {
+        for name in ["Movies", "Videos", "电影", "视频"] {
+            let p = PathBuf::from(&home).join(name);
+            if p.is_dir() {
+                return Some(p.to_string_lossy().to_string());
+            }
+        }
+        // Prefer creating under Movies for display consistency when HOME exists.
+        return Some(PathBuf::from(home).join("Movies").to_string_lossy().to_string());
+    }
+    None
+}
