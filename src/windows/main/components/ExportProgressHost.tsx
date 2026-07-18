@@ -46,7 +46,7 @@ export function ExportProgressHost(): JSX.Element | null {
           ? '已完成'
           : progress.status === 'error'
             ? '失败'
-            : '导出中'
+            : '渲染中'
 
   const sendControl = (action: 'pause' | 'resume' | 'stop'): void => {
     void emit(EXPORT_CONTROL_EVENT, { groupId: progress.sessionId, action })
@@ -75,7 +75,7 @@ export function ExportProgressHost(): JSX.Element | null {
         <div className="space-y-3 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
-              <div className="text-xs font-medium text-muted-foreground">导出视频</div>
+              <div className="text-xs font-medium text-muted-foreground">渲染视频</div>
               <div className="truncate text-sm font-semibold text-foreground">
                 {progress.projectTitle}
               </div>

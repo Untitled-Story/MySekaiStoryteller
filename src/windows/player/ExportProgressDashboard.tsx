@@ -95,14 +95,14 @@ export function ExportProgressDashboard({
   )
   const title =
     mapped.status === 'done'
-      ? '导出完成'
+      ? '渲染完成'
       : mapped.status === 'error'
-        ? '导出失败'
+        ? '渲染失败'
         : mapped.status === 'paused'
           ? '已暂停'
           : mapped.status === 'merging'
             ? '正在合成'
-            : '正在导出'
+            : '正在渲染'
 
   const remainingSec = estimateRemainingSec(wallSec, mapped.progress)
   const remainingLabel =
@@ -152,7 +152,7 @@ export function ExportProgressDashboard({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(pct)}
-          aria-label="导出进度"
+          aria-label="渲染进度"
         >
           <div
             className={cn(

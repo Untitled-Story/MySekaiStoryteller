@@ -141,7 +141,7 @@ export function mapRenderStatusToUi(input: {
     case 'done':
       return {
         status: 'done',
-        message: input.message?.trim() || '导出完成',
+        message: input.message?.trim() || '渲染完成',
         // Always 100% for completed exports — ignore merge-band leftovers.
         progress: 1,
         elapsedSec,
@@ -151,7 +151,7 @@ export function mapRenderStatusToUi(input: {
     case 'error':
       return {
         status: 'error',
-        message: input.message?.trim() || '导出失败',
+        message: input.message?.trim() || '渲染失败',
         progress,
         elapsedSec,
         canPause: false,
@@ -179,7 +179,7 @@ export function mapRenderStatusToUi(input: {
     default:
       return {
         status: 'running',
-        message: '正在导出…',
+        message: '正在渲染…',
         progress,
         elapsedSec,
         canPause: true,

@@ -74,7 +74,7 @@ export function ExportVideoDialog({
   const handleBrowse = async (): Promise<void> => {
     const selected = await save({
       filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
-      title: '选择导出文件',
+      title: '选择渲染文件',
       defaultPath: config?.exportPath
     })
     if (selected && typeof selected === 'string') {
@@ -128,7 +128,7 @@ export function ExportVideoDialog({
         projectTitle,
         error: describeError(error)
       })
-      alert('开始导出失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      alert('开始渲染失败: ' + (error instanceof Error ? error.message : '未知错误'))
     } finally {
       setIsStarting(false)
     }
@@ -138,18 +138,18 @@ export function ExportVideoDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="select-none">
         <DialogHeader>
-          <DialogTitle>导出视频</DialogTitle>
+          <DialogTitle>渲染视频</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">导出路径</label>
+            <label className="text-xs font-medium text-muted-foreground">渲染路径</label>
             <div className="flex gap-2">
               <Input
                 value={config?.exportPath ?? ''}
                 onChange={(e) =>
                   setConfig((prev) => (prev ? { ...prev, exportPath: e.target.value } : prev))
                 }
-                placeholder="选择导出路径..."
+                placeholder="选择渲染路径..."
                 className="flex-1"
               />
               <Button variant="outline" size="icon" onClick={() => void handleBrowse()} aria-label="浏览">
@@ -231,7 +231,7 @@ export function ExportVideoDialog({
             onClick={() => void handleStart()}
             disabled={isStarting || !config?.exportPath || !projectTitle}
           >
-            {isStarting ? '启动中...' : '开始导出'}
+            {isStarting ? '启动中...' : '开始渲染'}
           </Button>
         </DialogFooter>
       </DialogContent>
