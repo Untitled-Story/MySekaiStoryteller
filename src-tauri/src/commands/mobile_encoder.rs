@@ -15,18 +15,26 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-const MAX_W: u32 = 1280;
-const MAX_H: u32 = 720;
-const MAX_FPS: u32 = 30;
+/// Absolute codec/sanity ceiling only (not a product “performance policy” cap).
+/// User-facing export size is chosen in the dialog; we do not force 720p30.
+const ABS_MAX_W: u32 = 4096;
+const ABS_MAX_H: u32 = 2160;
+const ABS_MAX_FPS: u32 = 120;
 
 pub fn clamp_mobile_config(config: &RenderConfig) -> RenderConfig {
     let mut c = config.clone();
-    c.width = c.width.clamp(160, MAX_W);
-    c.height = c.height.clamp(90, MAX_H);
+    c.width = c.width.clamp(160, ABS_MAX_W);
+    c.height = c.height.clamp(90, ABS_MAX_H);
     // Even dimensions required for 4:2:0.
     c.width -= c.width % 2;
     c.height -= c.height % 2;
-    c.fps = c.fps.clamp(1, MAX_FPS);
+    if c.width < 160 {
+        c.width = 160;
+    }
+    if c.height < 90 {
+        c.height = 90;
+    }
+    c.fps = c.fps.clamp(1, ABS_MAX_FPS);
     c
 }
 
@@ -57,7 +65,7 @@ pub fn run_mobile_encode_worker(
     #[cfg(target_os = "android")]
     {
         let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10)
-            .clamp(400_000, 8_000_000) as u32;
+            .clamp(400_000, 20_000_000) as u32;
         match crate::commands::mobile_hw_encoder::hw_encoder_create(
             &export_path,
             width,
@@ -86,7 +94,7 @@ pub fn run_mobile_encode_worker(
     }
 
     // Soft path: tighter bitrate for CPU encode.
-    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 1_800_000) as u32;
+    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 12_000_000) as u32;
     let enc_config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(bitrate))
         .max_frame_rate(FrameRate::from_hz(fps as f32))

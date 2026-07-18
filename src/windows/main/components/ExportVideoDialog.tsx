@@ -53,11 +53,10 @@ export function ExportVideoDialog({
         const dataPath = await getDataPath()
         if (cancelled || !projectTitle) return
         const prefs = normalizeExportPrefs(exportPrefs)
-        // Android/iOS: thermal/memory-safe defaults + single worker only.
-        // Hardware MediaCodec path targets up to 720p30; dialog still forces concurrency=1.
-        const width = mobileRuntime ? Math.min(prefs.width, 1280) : prefs.width
-        const height = mobileRuntime ? Math.min(prefs.height, 720) : prefs.height
-        const fps = mobileRuntime ? Math.min(prefs.fps, 30) : prefs.fps
+        // Mobile: user chooses resolution/fps; only concurrency is forced to 1.
+        const width = prefs.width
+        const height = prefs.height
+        const fps = prefs.fps
         let exportPath = buildDefaultExportPath(dataPath, projectTitle)
         if (mobileRuntime) {
           try {
@@ -110,16 +109,11 @@ export function ExportVideoDialog({
       const width = Math.max(160, Math.floor(config.width) || DEFAULT_EXPORT_PREFS.width)
       const height = Math.max(90, Math.floor(config.height) || DEFAULT_EXPORT_PREFS.height)
       let fps = Math.max(1, Math.floor(config.fps) || DEFAULT_EXPORT_PREFS.fps)
-      let widthClamped = width
-      let heightClamped = height
-      if (mobileRuntime) {
-        // Hard caps match mobile_encoder + pipeline clamps.
-        fps = Math.min(fps, 30)
-        widthClamped = Math.min(width, 1280)
-        heightClamped = Math.min(height, 720)
-        widthClamped -= widthClamped % 2
-        heightClamped -= heightClamped % 2
-      }
+      // Even dimensions required for YUV 4:2:0; no mobile product resolution/fps caps.
+      let widthClamped = width - (width % 2)
+      let heightClamped = height - (height % 2)
+      widthClamped = Math.max(160, widthClamped)
+      heightClamped = Math.max(90, heightClamped)
       const concurrency = mobileRuntime ? 1 : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
       const dataPath = await getDataPath()
       // Display path (Movies on mobile). Encode may use private path then publish.

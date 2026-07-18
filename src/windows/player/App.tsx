@@ -1101,13 +1101,13 @@ async function runExportPipeline({
   let exportWidth = Math.max(1, Math.floor(Number(renderConfig.width) || 1280))
   let exportHeight = Math.max(1, Math.floor(Number(renderConfig.height) || 720))
   let exportFps = Math.max(1, Math.floor(Number(renderConfig.fps) || 60))
+  // Mobile: honor user resolution/fps. Only enforce even dimensions for 4:2:0.
   if (mobileClamp) {
-    // MediaCodec HW path supports up to 720p30; openh264 fallback still works if HW fails.
-    exportWidth = Math.min(exportWidth, 1280)
-    exportHeight = Math.min(exportHeight, 720)
-    exportFps = Math.min(exportFps, 30)
     exportWidth -= exportWidth % 2
     exportHeight -= exportHeight % 2
+    exportWidth = Math.max(160, exportWidth)
+    exportHeight = Math.max(90, exportHeight)
+    exportFps = Math.max(1, exportFps)
   }
   const frameIntervalMs = 1000 / exportFps
   const totalDuration = Math.max(0.001, calculateStoryDuration(story))

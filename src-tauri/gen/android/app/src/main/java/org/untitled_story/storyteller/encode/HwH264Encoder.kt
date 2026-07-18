@@ -39,7 +39,7 @@ object HwH264Encoder {
     val w = width - (width % 2)
     val h = height - (height % 2)
     val frameRate = max(1, fps)
-    val bitRate = bitrate.coerceIn(250_000, 12_000_000)
+    val bitRate = bitrate.coerceIn(250_000, 25_000_000)
 
     val codecName = pickAvcEncoderName()
     val codec =
