@@ -105,6 +105,33 @@ pub fn hw_encoder_encode(session_id: i64, rgba: &[u8], pts_us: i64) -> Result<()
     Ok(())
 }
 
+/// Encode pre-converted NV12 (size = width*height*3/2). Smaller than RGBA over JNI.
+pub fn hw_encoder_encode_nv12(session_id: i64, nv12: &[u8], pts_us: i64) -> Result<(), String> {
+    let mut env = attach()?;
+    let arr: JByteArray = env
+        .byte_array_from_slice(nv12)
+        .map_err(|e| format!("byte_array_from_slice nv12: {e}"))?;
+    let class = env
+        .find_class(CLASS)
+        .map_err(|e| format!("find_class {CLASS}: {e}"))?;
+    env.call_static_method(
+        class,
+        "encodeNv12",
+        "(J[BJ)V",
+        &[
+            JValue::Long(session_id as jlong),
+            JValue::Object(&JObject::from(arr)),
+            JValue::Long(pts_us),
+        ],
+    )
+    .map_err(|e| {
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+        format!("HwH264Encoder.encodeNv12: {e}")
+    })?;
+    Ok(())
+}
+
 pub fn hw_encoder_finish(session_id: i64) -> Result<(), String> {
     let mut env = attach()?;
     let class = env
@@ -135,7 +162,7 @@ pub fn hw_encoder_destroy(session_id: i64) {
 
 /// Called from MainActivity so worker threads can attach to the process JavaVM.
 #[no_mangle]
-pub extern "system" fn Java_org_untitled_story_storyteller_MainActivity_mssInstallJavaVm(
+pub extern "system" fn Java_org_untitled_1story_storyteller_MainActivity_mssInstallJavaVm(
     mut env: jni::JNIEnv,
     _this: jni::objects::JClass,
 ) {

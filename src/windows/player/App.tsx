@@ -1257,7 +1257,8 @@ async function runExportPipeline({
 
   const pixelReader = createPixelReader(app, exportWidth, exportHeight, frameByteLength)
   // Higher inflight + larger batches; HTTP 503 still provides backpressure.
-  const maxInflight = isMobileRuntime() ? 1 : isWorker ? 3 : 4
+  // Allow modest overlap with encode once the worker stays alive.
+  const maxInflight = isMobileRuntime() ? 2 : isWorker ? 3 : 4
   const freeBatches: Uint8Array[] = Array.from(
     { length: maxInflight },
     () => new Uint8Array(frameByteLength * batchFrames)

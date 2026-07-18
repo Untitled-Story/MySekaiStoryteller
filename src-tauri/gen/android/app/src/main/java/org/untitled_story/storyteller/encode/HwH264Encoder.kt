@@ -112,6 +112,26 @@ object HwH264Encoder {
     }
   }
 
+  /** Prefer this path: caller already converted to NV12 (smaller JNI payload). */
+  @JvmStatic
+  fun encodeNv12(sessionId: Long, nv12: ByteArray, ptsUs: Long): Unit {
+    val session = sessions[sessionId] ?: throw IllegalStateException("unknown session $sessionId")
+    synchronized(session.lock) {
+      if (session.finished) return
+      val expected = session.width * session.height * 3 / 2
+      if (nv12.size < expected) {
+        throw IllegalArgumentException("nv12 too small ${nv12.size} < $expected")
+      }
+      if (nv12.size == session.nv12.size) {
+        System.arraycopy(nv12, 0, session.nv12, 0, expected)
+        queueInput(session, session.nv12, ptsUs, endOfStream = false)
+      } else {
+        queueInput(session, nv12, ptsUs, endOfStream = false)
+      }
+      drainOutput(session, endOfStream = false)
+    }
+  }
+
   @JvmStatic
   fun finish(sessionId: Long): Unit {
     val session = sessions.remove(sessionId) ?: return

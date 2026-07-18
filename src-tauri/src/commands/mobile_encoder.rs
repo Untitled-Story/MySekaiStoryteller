@@ -102,6 +102,8 @@ pub fn run_mobile_encode_worker(
                         std::sync::Arc::clone(&stop_flag),
                         session,
                         frame_bytes,
+                        width as usize,
+                        height as usize,
                         fps,
                     );
                 }));
@@ -303,11 +305,14 @@ fn run_hw_encode_loop(
     stop_flag: std::sync::Arc<AtomicBool>,
     session: i64,
     frame_bytes: usize,
+    width: usize,
+    height: usize,
     fps: u32,
 ) {
     let mut frame_index: u64 = 0;
     let sample_duration_us: i64 = (1_000_000i64 / i64::from(fps.max(1))).max(1);
     let mut encode_error: Option<String> = None;
+    let mut nv12 = vec![0u8; width.saturating_mul(height).saturating_mul(3) / 2];
 
     loop {
         if stop_flag.load(Ordering::Relaxed) {
@@ -333,9 +338,10 @@ fn run_hw_encode_loop(
                     let start = i * frame_bytes;
                     let frame = &data[start..start + frame_bytes];
                     let pts = (frame_index as i64).saturating_mul(sample_duration_us);
-                    if let Err(e) =
-                        crate::commands::mobile_hw_encoder::hw_encoder_encode(session, frame, pts)
-                    {
+                    rgba_to_nv12(frame, width, height, &mut nv12);
+                    if let Err(e) = crate::commands::mobile_hw_encoder::hw_encoder_encode_nv12(
+                        session, &nv12, pts,
+                    ) {
                         log::error!(target: "backend::render", "mobile MediaCodec encode failed: {e}");
                         encode_error = Some(e);
                         stop_flag.store(true, Ordering::Relaxed);
@@ -369,8 +375,11 @@ fn run_hw_encode_loop(
                         let start = i * frame_bytes;
                         let frame = &data[start..start + frame_bytes];
                         let pts = (frame_index as i64).saturating_mul(sample_duration_us);
-                        if crate::commands::mobile_hw_encoder::hw_encoder_encode(session, frame, pts)
-                            .is_ok()
+                        rgba_to_nv12(frame, width, height, &mut nv12);
+                        if crate::commands::mobile_hw_encoder::hw_encoder_encode_nv12(
+                            session, &nv12, pts,
+                        )
+                        .is_ok()
                         {
                             frame_index = frame_index.saturating_add(1);
                         }
@@ -388,6 +397,36 @@ fn run_hw_encode_loop(
         Err(e) => {
             log::error!(target: "backend::render", "mobile MediaCodec finish failed: {e}");
             crate::commands::mobile_hw_encoder::hw_encoder_destroy(session);
+        }
+    }
+}
+
+/// BT.601 full-range-ish RGBA → NV12 for MediaCodec.
+#[cfg(target_os = "android")]
+fn rgba_to_nv12(rgba: &[u8], width: usize, height: usize, out: &mut [u8]) {
+    let frame = width * height;
+    let mut y_i = 0usize;
+    let mut uv_i = frame;
+    let mut i = 0usize;
+    for row in 0..height {
+        for col in 0..width {
+            let r = rgba[i] as i32;
+            let g = rgba[i + 1] as i32;
+            let b = rgba[i + 2] as i32;
+            i += 4;
+            let mut y = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
+            y = y.clamp(0, 255);
+            out[y_i] = y as u8;
+            y_i += 1;
+            if row % 2 == 0 && col % 2 == 0 && uv_i + 1 < out.len() {
+                let mut u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
+                let mut v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
+                u = u.clamp(0, 255);
+                v = v.clamp(0, 255);
+                out[uv_i] = u as u8;
+                out[uv_i + 1] = v as u8;
+                uv_i += 2;
+            }
         }
     }
 }
