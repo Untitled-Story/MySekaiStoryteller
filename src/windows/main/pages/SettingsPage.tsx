@@ -26,8 +26,9 @@ import { SettingRow } from '@/windows/main/components/SettingRow'
 import { getDataFonts, getLogPath } from '@/workspace/api'
 import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
-import { FolderOpen, RotateCcw } from 'lucide-react'
+import { FileArchive, FolderOpen, RotateCcw } from 'lucide-react'
 import { describeError, logger } from '@/lib/logger'
+import { exportPreparedDiagnosticBundle, type DiagnosticExportResult } from '@/lib/diagnostics'
 import { getRuntimePlatform, isMobileRuntime } from '@/lib/platform'
 import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { useNavigate } from 'react-router'
@@ -65,6 +66,8 @@ export default function SettingsPage(): JSX.Element {
   const [logPath, setLogPath] = useState<string>(() => t('settings.logDefault'))
   const [shortcutConflict, setShortcutConflict] = useState<ShortcutConflict | null>(null)
   const [recordingShortcutId, setRecordingShortcutId] = useState<ShortcutCommandId | null>(null)
+  const [diagnosticExportStatus, setDiagnosticExportStatus] =
+    useState<DiagnosticExportStatus>('idle')
 
   useEffect(() => {
     setRenderPrecisionText(renderPrecisionToText(playback.renderPrecision))
@@ -124,6 +127,20 @@ export default function SettingsPage(): JSX.Element {
       logger.info('settings.log_directory_opened')
     } catch (error: unknown) {
       logger.error('settings.log_directory_open_failed', { error: describeError(error) })
+    }
+  }
+
+  const handleExportDiagnostics = async (): Promise<void> => {
+    setDiagnosticExportStatus('exporting')
+    try {
+      const result: DiagnosticExportResult = await exportPreparedDiagnosticBundle()
+      setDiagnosticExportStatus(result === 'saved' ? 'saved' : 'idle')
+      if (result === 'saved') {
+        logger.info('settings.diagnostic_exported')
+      }
+    } catch (error: unknown) {
+      logger.error('settings.diagnostic_export_failed', { error: describeError(error) })
+      setDiagnosticExportStatus('error')
     }
   }
 
@@ -227,6 +244,45 @@ export default function SettingsPage(): JSX.Element {
           </div>
         </>
       ) : null}
+
+      <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
+        <h2 className="text-2xl font-semibold leading-tight">{t('settings.diagnostics')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.diagnosticsDescription')}</p>
+      </div>
+
+      <div className="w-full max-w-2xl divide-y divide-border">
+        <SettingRow
+          title={t('settings.diagnosticReport')}
+          description={t('settings.diagnosticReportDescription')}
+        >
+          <div className="flex flex-col items-end gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={diagnosticExportStatus === 'exporting'}
+              onClick={(): void => void handleExportDiagnostics()}
+            >
+              <FileArchive className="mr-1.5 h-3.5 w-3.5" />
+              {diagnosticExportStatus === 'exporting'
+                ? t('settings.generatingDiagnosticReport')
+                : t('settings.generateDiagnosticReport')}
+            </Button>
+            {diagnosticExportStatus === 'saved' || diagnosticExportStatus === 'error' ? (
+              <p
+                className={cn(
+                  'max-w-72 text-right text-xs',
+                  diagnosticExportStatus === 'error' ? 'text-destructive' : 'text-muted-foreground'
+                )}
+                aria-live="polite"
+              >
+                {diagnosticExportStatus === 'saved'
+                  ? t('settings.diagnosticReportSaved')
+                  : t('settings.diagnosticReportFailed')}
+              </p>
+            ) : null}
+          </div>
+        </SettingRow>
+      </div>
 
       <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl leading-tight font-semibold">{t('settings.interaction')}</h2>
@@ -449,6 +505,8 @@ type ShortcutConflict = {
   id: ShortcutCommandId
   message: string
 }
+
+type DiagnosticExportStatus = 'idle' | 'exporting' | 'saved' | 'error'
 
 const EDITOR_SHORTCUT_COMMANDS: readonly ShortcutCommandDefinition[] = [
   {
