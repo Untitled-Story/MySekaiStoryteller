@@ -302,7 +302,6 @@ export function createStoryScene({
 
         if (state.backgroundKey !== previousState.backgroundKey && state.backgroundKey) {
           await this.setBackground(state.backgroundKey)
-          if (backgroundSprite) backgroundSprite.visible = true
         } else if (!state.backgroundKey && previousState.backgroundKey && backgroundSprite) {
           backgroundSprite.visible = false
         }
@@ -423,6 +422,7 @@ export function createStoryScene({
       }
 
       backgroundSprite.texture = texture
+      backgroundSprite.visible = true
       layoutBackgroundSprite(backgroundSprite, texture, app)
     },
     async showModel(options: StoryModelAppearOptions): Promise<void> {
