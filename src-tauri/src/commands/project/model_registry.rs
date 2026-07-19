@@ -294,13 +294,6 @@ fn inspect_archive(source: &Path) -> Result<ModelArchiveInspection, String> {
     if !source.is_file() {
         return Err("选择的 ZIP 不存在或不是普通文件".into());
     }
-    if !source
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-    {
-        return Err("请选择 *.zip 模型压缩包".into());
-    }
 
     let file = File::open(source).map_err(|error| format!("打开模型 ZIP 失败: {error}"))?;
     let mut archive = ZipArchive::new(file).map_err(|error| format!("模型 ZIP 无效: {error}"))?;
@@ -721,6 +714,12 @@ mod tests {
 
         let inspection = inspect_archive(&archive_path).expect("inspect archive");
         assert_eq!(inspection.candidates.len(), 2);
+        let extensionless_inspection =
+            inspect_archive(&extensionless_archive).expect("inspect extensionless archive");
+        assert_eq!(
+            extensionless_inspection.candidates.len(),
+            inspection.candidates.len()
+        );
         let selected = select_archive_entry(&inspection, None).expect("select unique entry");
         assert_eq!(selected, "wrapper/character.model3.json");
         let entry = read_archive_json(&archive_path, &selected).expect("read archive entry");
