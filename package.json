@@ -4,6 +4,7 @@
   "private": true,
   "description": "A Live2D reading tool in Project SEKAI style",
   "author": "GuangChen233",
+  "license": "GPL-3.0-only",
   "homepage": "https://github.com/Untitled-Story/MySekaiStoryteller/",
   "packageManager": "pnpm@10.15.1",
   "scripts": {
