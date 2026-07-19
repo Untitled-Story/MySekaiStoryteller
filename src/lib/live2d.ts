@@ -27,7 +27,8 @@ export async function loadSekaiLive2DModel(
     ticker: options.ticker,
     autoFocus: false,
     autoHitTest: false,
-    breathDepth: 0
+    breathDepth: 0,
+    anchorMode: 'canvas'
   }
 
   return engine.Live2DModel.from(modelUrl, factoryOptions)
