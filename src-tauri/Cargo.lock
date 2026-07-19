@@ -2316,7 +2316,7 @@ dependencies = [
 
 [[package]]
 name = "my-sekai-storyteller"
-version = "1.0.0-beta.11"
+version = "1.0.0-beta.12"
 dependencies = [
  "http",
  "log",

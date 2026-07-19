@@ -34,7 +34,7 @@
 - Keep files/components PascalCase; hooks camelCase; types/interfaces PascalCase.
 - Avoid `any`; keep explicit, safe types unless an exceptional boundary demands otherwise (document why).
 - All variables and function/method return values must have explicit type annotations; do not rely on inference at implementation boundaries. When touching legacy code, bring the touched scope into compliance.
-- Run `pnpm lint` and `pnpm format` before changes; Prettier (spaces, semicolons off) and ESLint configs are provided.
+- Prettier (spaces, semicolons off) and ESLint configs are provided. The commit hook formats staged files automatically, so pure formatting errors may be left to the hook and should not block a commit; type or semantic lint errors must still be fixed.
 - If a file only exports a single function, name the file in camelCase.
 - Frontend communicates with backend via `invoke()` from `@tauri-apps/api/core`.
 - Inter-window communication uses Tauri event system (`emit`/`listen`).
@@ -55,7 +55,7 @@
 - Preserve `src/lib/projectAssetUrl.ts`'s segment-by-segment encoding and protocol-base resolution. Passing a complete hierarchical path directly to `convertFileSrc` breaks model-relative assets on Windows; keep the regression protection from commit `1c387fe2` intact.
 - Keep dynamic Tauri window commands asynchronous. Creating WebView2 windows from synchronous commands can deadlock Windows' COM message pump.
 - On Android/iOS, handle file-picker `content://`-style sources as opaque inputs rather than assuming ordinary filesystem paths. Native-only APIs and plugins must be platform-gated and must not break desktop builds.
-- Generated Tauri capability/schema output can vary by the platform that ran the CLI. Do not commit large generated-schema churn unless the source capabilities actually changed and the generated output is intentionally synchronized.
+- Generated Tauri capability/schema output can vary by the platform that ran the CLI. Schema generation/check issues may be ignored when the source capabilities did not change; do not regenerate or commit generated-schema churn only to silence platform-specific output. Commit generated schemas only when the source capabilities actually changed and the output is intentionally synchronized.
 - Before finishing platform-sensitive changes, verify the shared frontend (`pnpm typecheck`, lint/build as appropriate), Rust desktop code (`cargo check`), and the affected native target (for example an Android Gradle compile task). Document any target that could not be checked locally.
 
 ## Testing Guidelines
