@@ -519,6 +519,16 @@ export const ja: typeof en = {
   errorBoundary: {
     title: '画面を起動できませんでした',
     description:
-      'エラーをログに記録しました。アプリを再起動し、問題が続く場合はログフォルダーのfrontend.logを提供してください。'
+      'エラーをログに記録しました。アプリを再起動し、問題が続く場合は診断パッケージをエクスポートして報告に添付してください。'
+  },
+  diagnostics: {
+    saveTitle: '診断パッケージを保存',
+    fileType: '診断 ZIP',
+    export: '診断パッケージをエクスポート',
+    exporting: 'エクスポート中…',
+    exportComplete: '診断パッケージを保存しました。',
+    exportFailed: '診断パッケージをエクスポートできませんでした。',
+    privacyNotice:
+      'ログにはローカルファイルのパスやプロジェクト名が含まれる場合があります。プロジェクトファイルは含まれません。'
   }
 }

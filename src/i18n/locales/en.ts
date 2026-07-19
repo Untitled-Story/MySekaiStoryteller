@@ -522,6 +522,16 @@ export const en: LocaleShape = {
   errorBoundary: {
     title: 'Interface failed to start',
     description:
-      'The error was written to the log. Restart the app; if it continues, provide frontend.log from the log folder.'
+      'The error was written to the log. Restart the app; if it continues, export the diagnostic bundle and attach it to your report.'
+  },
+  diagnostics: {
+    saveTitle: 'Save diagnostic bundle',
+    fileType: 'Diagnostic ZIP',
+    export: 'Export diagnostic bundle',
+    exporting: 'Exporting…',
+    exportComplete: 'Diagnostic bundle saved.',
+    exportFailed: 'Could not export the diagnostic bundle.',
+    privacyNotice:
+      'Logs may contain local file paths and project names. Project files are not included.'
   }
 }

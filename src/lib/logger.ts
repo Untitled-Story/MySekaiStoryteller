@@ -4,6 +4,7 @@ import {
   info as writeInfo,
   warn as writeWarn
 } from '@tauri-apps/plugin-log'
+import { captureFatalDiagnostic } from '@/lib/diagnostics'
 
 export type FrontendWindowName = 'main' | 'editor' | 'player'
 export type LogDetails = Readonly<Record<string, unknown>>
@@ -79,18 +80,32 @@ function describeErrorValue(error: unknown, seen: Set<Error>): LogDetails {
 }
 
 function handleWindowError(event: ErrorEvent): void {
-  logger.error('window.error', {
+  const details: LogDetails = {
     message: event.message,
     filename: event.filename,
     line: event.lineno,
     column: event.colno,
     error: describeError(event.error)
+  }
+  logger.error('window.error', details)
+  captureFatalDiagnostic({
+    event: 'window.error',
+    window: activeWindow,
+    session: sessionId,
+    details
   })
 }
 
 function handleUnhandledRejection(event: PromiseRejectionEvent): void {
-  logger.error('window.unhandledrejection', {
+  const details: LogDetails = {
     reason: describeError(event.reason)
+  }
+  logger.error('window.unhandledrejection', details)
+  captureFatalDiagnostic({
+    event: 'window.unhandledrejection',
+    window: activeWindow,
+    session: sessionId,
+    details
   })
 }
 

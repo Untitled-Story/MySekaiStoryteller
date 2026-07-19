@@ -503,6 +503,15 @@ export const zhCN = {
   snippetPlaceholders: { unnamed: '未命名', dialogue: '输入台词', title: '输入标题' },
   errorBoundary: {
     title: '界面启动失败',
-    description: '错误已经写入日志文件。请重启应用；如果问题持续，请提供日志目录中的 frontend.log。'
+    description: '错误已经写入日志文件。请重启应用；如果问题持续，请导出诊断包并附在问题报告中。'
+  },
+  diagnostics: {
+    saveTitle: '保存诊断包',
+    fileType: '诊断 ZIP',
+    export: '导出诊断包',
+    exporting: '正在导出…',
+    exportComplete: '诊断包已保存。',
+    exportFailed: '诊断包导出失败。',
+    privacyNotice: '日志可能包含本地文件路径和项目名称，但不会包含项目文件。'
   }
 } as const

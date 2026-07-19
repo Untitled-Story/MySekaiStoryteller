@@ -506,6 +506,15 @@ export const zhHK: LocaleShape = {
   errorBoundary: {
     title: '介面啟動失敗',
     description:
-      '錯誤已寫入日誌檔案。請重新啟動應用程式；如果問題持續，請提供日誌目錄中的 frontend.log。'
+      '錯誤已寫入日誌檔案。請重新啟動應用程式；如果問題持續，請匯出診斷包並附在問題報告中。'
+  },
+  diagnostics: {
+    saveTitle: '儲存診斷包',
+    fileType: '診斷 ZIP',
+    export: '匯出診斷包',
+    exporting: '正在匯出…',
+    exportComplete: '診斷包已儲存。',
+    exportFailed: '診斷包匯出失敗。',
+    privacyNotice: '日誌可能包含本機檔案路徑和專案名稱，但不會包含專案檔案。'
   }
 }

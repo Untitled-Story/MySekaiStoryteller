@@ -1,7 +1,7 @@
 mod commands;
 mod protocol;
 
-use commands::{file_open, project, settings, window};
+use commands::{diagnostics, file_open, project, settings, window};
 use log::LevelFilter;
 #[cfg(desktop)]
 use std::path::PathBuf;
@@ -112,6 +112,8 @@ pub fn run() {
             );
         })
         .invoke_handler(tauri::generate_handler![
+            diagnostics::prepare_diagnostic_bundle,
+            diagnostics::export_diagnostic_bundle,
             settings::get_settings,
             settings::save_settings,
             file_open::get_pending_project_imports,
