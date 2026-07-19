@@ -243,6 +243,8 @@ export const ja: typeof en = {
     assets: 'リソース',
     searchSnippets: 'スニペットを検索',
     searchAssets: 'リソースを検索',
+    searchAddableSnippets: '追加するスニペットを検索',
+    noMatchingSnippets: '一致するスニペットはありません',
     addSnippet: 'スニペットを追加',
     emptyStory: 'スニペットがありません',
     previewFromHere: 'ここからプレビュー',

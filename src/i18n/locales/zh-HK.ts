@@ -235,6 +235,8 @@ export const zhHK: LocaleShape = {
     assets: '資源',
     searchSnippets: '搜尋片段',
     searchAssets: '搜尋資源',
+    searchAddableSnippets: '搜尋要加入的片段',
+    noMatchingSnippets: '沒有符合的片段',
     addSnippet: '加入片段',
     emptyStory: '目前場景沒有片段',
     previewFromHere: '從此處預覽',

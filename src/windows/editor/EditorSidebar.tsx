@@ -1,5 +1,10 @@
-import type { ChangeEvent, JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { useRef, useState } from 'react'
+import type {
+  ChangeEvent,
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLongPressContextMenu } from '@/hooks/useLongPressContextMenu'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -37,8 +42,13 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/ContextMenu'
-import { builtinSnippetDefinitions, type StoryAssetKind } from '@/story'
+import {
+  builtinSnippetDefinitions,
+  type BuiltinSnippetDefinition,
+  type StoryAssetKind
+} from '@/story'
 import type { ProjectAssetKind, ProjectAssets } from '@/project/assets'
+import { isDesktopRuntime } from '@/lib/platform'
 import { cn } from '@/lib/style'
 import {
   getAssetItems,
@@ -947,84 +957,218 @@ function AddSnippetDialog({
   onAdd: (type: AddableSnippetType) => void
 }): JSX.Element {
   const { t } = useTranslation()
-  const categories: readonly string[] = Array.from(
-    new Set(builtinSnippetDefinitions.map((definition): string => definition.category))
+  const desktopRuntime: boolean = isDesktopRuntime()
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [query, setQuery] = useState<string>('')
+  const normalizedQuery: string = query.trim().toLocaleLowerCase()
+  const filteredDefinitions: readonly BuiltinSnippetDefinition[] = builtinSnippetDefinitions.filter(
+    (definition: BuiltinSnippetDefinition): boolean => {
+      if (!normalizedQuery) return true
+      return [
+        definition.type,
+        definition.label,
+        localizeSnippetCategory(definition.category),
+        localizeSnippetDescription(definition)
+      ].some((value: string): boolean => value.toLocaleLowerCase().startsWith(normalizedQuery))
+    }
   )
+  const categories: readonly string[] = Array.from(
+    new Set(
+      filteredDefinitions.map((definition: BuiltinSnippetDefinition): string => definition.category)
+    )
+  )
+
+  useEffect((): void => {
+    if (!open) {
+      setQuery('')
+    }
+  }, [open])
+
+  function missingAssetKindsFor(definition: BuiltinSnippetDefinition): StoryAssetKind[] {
+    return Array.from(
+      new Set(
+        definition.fields.flatMap((field): StoryAssetKind[] =>
+          field.kind === 'asset' &&
+          !('optional' in field && field.optional) &&
+          Object.keys(assets[field.assetKind]).length === 0
+            ? [field.assetKind]
+            : []
+        )
+      )
+    )
+  }
+
+  function addFirstMatch(): void {
+    const firstMatch: BuiltinSnippetDefinition | undefined = filteredDefinitions[0]
+    if (firstMatch && missingAssetKindsFor(firstMatch).length === 0) onAdd(firstMatch.type)
+  }
+
+  const selectableDefinitions: readonly BuiltinSnippetDefinition[] = filteredDefinitions.filter(
+    (definition: BuiltinSnippetDefinition): boolean => missingAssetKindsFor(definition).length === 0
+  )
+
+  function focusDefinition(dialogContent: HTMLElement, type: AddableSnippetType): void {
+    const button: HTMLButtonElement | undefined = Array.from(
+      dialogContent.querySelectorAll<HTMLButtonElement>('[data-snippet-option]')
+    ).find((element: HTMLButtonElement): boolean => element.dataset.snippetOption === type)
+    button?.focus()
+  }
+
+  function focusFirstSelectableDefinition(dialogContent: HTMLElement): void {
+    const firstDefinition: BuiltinSnippetDefinition | undefined = selectableDefinitions[0]
+    if (firstDefinition) focusDefinition(dialogContent, firstDefinition.type)
+  }
+
+  function handleSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>): void {
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      const dialogContent: HTMLElement | null = event.currentTarget.closest<HTMLElement>(
+        '[data-slot="dialog-content"]'
+      )
+      if (dialogContent) focusFirstSelectableDefinition(dialogContent)
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      addFirstMatch()
+    }
+  }
+
+  function handleDefinitionKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    type: AddableSnippetType
+  ): void {
+    const currentIndex: number = selectableDefinitions.findIndex(
+      (definition: BuiltinSnippetDefinition): boolean => definition.type === type
+    )
+    if (currentIndex < 0) return
+
+    let nextIndex: number = currentIndex
+    if (event.key === 'ArrowLeft') nextIndex -= 1
+    if (event.key === 'ArrowRight') nextIndex += 1
+    if (event.key === 'ArrowUp') nextIndex -= 2
+    if (event.key === 'ArrowDown') nextIndex += 2
+
+    if (event.key === 'ArrowUp' && nextIndex < 0) {
+      event.preventDefault()
+      event.currentTarget
+        .closest<HTMLElement>('[data-slot="dialog-content"]')
+        ?.querySelector<HTMLInputElement>('[data-snippet-search]')
+        ?.focus()
+      return
+    }
+    if (nextIndex === currentIndex || nextIndex < 0 || nextIndex >= selectableDefinitions.length)
+      return
+
+    event.preventDefault()
+    const dialogContent: HTMLElement | null = event.currentTarget.closest<HTMLElement>(
+      '[data-slot="dialog-content"]'
+    )
+    if (dialogContent) focusDefinition(dialogContent, selectableDefinitions[nextIndex].type)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[80vh] max-w-[640px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden select-none">
+      <DialogContent
+        className={cn(
+          'max-h-[80vh] max-w-[640px] overflow-hidden select-none',
+          desktopRuntime ? 'grid-rows-[auto_auto_minmax(0,1fr)]' : 'grid-rows-[auto_minmax(0,1fr)]'
+        )}
+        onOpenAutoFocus={(event: Event): void => {
+          if (!desktopRuntime) return
+          event.preventDefault()
+          searchInputRef.current?.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t('editor.addSnippet')}</DialogTitle>
           <DialogDescription>{t('editor.addDialogDescription')}</DialogDescription>
         </DialogHeader>
+        {desktopRuntime ? (
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchInputRef}
+              data-snippet-search
+              aria-label={t('editor.searchAddableSnippets')}
+              placeholder={t('editor.searchAddableSnippets')}
+              value={query}
+              className="h-9 pl-8 text-sm"
+              onChange={(event: ChangeEvent<HTMLInputElement>): void =>
+                setQuery(event.currentTarget.value)
+              }
+              onKeyDown={handleSearchKeyDown}
+            />
+          </div>
+        ) : null}
         <div className="min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
-          {categories.map((category: string): JSX.Element => {
-            const definitions = builtinSnippetDefinitions.filter(
-              (definition): boolean => definition.category === category
-            )
-            return (
-              <section key={category}>
-                <p className="mb-2 text-xs font-medium text-muted-foreground">
-                  {localizeSnippetCategory(definitions[0].category)}
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {definitions.map((definition): JSX.Element => {
-                    const presentation: NodePresentation = NODE_PRESENTATIONS[definition.type]
-                    const Icon: LucideIcon = presentation.icon
-                    const missingAssetKinds: StoryAssetKind[] = Array.from(
-                      new Set(
-                        definition.fields.flatMap((field): StoryAssetKind[] =>
-                          field.kind === 'asset' &&
-                          !('optional' in field && field.optional) &&
-                          Object.keys(assets[field.assetKind]).length === 0
-                            ? [field.assetKind]
-                            : []
-                        )
-                      )
-                    )
-                    const unavailableMessage: string = missingAssetKinds
-                      .map((kind: StoryAssetKind): string => localizeAssetKind(kind))
-                      .join('、')
-                    return (
-                      <button
-                        key={definition.type}
-                        type="button"
-                        data-tour={definition.type === 'Talk' ? 'editor-add-talk' : undefined}
-                        className="flex min-w-0 items-center gap-3 rounded-md border p-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
-                        disabled={missingAssetKinds.length > 0}
-                        title={
-                          missingAssetKinds.length > 0
-                            ? t('editor.addRequiredAssets', { kinds: unavailableMessage })
-                            : undefined
-                        }
-                        onClick={(): void => onAdd(definition.type)}
-                      >
-                        <span
-                          className={cn(
-                            'flex size-8 shrink-0 items-center justify-center rounded-sm',
-                            TONE_CLASS_NAMES[presentation.tone]
-                          )}
+          {categories.length > 0 ? (
+            categories.map((category: string): JSX.Element => {
+              const definitions: readonly BuiltinSnippetDefinition[] = filteredDefinitions.filter(
+                (definition): boolean => definition.category === category
+              )
+              return (
+                <section key={category}>
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    {localizeSnippetCategory(definitions[0].category)}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {definitions.map((definition): JSX.Element => {
+                      const presentation: NodePresentation = NODE_PRESENTATIONS[definition.type]
+                      const Icon: LucideIcon = presentation.icon
+                      const missingAssetKinds: StoryAssetKind[] = missingAssetKindsFor(definition)
+                      const unavailableMessage: string = missingAssetKinds
+                        .map((kind: StoryAssetKind): string => localizeAssetKind(kind))
+                        .join('、')
+                      return (
+                        <button
+                          key={definition.type}
+                          type="button"
+                          data-snippet-option={definition.type}
+                          data-tour={definition.type === 'Talk' ? 'editor-add-talk' : undefined}
+                          className="flex min-w-0 items-center gap-3 rounded-md border p-3 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+                          disabled={missingAssetKinds.length > 0}
+                          title={
+                            missingAssetKinds.length > 0
+                              ? t('editor.addRequiredAssets', { kinds: unavailableMessage })
+                              : undefined
+                          }
+                          onClick={(): void => onAdd(definition.type)}
+                          onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>): void =>
+                            handleDefinitionKeyDown(event, definition.type)
+                          }
                         >
-                          <Icon className="size-4" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">
-                            {definition.label}
+                          <span
+                            className={cn(
+                              'flex size-8 shrink-0 items-center justify-center rounded-sm',
+                              TONE_CLASS_NAMES[presentation.tone]
+                            )}
+                          >
+                            <Icon className="size-4" />
                           </span>
-                          <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                            {missingAssetKinds.length > 0
-                              ? t('editor.requiresAssets', { kinds: unavailableMessage })
-                              : localizeSnippetDescription(definition)}
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">
+                              {definition.label}
+                            </span>
+                            <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                              {missingAssetKinds.length > 0
+                                ? t('editor.requiresAssets', { kinds: unavailableMessage })
+                                : localizeSnippetDescription(definition)}
+                            </span>
                           </span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            )
-          })}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+              )
+            })
+          ) : (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {t('editor.noMatchingSnippets')}
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -247,6 +247,8 @@ export const en: LocaleShape = {
     assets: 'Assets',
     searchSnippets: 'Search snippets',
     searchAssets: 'Search assets',
+    searchAddableSnippets: 'Search snippets to add',
+    noMatchingSnippets: 'No matching snippets',
     addSnippet: 'Add snippet',
     emptyStory: 'No snippets in this scene',
     previewFromHere: 'Preview from here',

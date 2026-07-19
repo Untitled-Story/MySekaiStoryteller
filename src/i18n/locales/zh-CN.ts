@@ -232,6 +232,8 @@ export const zhCN = {
     assets: '资源',
     searchSnippets: '搜索片段',
     searchAssets: '搜索资源',
+    searchAddableSnippets: '搜索要添加的片段',
+    noMatchingSnippets: '没有匹配的片段',
     addSnippet: '添加片段',
     emptyStory: '当前场景没有片段',
     previewFromHere: '从此处预览',
