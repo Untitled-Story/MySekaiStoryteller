@@ -12,6 +12,9 @@ import {
 } from './types'
 import { delaySeconds, isStoryAbortError, throwIfAborted } from './timing'
 import { createBuiltinSnippetRegistry, type StorySnippetRegistry } from './snippets/registry'
+import { reduceStoryBeforeSnippet, reduceStorySnippet } from './reduceStory'
+import type { StorySceneState } from './state'
+import { createInitialStorySceneState } from './state'
 
 export default class StoryDispatcher {
   private readonly runtime: StoryRuntime
@@ -21,8 +24,7 @@ export default class StoryDispatcher {
   private readonly onEvent?: (event: StoryDispatcherEvent) => void
   private status: StoryDispatcherStatus = 'idle'
   private activeStory: StoryData | null = null
-  private targetReachedPromise: Promise<void> | null = null
-  private resolveTargetReached: (() => void) | null = null
+  private logicalState: StorySceneState | null = null
 
   constructor(
     runtime: StoryRuntime,
@@ -59,7 +61,8 @@ export default class StoryDispatcher {
     if (this.status === 'completed' || this.status === 'cancelled' || this.status === 'failed')
       return
     this.abortController.abort()
-    this.runtime.clock.cancel()
+    this.runtime.scene.invalidateState()
+    this.runtime.clock.interrupt()
   }
 
   async run(story: StoryData): Promise<void> {
@@ -71,38 +74,47 @@ export default class StoryDispatcher {
       throw new Error(`Story snippet 不存在: ${snippetId}`)
     }
 
-    await this.runInternal(story, snippetId, options.pauseAfterSnippetId ?? null)
+    await this.runInternal(
+      story,
+      snippetId,
+      options.pauseAfterSnippetId ?? null,
+      options.initialState
+    )
   }
 
   private async runInternal(
     story: StoryData,
     targetSnippetId: string | null,
-    pauseAfterSnippetId: string | null
+    pauseAfterSnippetId: string | null,
+    initialState?: StorySceneState
   ): Promise<void> {
     if (this.status === 'running' || this.status === 'paused') {
       throw new Error('StoryDispatcher is already running')
     }
 
-    this.runtime.scene.setFastForwarding(targetSnippetId !== null)
-    this.targetReachedPromise = targetSnippetId
-      ? new Promise<void>((resolve: () => void): void => {
-          this.resolveTargetReached = resolve
-        })
-      : null
     this.status = 'running'
     this.activeStory = story
     this.emit({ type: 'story:start', story })
 
     const externalAbort = (): void => {
       this.abortController.abort()
-      this.runtime.clock.cancel()
+      this.runtime.scene.invalidateState()
+      this.runtime.clock.interrupt()
     }
     this.externalSignal?.addEventListener('abort', externalAbort, { once: true })
 
     try {
       throwIfAborted(this.signal)
       await this.waitForPlayback()
-      await this.runSequence(story.snippets, [], targetSnippetId, pauseAfterSnippetId)
+      if (targetSnippetId) {
+        this.logicalState = initialState ?? reduceStoryBeforeSnippet(story, targetSnippetId)
+        await this.runtime.scene.restoreState(this.logicalState)
+        await this.runSequenceFrom(story.snippets, [], targetSnippetId, pauseAfterSnippetId)
+      } else {
+        this.logicalState = createInitialStorySceneState()
+        await this.runtime.scene.restoreState(this.logicalState)
+        await this.runSequence(story.snippets, [], pauseAfterSnippetId)
+      }
       // A requested pause can happen after the final snippet has completed. Keep the
       // run suspended at that position until the caller explicitly resumes it.
       await this.waitForPlayback()
@@ -120,57 +132,96 @@ export default class StoryDispatcher {
       throw error
     } finally {
       this.runtime.scene.setFastForwarding(false)
-      this.targetReachedPromise = null
-      this.resolveTargetReached = null
       this.externalSignal?.removeEventListener('abort', externalAbort)
       this.activeStory = null
+      this.logicalState = null
     }
   }
 
   private async runSequence(
     snippets: readonly SnippetData[],
     path: readonly number[],
-    targetSnippetId: string | null,
     pauseAfterSnippetId: string | null
   ): Promise<void> {
     for (let index = 0; index < snippets.length; index += 1) {
       throwIfAborted(this.signal)
       await this.waitForPlayback()
-      await this.runSnippet(snippets[index], [...path, index], targetSnippetId, pauseAfterSnippetId)
+      await this.runSnippet(snippets[index], [...path, index], pauseAfterSnippetId)
+    }
+  }
+
+  private async runSequenceFrom(
+    snippets: readonly SnippetData[],
+    path: readonly number[],
+    targetSnippetId: string,
+    pauseAfterSnippetId: string | null
+  ): Promise<void> {
+    for (let index = 0; index < snippets.length; index += 1) {
+      const snippet: SnippetData = snippets[index]
+      const snippetPath: readonly number[] = [...path, index]
+
+      if (snippet.id === targetSnippetId) {
+        await this.runSnippet(snippet, snippetPath, pauseAfterSnippetId)
+        for (
+          let remainingIndex = index + 1;
+          remainingIndex < snippets.length;
+          remainingIndex += 1
+        ) {
+          await this.runSnippet(
+            snippets[remainingIndex],
+            [...path, remainingIndex],
+            pauseAfterSnippetId
+          )
+        }
+        return
+      }
+
+      if (snippet.type === 'Parallel' && findSnippetById(snippet.snippets, targetSnippetId)) {
+        await this.runParallelFrom(
+          snippet.snippets,
+          snippetPath,
+          targetSnippetId,
+          pauseAfterSnippetId
+        )
+        for (
+          let remainingIndex = index + 1;
+          remainingIndex < snippets.length;
+          remainingIndex += 1
+        ) {
+          await this.runSnippet(
+            snippets[remainingIndex],
+            [...path, remainingIndex],
+            pauseAfterSnippetId
+          )
+        }
+        return
+      }
     }
   }
 
   private async runSnippet(
     snippet: SnippetData,
     path: readonly number[],
-    targetSnippetId: string | null,
-    pauseAfterSnippetId: string | null
+    pauseAfterSnippetId: string | null,
+    trackState = true
   ): Promise<void> {
     await this.waitForPlayback()
-
-    if (targetSnippetId !== null && snippet.id === targetSnippetId) {
-      this.runtime.scene.setFastForwarding(false)
-      this.resolveTargetReached?.()
-      this.resolveTargetReached = null
-    }
-
-    const fastForwarding: boolean = this.runtime.scene.fastForwarding
-    if (!fastForwarding) this.emit({ type: 'snippet:start', snippet, path })
+    this.emit({ type: 'snippet:start', snippet, path })
 
     try {
       if (snippet.type === 'Parallel') {
-        if (!fastForwarding) {
-          await delaySeconds(snippet.delay, this.signal, this.runtime.clock)
-        }
-        await this.runParallel(snippet.snippets, path, targetSnippetId, pauseAfterSnippetId)
+        await delaySeconds(snippet.delay, this.signal, this.runtime.clock)
+        await this.runParallel(snippet.snippets, path, pauseAfterSnippetId)
       } else {
         await this.runLeafSnippet(snippet, path)
       }
 
-      if (!fastForwarding) {
-        this.emit({ type: 'snippet:complete', snippet, path })
-        if (snippet.id === pauseAfterSnippetId) this.pause()
+      this.emit({ type: 'snippet:complete', snippet, path })
+      if (trackState && this.logicalState) {
+        this.logicalState = reduceStorySnippet(this.logicalState, snippet)
+        this.runtime.scene.commitState(this.logicalState)
       }
+      if (snippet.id === pauseAfterSnippetId) this.pause()
     } catch (error: unknown) {
       if (isStoryAbortError(error) || this.signal.aborted) {
         throw new StoryAbortError()
@@ -184,56 +235,45 @@ export default class StoryDispatcher {
   private async runParallel(
     snippets: readonly SnippetData[],
     path: readonly number[],
-    targetSnippetId: string | null,
     pauseAfterSnippetId: string | null
   ): Promise<void> {
-    if (!this.runtime.scene.fastForwarding) {
-      await Promise.all(
-        snippets.map(
-          (child: SnippetData, index: number): Promise<void> =>
-            this.runSnippet(child, [...path, index], targetSnippetId, pauseAfterSnippetId)
-        )
+    await Promise.all(
+      snippets.map(
+        (child: SnippetData, index: number): Promise<void> =>
+          this.runSnippet(child, [...path, index], pauseAfterSnippetId, false)
       )
-      return
-    }
+    )
+  }
 
+  private async runParallelFrom(
+    snippets: readonly SnippetData[],
+    path: readonly number[],
+    targetSnippetId: string,
+    pauseAfterSnippetId: string | null
+  ): Promise<void> {
     const targetBranchIndex: number = snippets.findIndex((child: SnippetData): boolean =>
       findSnippetById([child], targetSnippetId)
     )
-    if (targetBranchIndex < 0) {
-      for (let index = 0; index < snippets.length; index += 1) {
-        await this.runSnippet(
-          snippets[index],
-          [...path, index],
-          targetSnippetId,
-          pauseAfterSnippetId
-        )
-      }
-      return
-    }
+    if (targetBranchIndex < 0) return
 
-    for (let index = 0; index < targetBranchIndex; index += 1) {
-      await this.runSnippet(snippets[index], [...path, index], targetSnippetId, pauseAfterSnippetId)
-    }
-    const targetTask: Promise<void> = this.runSnippet(
-      snippets[targetBranchIndex],
-      [...path, targetBranchIndex],
-      targetSnippetId,
-      pauseAfterSnippetId
-    )
-    if (this.targetReachedPromise) {
-      await Promise.race([this.targetReachedPromise, targetTask])
-    }
+    const targetBranch: SnippetData = snippets[targetBranchIndex]
+    const targetPath: readonly number[] = [...path, targetBranchIndex]
+    const targetTask: Promise<void> =
+      targetBranch.id === targetSnippetId
+        ? this.runSnippet(targetBranch, targetPath, pauseAfterSnippetId)
+        : targetBranch.type === 'Parallel'
+          ? this.runParallelFrom(
+              targetBranch.snippets,
+              targetPath,
+              targetSnippetId,
+              pauseAfterSnippetId
+            )
+          : Promise.resolve()
     const remainingTasks: Promise<void>[] = snippets
       .slice(targetBranchIndex + 1)
       .map(
         (child: SnippetData, offset: number): Promise<void> =>
-          this.runSnippet(
-            child,
-            [...path, targetBranchIndex + offset + 1],
-            targetSnippetId,
-            pauseAfterSnippetId
-          )
+          this.runSnippet(child, [...path, targetBranchIndex + offset + 1], pauseAfterSnippetId)
       )
     await Promise.all([targetTask, ...remainingTasks])
   }

@@ -107,6 +107,10 @@ export class StoryVisualEffectManager {
     )
   }
 
+  async clear(durationMs = 0): Promise<void> {
+    await this.removeMatching((): boolean => true, durationMs)
+  }
+
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true

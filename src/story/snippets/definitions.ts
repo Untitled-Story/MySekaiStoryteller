@@ -22,6 +22,24 @@ import TalkSnippet from './builtin/TalkSnippet'
 import TelopSnippet from './builtin/TelopSnippet'
 import ApplyEffectSnippet from './builtin/ApplyEffectSnippet'
 import RemoveEffectSnippet from './builtin/RemoveEffectSnippet'
+import type { StorySnippetReducer } from '@/story/state'
+import {
+  reduceApplyEffect,
+  reduceChangeBackgroundImage,
+  reduceChangeLayoutMode,
+  reduceDoParam,
+  reduceHideTalk,
+  reduceLayoutAppear,
+  reduceLayoutClear,
+  reduceMotion,
+  reduceMove,
+  reduceParallel,
+  reduceRemoveEffect,
+  reduceScreenFadeIn,
+  reduceScreenFadeOut,
+  reduceTalk,
+  reduceTelop
+} from './reducers'
 
 export type StoryAssetKind = 'models' | 'backgrounds' | 'voices'
 
@@ -110,6 +128,7 @@ export type BuiltinSnippetDefinition = {
   fields: readonly StorySnippetFieldDefinition[]
   create(id: string, assets: ProjectAssets): SnippetData
   summary(snippet: SnippetData): string
+  reduce: StorySnippetReducer
   runtime?: StorySnippetRegistration
 }
 
@@ -159,6 +178,7 @@ export const builtinSnippetDefinitions = [
     }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'ChangeLayoutMode' ? snippet.data.mode : '',
+    reduce: reduceChangeLayoutMode,
     runtime: { type: 'ChangeLayoutMode', constructor: ChangeLayoutModeSnippet }
   },
   {
@@ -182,6 +202,7 @@ export const builtinSnippetDefinitions = [
     }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'ChangeBackgroundImage' ? snippet.data.background || '未选择背景' : '',
+    reduce: reduceChangeBackgroundImage,
     runtime: { type: 'ChangeBackgroundImage', constructor: ChangeBackgroundImageSnippet }
   },
   {
@@ -197,7 +218,8 @@ export const builtinSnippetDefinitions = [
       snippets: []
     }),
     summary: (snippet: SnippetData): string =>
-      snippet.type === 'Parallel' ? `${snippet.snippets.length} 个并行子片段` : ''
+      snippet.type === 'Parallel' ? `${snippet.snippets.length} 个并行子片段` : '',
+    reduce: reduceParallel
   },
   {
     type: 'LayoutAppear',
@@ -219,6 +241,7 @@ export const builtinSnippetDefinitions = [
     }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'LayoutAppear' ? snippet.data.model || '未选择模型' : '',
+    reduce: reduceLayoutAppear,
     runtime: { type: 'LayoutAppear', constructor: LayoutAppearSnippet }
   },
   {
@@ -235,6 +258,7 @@ export const builtinSnippetDefinitions = [
     }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'LayoutClear' ? snippet.data.model || '未选择模型' : '',
+    reduce: reduceLayoutClear,
     runtime: { type: 'LayoutClear', constructor: LayoutClearSnippet }
   },
   {
@@ -264,6 +288,7 @@ export const builtinSnippetDefinitions = [
       snippet.type === 'Talk'
         ? `${snippet.data.speaker || '未命名'}: ${truncate(snippet.data.content, 26)}`
         : '',
+    reduce: reduceTalk,
     runtime: { type: 'Talk', constructor: TalkSnippet }
   },
   {
@@ -274,6 +299,7 @@ export const builtinSnippetDefinitions = [
     fields: [],
     create: (id: string): SnippetData => ({ id, type: 'HideTalk', delay: 0 }),
     summary: (): string => '隐藏台词框',
+    reduce: reduceHideTalk,
     runtime: { type: 'HideTalk', constructor: HideTalkSnippet }
   },
   {
@@ -297,6 +323,7 @@ export const builtinSnippetDefinitions = [
       snippet.type === 'Move'
         ? `${snippet.data.model || '未选择模型'} -> ${snippet.data.to.side}`
         : '',
+    reduce: reduceMove,
     runtime: { type: 'Move', constructor: MoveSnippet }
   },
   {
@@ -333,6 +360,7 @@ export const builtinSnippetDefinitions = [
       snippet.type === 'Motion'
         ? `${snippet.data.model || '未选择模型'} · ${snippet.data.motion ?? snippet.data.facial ?? '无动作'}`
         : '',
+    reduce: reduceMotion,
     runtime: { type: 'Motion', constructor: MotionSnippet }
   },
   {
@@ -346,6 +374,7 @@ export const builtinSnippetDefinitions = [
     create: (id: string): SnippetData => ({ id, type: 'Telop', delay: 0, data: { content: '' } }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'Telop' ? truncate(snippet.data.content, 26) : '',
+    reduce: reduceTelop,
     runtime: { type: 'Telop', constructor: TelopSnippet }
   },
   {
@@ -370,6 +399,7 @@ export const builtinSnippetDefinitions = [
       snippet.type === 'DoParam'
         ? `${snippet.data.model || '未选择模型'} · ${snippet.data.params.length} 个参数`
         : '',
+    reduce: reduceDoParam,
     runtime: { type: 'DoParam', constructor: DoParamSnippet }
   },
   {
@@ -389,6 +419,7 @@ export const builtinSnippetDefinitions = [
     }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'ScreenFadeOut' ? `${snippet.data.color} · ${snippet.data.duration}s` : '',
+    reduce: reduceScreenFadeOut,
     runtime: { type: 'ScreenFadeOut', constructor: ScreenFadeOutSnippet }
   },
   {
@@ -407,6 +438,7 @@ export const builtinSnippetDefinitions = [
     }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'ScreenFadeIn' ? `${snippet.data.duration}s` : '',
+    reduce: reduceScreenFadeIn,
     runtime: { type: 'ScreenFadeIn', constructor: ScreenFadeInSnippet }
   },
   {
@@ -448,6 +480,7 @@ export const builtinSnippetDefinitions = [
       snippet.type === 'ApplyEffect'
         ? `${effectLabel(snippet.data.effect.type)} · ${effectTargetLabel(snippet.data.target)}`
         : '',
+    reduce: reduceApplyEffect,
     runtime: { type: 'ApplyEffect', constructor: ApplyEffectSnippet }
   },
   {
@@ -482,6 +515,7 @@ export const builtinSnippetDefinitions = [
     }),
     summary: (snippet: SnippetData): string =>
       snippet.type === 'RemoveEffect' ? `${snippet.data.effectId} · ${snippet.data.duration}s` : '',
+    reduce: reduceRemoveEffect,
     runtime: { type: 'RemoveEffect', constructor: RemoveEffectSnippet }
   }
 ] as const satisfies readonly BuiltinSnippetDefinition[]

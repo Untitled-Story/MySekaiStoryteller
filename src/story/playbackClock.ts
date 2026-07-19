@@ -110,12 +110,9 @@ export class StoryPlaybackClock {
     })
   }
 
-  cancel(): void {
+  interrupt(): void {
     if (this.destroyed) return
-
-    this.destroyed = true
     this.paused = false
-    this.app.ticker.remove(this.tick)
     this.app.ticker.start()
     resumeSekaiLive2DSounds(this)
 
@@ -128,6 +125,14 @@ export class StoryPlaybackClock {
       resolve()
     }
     this.resumeWaiters.clear()
+  }
+
+  cancel(): void {
+    if (this.destroyed) return
+
+    this.interrupt()
+    this.destroyed = true
+    this.app.ticker.remove(this.tick)
   }
 
   private advance(rawDeltaMs: number): void {

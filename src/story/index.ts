@@ -86,6 +86,24 @@ export {
 } from './runtime'
 export { StoryPlaybackClock } from './playbackClock'
 export {
+  createInitialStoryModelSceneState,
+  createInitialStorySceneState,
+  type StoryDialogueSceneState,
+  type StoryEffectSceneState,
+  type StoryFadeSceneState,
+  type StoryModelLastFrameState,
+  type StoryModelSceneState,
+  type StorySceneState,
+  type StorySnippetReduceContext,
+  type StorySnippetReducer
+} from './state'
+export {
+  reduceStory,
+  reduceStoryBeforeSnippet,
+  reduceStorySnippet,
+  StoryStatePrefixCache
+} from './reduceStory'
+export {
   preloadStoryModels,
   StoryModelPreloadError,
   type PreloadStoryModelsOptions

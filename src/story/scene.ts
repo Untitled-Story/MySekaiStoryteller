@@ -45,6 +45,8 @@ import { DEFAULT_PLAYBACK_FONT_FAMILY } from '@/settings/fonts'
 import uiTelopUrl from '@/story/assets/ui/ui_telop.svg?url'
 import uiTextBackgroundUrl from '@/story/assets/ui/ui_text_background.svg?url'
 import uiTextUnderlineUrl from '@/story/assets/ui/ui_text_underline.svg?url'
+import { createInitialStorySceneState } from './state'
+import type { StoryModelSceneState, StorySceneState } from './state'
 
 export type CreateStorySceneOptions = {
   app: Application
@@ -149,6 +151,11 @@ type ParallelMotionManagerLike = {
 type Live2DCoreModelLike = {
   setParamFloat?: (id: string, value: number, weight?: number) => unknown
   setParameterValueById?: (id: unknown, value: number, weight?: number) => unknown
+  parameters?: {
+    ids: string[]
+    values: Float32Array
+    defaultValues: Float32Array
+  }
 }
 
 type Live2DSettingsLike = {
@@ -217,6 +224,7 @@ export function createStoryScene({
   let destroyed = false
   let fastForwarding = false
   let layoutMode: LayoutModeData = LayoutModes.Normal
+  let restoredState: StorySceneState | null = createInitialStorySceneState()
   const positionedModelKeys = new Set<string>()
   let previousStageSize: [number, number] = getStageSize(app)
   const animateLinear = (animation: (progress: number) => void, timeMs: number): Promise<void> => {
@@ -259,6 +267,147 @@ export function createStoryScene({
     },
     setFastForwarding(enabled: boolean): void {
       fastForwarding = enabled
+    },
+    commitState(state: StorySceneState): void {
+      restoredState = state
+    },
+    invalidateState(): void {
+      restoredState = null
+    },
+    async restoreState(state: StorySceneState): Promise<void> {
+      const previousFastForwarding: boolean = fastForwarding
+      fastForwarding = true
+
+      try {
+        if (!restoredState) {
+          await visualEffectManager.clear(0)
+          for (const instance of models.values()) {
+            resetModelParameters(instance.model)
+            ensureAlphaFilter(instance.model).alpha = 0
+            instance.model.visible = false
+            instance.model.removeFromParent()
+          }
+          positionedModelKeys.clear()
+          if (backgroundSprite) backgroundSprite.visible = false
+          if (dialogueUi || dialogueUiPromise) {
+            await this.hideDialogue()
+            resetTelopUi(await getDialogueUi())
+          }
+          if (fadeOverlay) await this.fadeIn({ duration: 0 })
+          restoredState = createInitialStorySceneState()
+        }
+        const previousState: StorySceneState = restoredState
+        const layoutChanged: boolean = previousState.layoutMode !== state.layoutMode
+        layoutMode = state.layoutMode
+
+        if (state.backgroundKey !== previousState.backgroundKey && state.backgroundKey) {
+          await this.setBackground(state.backgroundKey)
+          if (backgroundSprite) backgroundSprite.visible = true
+        } else if (!state.backgroundKey && previousState.backgroundKey && backgroundSprite) {
+          backgroundSprite.visible = false
+        }
+
+        const modelKeys: Set<string> = new Set([
+          ...Object.keys(previousState.models),
+          ...Object.keys(state.models)
+        ])
+        for (const modelKey of modelKeys) {
+          const previousModel: StoryModelSceneState | undefined = previousState.models[modelKey]
+          const nextModel: StoryModelSceneState | undefined = state.models[modelKey]
+          if (!nextModel?.visible) {
+            if (previousModel?.visible) await this.clearModel({ modelKey })
+            continue
+          }
+
+          if (!previousModel?.visible) {
+            await restoreModelState(modelKey, nextModel)
+            continue
+          }
+
+          if (layoutChanged || !sameValue(previousModel.position, nextModel.position)) {
+            await this.moveModel({
+              modelKey,
+              from: previousModel.position,
+              to: nextModel.position,
+              moveSpeed: MoveSpeed.Immediate
+            })
+            if (layoutChanged) layoutModel(getModel(modelKey))
+          }
+          const lastFrameChanged: boolean = !sameValue(previousModel.lastFrame, nextModel.lastFrame)
+          const removedParameters: boolean = Object.keys(previousModel.parameters).some(
+            (paramId: string): boolean => !(paramId in nextModel.parameters)
+          )
+          const hasLastFrame: boolean = Boolean(
+            nextModel.lastFrame.motion || nextModel.lastFrame.facial
+          )
+          if (lastFrameChanged || (removedParameters && hasLastFrame)) {
+            await this.playMotion({
+              modelKey,
+              motion: nextModel.lastFrame.motion ?? undefined,
+              facial: nextModel.lastFrame.facial ?? undefined
+            })
+          }
+          if (removedParameters && !hasLastFrame) {
+            for (const paramId of Object.keys(previousModel.parameters)) {
+              if (!(paramId in nextModel.parameters)) resetModelParameter(modelKey, paramId)
+            }
+          }
+          const changedParameters = Object.entries(nextModel.parameters).filter(
+            ([paramId, value]: [string, number]): boolean =>
+              previousModel.parameters[paramId] !== value
+          )
+          if (changedParameters.length > 0) {
+            await this.setModelParameters({
+              modelKey,
+              params: changedParameters.map(([paramId, value]: [string, number]) => ({
+                paramId,
+                start: value,
+                end: value,
+                curve: Curves.Linear,
+                duration: 0
+              }))
+            })
+          }
+          if (previousModel.hologram !== nextModel.hologram) {
+            await setLayoutHologram(modelKey, nextModel.hologram)
+          }
+        }
+
+        if (!sameValue(previousState.dialogue, state.dialogue) && state.dialogue) {
+          await this.showDialogue({
+            speaker: state.dialogue.speaker,
+            content: state.dialogue.content,
+            modelKey: state.dialogue.modelKey ?? undefined
+          })
+        } else if (previousState.dialogue && !state.dialogue && (dialogueUi || dialogueUiPromise)) {
+          await this.hideDialogue()
+        }
+
+        if (!sameValue(previousState.fade, state.fade) && state.fade) {
+          await this.fadeOut({ color: state.fade.color, duration: 0 })
+        } else if (previousState.fade && !state.fade && fadeOverlay) {
+          await this.fadeIn({ duration: 0 })
+        }
+
+        for (const [effectId, previousEffect] of Object.entries(previousState.effects)) {
+          const nextEffect = state.effects[effectId]
+          if (!nextEffect || !sameValue(previousEffect, nextEffect)) {
+            await this.removeEffect({ effectId, duration: 0 })
+          }
+        }
+        for (const [effectId, effectState] of Object.entries(state.effects)) {
+          if (sameValue(previousState.effects[effectId], effectState)) continue
+          await this.applyEffect({
+            effectId,
+            target: effectState.target,
+            effect: effectState.effect,
+            duration: 0
+          })
+        }
+        restoredState = state
+      } finally {
+        fastForwarding = previousFastForwarding
+      }
     },
     async setLayoutMode(mode: LayoutModeData): Promise<void> {
       layoutMode = mode
@@ -614,6 +763,40 @@ export function createStoryScene({
     })
   }
 
+  async function restoreModelState(modelKey: string, state: StoryModelSceneState): Promise<void> {
+    const instance: StoryModelInstance = getModel(modelKey)
+    const { model } = instance
+    prepareModel(instance)
+    setModelPositionRel(model, getStageSize(app), sideToPosition(state.position, layoutMode))
+    positionedModelKeys.add(modelKey)
+
+    await applyModelLastFrame(
+      model,
+      state.lastFrame.motion ?? undefined,
+      state.lastFrame.facial ?? undefined
+    )
+    for (const [paramId, value] of Object.entries(state.parameters)) {
+      setModelParameter(model, paramId, value)
+    }
+
+    if (!state.visible) return
+
+    attachModel(modelKey)
+    ensureAlphaFilter(model).alpha = 1
+    await setLayoutHologram(modelKey, state.hologram)
+  }
+
+  function resetModelParameter(modelKey: string, paramId: string): void {
+    const model: SekaiLive2DModel = getModel(modelKey).model
+    const parameters = getInternalModel(model).coreModel?.parameters
+    const parameterIndex: number = parameters?.ids.indexOf(paramId) ?? -1
+    setModelParameter(
+      model,
+      paramId,
+      parameterIndex >= 0 ? (parameters?.defaultValues[parameterIndex] ?? 0) : 0
+    )
+  }
+
   function getModel(modelKey: string): StoryModelInstance {
     const model = models.get(modelKey)
     if (!model) {
@@ -648,6 +831,10 @@ export function createStoryScene({
     presentationRoot.removeFromParent()
     presentationRoot.destroy()
   }
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return left === right || JSON.stringify(left) === JSON.stringify(right)
 }
 
 function resolveCustomLayerZIndex(options: StoryCreateLayerOptions): number {
@@ -1003,7 +1190,15 @@ function hideTelop(
     ui.telopContainer.x = startX + (originalX - startX) * progress
   }, TELOP_HIDE_TIME_MS).then((): void => {
     ui.telopContainer.visible = false
+    ui.telopContainer.x = startX
   })
+}
+
+function resetTelopUi(ui: DialogueUiState): void {
+  ui.telopContainer.visible = false
+  ui.telopContainer.x = 0
+  ui.telopText.text = ''
+  ensureDisplayAlphaFilter(ui.telopContainer).alpha = 0
 }
 
 function showDisplayObject(
@@ -1258,6 +1453,12 @@ function setModelParameter(model: SekaiLive2DModel, paramId: string, value: numb
   }
 
   coreModel.setParamFloat?.(paramId, value)
+}
+
+function resetModelParameters(model: SekaiLive2DModel): void {
+  const parameters = getInternalModel(model).coreModel?.parameters
+  if (!parameters || parameters.values.length !== parameters.defaultValues.length) return
+  parameters.values.set(parameters.defaultValues)
 }
 
 function speakModel(model: SekaiLive2DModel, voiceUrl: string): Promise<void> {

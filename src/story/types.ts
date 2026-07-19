@@ -16,6 +16,7 @@ import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { SekaiLive2DModel } from '@/lib/live2d'
 import type { StoryVisualEffectRegistry } from './vfx'
 import type { StoryPlaybackClock } from './playbackClock'
+import type { StorySceneState } from './state'
 
 export type { LeafSnippetData, SnippetData, StoryData } from './schema'
 
@@ -126,6 +127,9 @@ export type StorySceneApi = {
   readonly pixi: StoryPixiAccessApi
   readonly fastForwarding: boolean
   setFastForwarding(enabled: boolean): void
+  commitState(state: StorySceneState): void
+  invalidateState(): void
+  restoreState(state: StorySceneState): Promise<void>
   setLayoutMode(mode: LayoutModeData): Promise<void>
   setBackground(backgroundKey: string): Promise<void>
   showModel(options: StoryModelAppearOptions): Promise<void>
@@ -184,6 +188,7 @@ export type StoryDispatcherOptions = {
 
 export type StoryRunOptions = {
   pauseAfterSnippetId?: string
+  initialState?: StorySceneState
 }
 
 export type SnippetContext<TSnippet extends LeafSnippetData = LeafSnippetData> = {

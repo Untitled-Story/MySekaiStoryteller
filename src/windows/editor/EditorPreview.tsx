@@ -16,6 +16,7 @@ import {
   preloadStoryModels,
   StoryDispatcher,
   StoryModelPreloadError,
+  StoryStatePrefixCache,
   StorySnippetError,
   type StoryData,
   type StoryDispatcherEvent,
@@ -42,6 +43,11 @@ type PreviewSession = {
   dispose(): void
 }
 
+type PreviewEngine = {
+  app: Application
+  runtime: StoryRuntime
+}
+
 export function EditorPreview({
   input,
   story,
@@ -64,8 +70,13 @@ export function EditorPreview({
   const { t } = useTranslation()
   const stageRef = useRef<HTMLDivElement | null>(null)
   const sessionRef = useRef<PreviewSession | null>(null)
+  const pendingDisposeRef = useRef<(() => void) | null>(null)
   const previousPreviewRequestRef = useRef<number>(previewRequest)
   const initialLoadRef = useRef<boolean>(true)
+  const prefixCacheRef = useRef<StoryStatePrefixCache>(new StoryStatePrefixCache())
+  const playbackQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const engineLifecycleRef = useRef<Promise<void>>(Promise.resolve())
+  const [engine, setEngine] = useState<PreviewEngine | null>(null)
   const [status, setStatus] = useState<PreviewStatus>('idle')
   const [message, setMessage] = useState<string>(() => t('editor.waitingPreview'))
 
@@ -77,27 +88,14 @@ export function EditorPreview({
     let disposed = false
     let app: Application | null = null
     let appInitialized = false
-    let appDestroyed = false
-    let mountedCanvas: HTMLCanvasElement | null = null
-    let dispatcher: StoryDispatcher | null = null
     let runtime: StoryRuntime | null = null
     let preloadedModels: StoryModelInstance[] = []
-    let started = false
-    const activeSnippetIdsRef: Set<string> = new Set()
-    const targetPausedRef: { current: boolean } = { current: false }
+    let resourcesDestroyed = false
+    let initializationTask: Promise<void> = Promise.resolve()
     const startedAt: number = performance.now()
-    const requestedFromToolbar: boolean = previousPreviewRequestRef.current !== previewRequest
-    const useImmediateStart: boolean = initialLoadRef.current || requestedFromToolbar
-    previousPreviewRequestRef.current = previewRequest
-    initialLoadRef.current = false
-
-    function detachMountedCanvas(): void {
-      const canvas: HTMLCanvasElement | null = mountedCanvas
-      mountedCanvas = null
-      if (canvas && stageElement.contains(canvas)) {
-        stageElement.replaceChildren()
-      }
-    }
+    setEngine(null)
+    setStatus('loading')
+    setMessage(t('editor.initializingPreview'))
 
     function destroyPreloadedModels(): void {
       const models: StoryModelInstance[] = preloadedModels
@@ -107,49 +105,37 @@ export function EditorPreview({
       }
     }
 
-    function destroyInitializedApp(): void {
-      if (!app || !appInitialized || appDestroyed) return
-      appDestroyed = true
-      app.destroy(true, { children: true })
-    }
-
-    function dispose(): void {
-      if (disposed) return
-      disposed = true
-      activeSnippetIdsRef.clear()
-      onActiveSnippetIdsChange(new Set())
-      logger.debug('editor.preview_disposed', {
+    function destroyResources(): void {
+      if (resourcesDestroyed) return
+      resourcesDestroyed = true
+      logger.debug('editor.preview_engine_disposed', {
         projectName: input.projectName,
         durationMs: Math.round(performance.now() - startedAt)
       })
-      dispatcher?.cancel()
       if (runtime) {
         destroyStoryRuntime(runtime)
         preloadedModels = []
       } else {
         destroyPreloadedModels()
       }
-      detachMountedCanvas()
-      destroyInitializedApp()
-      if (sessionRef.current?.dispatcher === dispatcher) {
-        sessionRef.current = null
-      }
+      if (app && appInitialized) app.destroy(true, { children: true })
     }
 
-    async function start(): Promise<void> {
+    function disposeEngine(): void {
       if (disposed) return
-      started = true
-      activeSnippetIdsRef.clear()
+      disposed = true
+      sessionRef.current?.dispose()
+      sessionRef.current = null
       onActiveSnippetIdsChange(new Set())
-      setStatus('loading')
-      setMessage(t('editor.initializingPreview'))
-      logger.info('editor.preview_started', {
-        projectName: input.projectName,
-        snippetCount: story.snippets.length,
-        targetNodeId: previewTargetNodeId,
-        pauseAfterTarget: pauseAfterPreviewTarget
-      })
+      const destructionTask: Promise<void> = initializationTask
+        .catch((): void => undefined)
+        .then((): Promise<void> => playbackQueueRef.current.catch((): void => undefined))
+        .then(destroyResources)
+      engineLifecycleRef.current = destructionTask
+    }
 
+    async function initialize(): Promise<void> {
+      if (disposed) return
       try {
         await ensureSekaiLive2DReady()
         if (disposed) return
@@ -165,13 +151,8 @@ export function EditorPreview({
           backgroundAlpha: 0
         })
         appInitialized = true
-        mountedCanvas = previewApp.canvas
-        if (disposed) {
-          detachMountedCanvas()
-          destroyInitializedApp()
-          return
-        }
-        stageElement.replaceChildren(mountedCanvas)
+        if (disposed) return
+        stageElement.replaceChildren(previewApp.canvas)
         logger.info('editor.preview_pixi_ready', {
           projectName: input.projectName,
           resolution: resolveRenderPrecision(input.settings)
@@ -204,24 +185,107 @@ export function EditorPreview({
           models: preloadedModels,
           fontFamily
         })
-        dispatcher = new StoryDispatcher(runtime, {
-          onEvent: (event: StoryDispatcherEvent): void => handleStoryEvent(event)
+        setEngine({ app: previewApp, runtime })
+        logger.info('editor.preview_engine_ready', {
+          projectName: input.projectName,
+          durationMs: Math.round(performance.now() - startedAt)
         })
-        sessionRef.current = { dispatcher, dispose }
-        setStatus('running')
-        setMessage(
-          previewTargetNodeId
-            ? t('editor.restoringSelectedState')
-            : preloadedModels.length > 0
-              ? t('player.loadedModels', { count: preloadedModels.length })
-              : t('editor.playing')
+      } catch (error: unknown) {
+        if (disposed) return
+        console.error('Editor preview failed', error)
+        logger.error('editor.preview_engine_failed', {
+          projectName: input.projectName,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: describeLogError(error)
+        })
+        setStatus('error')
+        setMessage(describePreviewError(error))
+        disposeEngine()
+      }
+    }
+
+    const previousLifecycle: Promise<void> = engineLifecycleRef.current
+    initializationTask = previousLifecycle.catch((): void => undefined).then(initialize)
+    engineLifecycleRef.current = initializationTask
+    void initializationTask
+
+    return (): void => {
+      disposeEngine()
+    }
+  }, [input, onActiveSnippetIdsChange, t])
+
+  useEffect((): (() => void) | undefined => {
+    if (!engine) return undefined
+    const previewEngine: PreviewEngine = engine
+    let disposed = false
+    let dispatcher: StoryDispatcher | null = null
+    const activeSnippetIds = new Set<string>()
+    const targetPausedRef: { current: boolean } = { current: false }
+    const startedAt: number = performance.now()
+    const requestedFromToolbar: boolean = previousPreviewRequestRef.current !== previewRequest
+    const useImmediateStart: boolean = initialLoadRef.current || requestedFromToolbar
+    previousPreviewRequestRef.current = previewRequest
+    initialLoadRef.current = false
+    prefixCacheRef.current.update(story as StoryData)
+    setStatus('loading')
+    setMessage(t('editor.initializingPreview'))
+
+    function disposePlayback(): void {
+      if (disposed) return
+      disposed = true
+      dispatcher?.cancel()
+      if (sessionRef.current?.dispatcher === dispatcher) sessionRef.current = null
+      if (pendingDisposeRef.current === disposePlayback) pendingDisposeRef.current = null
+      activeSnippetIds.clear()
+      onActiveSnippetIdsChange(new Set())
+    }
+
+    function handleStoryEvent(event: StoryDispatcherEvent): void {
+      if (disposed) return
+      if (event.type === 'snippet:start' && event.snippet.id) {
+        activeSnippetIds.add(event.snippet.id)
+        onActiveSnippetIdsChange(new Set(activeSnippetIds))
+      }
+      if (
+        (event.type === 'snippet:complete' || event.type === 'snippet:error') &&
+        event.snippet.id
+      ) {
+        activeSnippetIds.delete(event.snippet.id)
+        onActiveSnippetIdsChange(new Set(activeSnippetIds))
+        if (
+          pauseAfterPreviewTarget &&
+          event.type === 'snippet:complete' &&
+          event.snippet.id === previewTargetNodeId
         )
+          targetPausedRef.current = true
+      }
+      if (event.type === 'story:pause') {
+        setStatus('paused')
+        setMessage(t('editor.paused'))
+        if (targetPausedRef.current && previewTargetNodeId) {
+          activeSnippetIds.add(previewTargetNodeId)
+          onActiveSnippetIdsChange(new Set(activeSnippetIds))
+        }
+      }
+      if (event.type === 'story:resume') {
+        setStatus('running')
+        setMessage(t('editor.resume'))
+      }
+    }
+
+    async function startPlayback(): Promise<void> {
+      if (disposed) return
+      dispatcher = new StoryDispatcher(previewEngine.runtime, { onEvent: handleStoryEvent })
+      sessionRef.current = { dispatcher, dispose: disposePlayback }
+      if (pendingDisposeRef.current === disposePlayback) pendingDisposeRef.current = null
+      setStatus('running')
+      setMessage(previewTargetNodeId ? t('editor.restoringSelectedState') : t('editor.playing'))
+      try {
         if (previewTargetNodeId) {
-          await dispatcher.runFrom(
-            story as StoryData,
-            previewTargetNodeId,
-            pauseAfterPreviewTarget ? { pauseAfterSnippetId: previewTargetNodeId } : {}
-          )
+          await dispatcher.runFrom(story as StoryData, previewTargetNodeId, {
+            initialState: prefixCacheRef.current.before(previewTargetNodeId),
+            ...(pauseAfterPreviewTarget ? { pauseAfterSnippetId: previewTargetNodeId } : {})
+          })
         } else {
           await dispatcher.run(story as StoryData)
         }
@@ -235,10 +299,8 @@ export function EditorPreview({
         }
       } catch (error: unknown) {
         if (disposed) return
-        console.error('Editor preview failed', error)
         logger.error('editor.preview_failed', {
           projectName: input.projectName,
-          durationMs: Math.round(performance.now() - startedAt),
           error: describeLogError(error)
         })
         setStatus('error')
@@ -246,69 +308,29 @@ export function EditorPreview({
       }
     }
 
-    function handleStoryEvent(event: StoryDispatcherEvent): void {
-      if (disposed) return
-      if (event.type === 'snippet:start') {
-        const snippetId: string | undefined = event.snippet.id
-        if (snippetId) {
-          activeSnippetIdsRef.add(snippetId)
-          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
-        }
-        setMessage(t('editor.playing'))
-      }
-      if (event.type === 'snippet:complete' || event.type === 'snippet:error') {
-        const snippetId: string | undefined = event.snippet.id
-        if (snippetId) {
-          activeSnippetIdsRef.delete(snippetId)
-          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
-        }
-        if (
-          pauseAfterPreviewTarget &&
-          event.type === 'snippet:complete' &&
-          event.snippet.id === previewTargetNodeId
-        ) {
-          targetPausedRef.current = true
-        }
-      }
-      if (event.type === 'story:pause') {
-        setStatus('paused')
-        setMessage(t('editor.paused'))
-        if (targetPausedRef.current && previewTargetNodeId) {
-          activeSnippetIdsRef.add(previewTargetNodeId)
-          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
-        }
-      }
-      if (event.type === 'story:resume') {
-        setStatus('running')
-        setMessage(t('editor.resume'))
-        if (targetPausedRef.current && previewTargetNodeId) {
-          targetPausedRef.current = false
-          activeSnippetIdsRef.delete(previewTargetNodeId)
-          onActiveSnippetIdsChange(new Set(activeSnippetIdsRef))
-        }
-      }
-      if (
-        event.type === 'story:complete' ||
-        event.type === 'story:cancel' ||
-        event.type === 'story:error'
-      ) {
-        activeSnippetIdsRef.clear()
-        onActiveSnippetIdsChange(new Set())
-      }
-    }
-
-    const delayMs: number = useImmediateStart ? 0 : 500
-    const timeoutId: number = window.setTimeout((): void => {
-      void start()
-    }, delayMs)
-
+    pendingDisposeRef.current = disposePlayback
+    const timeoutId: number = window.setTimeout(
+      (): void => {
+        const queuedPlayback: Promise<void> = playbackQueueRef.current
+          .catch((): void => undefined)
+          .then(startPlayback)
+        playbackQueueRef.current = queuedPlayback
+        void queuedPlayback.catch((error: unknown): void => {
+          logger.error('editor.preview_queue_failed', {
+            projectName: input.projectName,
+            error: describeLogError(error)
+          })
+        })
+      },
+      useImmediateStart ? 0 : 500
+    )
     return (): void => {
       window.clearTimeout(timeoutId)
-      if (started || app || dispatcher || runtime) dispose()
-      else disposed = true
+      disposePlayback()
     }
   }, [
-    input,
+    engine,
+    input.projectName,
     onActiveSnippetIdsChange,
     pauseAfterPreviewTarget,
     previewRequest,
@@ -318,7 +340,6 @@ export function EditorPreview({
   ])
 
   function restart(): void {
-    sessionRef.current?.dispose()
     onPreviewFromBeginning()
   }
 
@@ -335,6 +356,8 @@ export function EditorPreview({
   }
 
   function stop(): void {
+    pendingDisposeRef.current?.()
+    pendingDisposeRef.current = null
     sessionRef.current?.dispose()
     setStatus('stopped')
     setMessage(t('editor.stopped'))

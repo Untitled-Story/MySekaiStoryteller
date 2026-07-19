@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "typecheck": "tsc --noEmit",
+    "test:story-reducer": "node scripts/test-story-reducer.mjs",
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build"
