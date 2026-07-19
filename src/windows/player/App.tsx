@@ -377,8 +377,21 @@ export default function App({
       })
       dispatcher = new StoryDispatcher(runtime, {
         onEvent: (event) => {
+          if (event.type === 'snippet:start' || event.type === 'snippet:complete') {
+            logger.debug(`player.${event.type.replace(':', '_')}`, {
+              snippetId: event.snippet.id,
+              snippetType: event.snippet.type,
+              path: event.path
+            })
+          }
           if (event.type === 'snippet:error') {
             console.error('Story snippet failed', event)
+            logger.error('player.snippet_failed', {
+              snippetId: event.snippet.id,
+              snippetType: event.snippet.type,
+              path: event.path,
+              error: describeError(event.error)
+            })
           }
         }
       })

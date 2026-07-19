@@ -131,15 +131,26 @@ export default function SettingsPage(): JSX.Element {
   }
 
   const handleExportDiagnostics = async (): Promise<void> => {
+    const startedAt: number = performance.now()
     setDiagnosticExportStatus('exporting')
+    logger.info('settings.diagnostic_export_started')
     try {
       const result: DiagnosticExportResult = await exportPreparedDiagnosticBundle()
       setDiagnosticExportStatus(result === 'saved' ? 'saved' : 'idle')
       if (result === 'saved') {
-        logger.info('settings.diagnostic_exported')
+        logger.info('settings.diagnostic_exported', {
+          durationMs: Math.round(performance.now() - startedAt)
+        })
+      } else {
+        logger.info('settings.diagnostic_export_cancelled', {
+          durationMs: Math.round(performance.now() - startedAt)
+        })
       }
     } catch (error: unknown) {
-      logger.error('settings.diagnostic_export_failed', { error: describeError(error) })
+      logger.error('settings.diagnostic_export_failed', {
+        durationMs: Math.round(performance.now() - startedAt),
+        error: describeError(error)
+      })
       setDiagnosticExportStatus('error')
     }
   }

@@ -57,6 +57,12 @@ pub fn set_project_metadata(
 
 #[tauri::command]
 pub fn create_project(app: AppHandle, project_name: String) -> Result<(), String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::project",
+        "project.create started project={}",
+        project_name
+    );
     validate_project_name(&project_name)?;
     let dir = projects_dir(&app)?;
     let project_path = dir.join(&project_name);
@@ -68,7 +74,7 @@ pub fn create_project(app: AppHandle, project_name: String) -> Result<(), String
     fs::create_dir_all(&project_path).map_err(|e| format!("创建项目失败: {e}"))?;
 
     let metadata = ProjectMetadata {
-        title: project_name,
+        title: project_name.clone(),
         last_modified: now_millis(),
         assets_summary: Some(AssetsSummary {
             models: 0,
@@ -77,11 +83,24 @@ pub fn create_project(app: AppHandle, project_name: String) -> Result<(), String
         }),
     };
     write_metadata(&project_path, &metadata)?;
-    write_default_project_files(&project_path)
+    write_default_project_files(&project_path)?;
+    log::info!(
+        target: "backend::project",
+        "project.create completed project={} duration_ms={}",
+        project_name,
+        started_at.elapsed().as_millis()
+    );
+    Ok(())
 }
 
 #[tauri::command]
 pub fn delete_project(app: AppHandle, project_name: String) -> Result<(), String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::project",
+        "project.delete started project={}",
+        project_name
+    );
     validate_project_name(&project_name)?;
     let dir = projects_dir(&app)?;
     let project_path = dir.join(&project_name);
@@ -90,11 +109,25 @@ pub fn delete_project(app: AppHandle, project_name: String) -> Result<(), String
         return Err("项目不存在".into());
     }
 
-    fs::remove_dir_all(&project_path).map_err(|e| format!("删除项目失败: {e}"))
+    fs::remove_dir_all(&project_path).map_err(|e| format!("删除项目失败: {e}"))?;
+    log::info!(
+        target: "backend::project",
+        "project.delete completed project={} duration_ms={}",
+        project_name,
+        started_at.elapsed().as_millis()
+    );
+    Ok(())
 }
 
 #[tauri::command]
 pub fn rename_project(app: AppHandle, old_name: String, new_name: String) -> Result<(), String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::project",
+        "project.rename started old_name={} new_name={}",
+        old_name,
+        new_name
+    );
     validate_project_name(&old_name)?;
     validate_project_name(&new_name)?;
     let dir = projects_dir(&app)?;
@@ -111,10 +144,17 @@ pub fn rename_project(app: AppHandle, old_name: String, new_name: String) -> Res
     fs::rename(&old_path, &new_path).map_err(|e| format!("重命名项目失败: {e}"))?;
 
     if let Some(mut metadata) = read_metadata(&new_path) {
-        metadata.title = new_name;
+        metadata.title = new_name.clone();
         metadata.last_modified = now_millis();
         write_metadata(&new_path, &metadata)?;
     }
 
+    log::info!(
+        target: "backend::project",
+        "project.rename completed old_name={} new_name={} duration_ms={}",
+        old_name,
+        new_name,
+        started_at.elapsed().as_millis()
+    );
     Ok(())
 }

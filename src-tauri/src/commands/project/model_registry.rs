@@ -5,7 +5,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use zip::ZipArchive;
 
@@ -131,8 +131,28 @@ pub fn inspect_model_archive(
     app: AppHandle,
     source_path: String,
 ) -> Result<ModelArchiveInspection, String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::model",
+        "model.archive_inspect started source_kind={}",
+        picked_source_kind(&source_path)
+    );
     let source = super::materialize_picked_file(&app, &source_path, Some("zip"))?;
-    inspect_archive(&source.path)
+    let copied_from_picker = source.copied;
+    let inspection = inspect_archive(&source.path)?;
+    log::info!(
+        target: "backend::model",
+        "model.archive_inspect completed candidates={} recognized={} copied_from_picker={} duration_ms={}",
+        inspection.candidates.len(),
+        inspection
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.recognized)
+            .count(),
+        copied_from_picker,
+        started_at.elapsed().as_millis()
+    );
+    Ok(inspection)
 }
 
 #[tauri::command]
@@ -142,7 +162,16 @@ pub fn import_global_model(
     name: Option<String>,
     archive_entry: Option<String>,
 ) -> Result<ImportedModelResult, String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::model",
+        "model.import started source_kind={} custom_name={} selected_entry={}",
+        picked_source_kind(&source_path),
+        name.as_ref().is_some_and(|value| !value.trim().is_empty()),
+        archive_entry.is_some()
+    );
     let materialized = super::materialize_picked_file(&app, &source_path, None)?;
+    let copied_from_picker = materialized.copied;
     let source_entry = materialized.path;
     if !source_entry.is_file() {
         return Err("选择的模型入口不存在或不是普通文件".into());
@@ -274,7 +303,26 @@ pub fn import_global_model(
         return Err(error);
     }
 
+    log::info!(
+        target: "backend::model",
+        "model.import completed model_id={} archive={} copied_from_picker={} duration_ms={}",
+        model_id,
+        is_archive,
+        copied_from_picker,
+        started_at.elapsed().as_millis()
+    );
     Ok(ImportedModelResult { model_id, registry })
+}
+
+fn picked_source_kind(source_path: &str) -> &'static str {
+    let normalized = source_path.to_ascii_lowercase();
+    if normalized.starts_with("content://") {
+        "content_uri"
+    } else if normalized.starts_with("file://") {
+        "file_uri"
+    } else {
+        "local_path"
+    }
 }
 
 fn is_zip_archive(path: &Path) -> Result<bool, String> {

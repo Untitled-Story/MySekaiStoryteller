@@ -9,6 +9,7 @@ import {
   type ProjectAssets
 } from './assets'
 import { ProjectMetadataSchema, type ProjectMetadata } from './metadata'
+import { runLoggedOperation } from '@/lib/logger'
 
 export function getProjects(): Promise<string[]> {
   return invoke<string[]>('get_projects')
@@ -30,15 +31,27 @@ export function setProjectMetadata(projectName: string, metadata: ProjectMetadat
 }
 
 export function createProject(projectName: string): Promise<void> {
-  return invoke('create_project', { projectName })
+  return runLoggedOperation(
+    'project.create',
+    { projectName },
+    (): Promise<void> => invoke('create_project', { projectName })
+  )
 }
 
 export function deleteProject(projectName: string): Promise<void> {
-  return invoke('delete_project', { projectName })
+  return runLoggedOperation(
+    'project.delete',
+    { projectName },
+    (): Promise<void> => invoke('delete_project', { projectName })
+  )
 }
 
 export function renameProject(oldName: string, newName: string): Promise<void> {
-  return invoke('rename_project', { oldName, newName })
+  return runLoggedOperation(
+    'project.rename',
+    { oldName, newName },
+    (): Promise<void> => invoke('rename_project', { oldName, newName })
+  )
 }
 
 export function getProjectPath(projectName: string): Promise<string> {
@@ -59,12 +72,18 @@ export async function importProjectAsset(
   assetKind: Exclude<ProjectAssetKind, 'models'>,
   sourcePath: string
 ): Promise<ProjectAssetMutationResult> {
-  const raw = await invoke<unknown>('import_project_asset', {
-    projectName,
-    assetKind,
-    sourcePath
-  })
-  return ProjectAssetMutationResultSchema.parse(raw)
+  return runLoggedOperation(
+    'asset.import',
+    { projectName, assetKind, sourceKind: pickedSourceKind(sourcePath) },
+    async (): Promise<ProjectAssetMutationResult> => {
+      const raw: unknown = await invoke<unknown>('import_project_asset', {
+        projectName,
+        assetKind,
+        sourcePath
+      })
+      return ProjectAssetMutationResultSchema.parse(raw)
+    }
+  )
 }
 
 export async function registerProjectModel(
@@ -73,13 +92,19 @@ export async function registerProjectModel(
   key?: string,
   name?: string
 ): Promise<ProjectAssetMutationResult> {
-  const raw = await invoke<unknown>('register_project_model', {
-    projectName,
-    modelId,
-    key,
-    name
-  })
-  return ProjectAssetMutationResultSchema.parse(raw)
+  return runLoggedOperation(
+    'asset.model_register',
+    { projectName, modelId, hasCustomKey: Boolean(key), hasCustomName: Boolean(name) },
+    async (): Promise<ProjectAssetMutationResult> => {
+      const raw: unknown = await invoke<unknown>('register_project_model', {
+        projectName,
+        modelId,
+        key,
+        name
+      })
+      return ProjectAssetMutationResultSchema.parse(raw)
+    }
+  )
 }
 
 export async function getProjectAssetReferences(
@@ -101,13 +126,19 @@ export async function renameProjectAsset(
   oldKey: string,
   newKey: string
 ): Promise<ProjectAssets> {
-  const raw = await invoke<unknown>('rename_project_asset', {
-    projectName,
-    assetKind,
-    oldKey,
-    newKey
-  })
-  return ProjectAssetsSchema.parse(raw)
+  return runLoggedOperation(
+    'asset.rename',
+    { projectName, assetKind, oldKey, newKey },
+    async (): Promise<ProjectAssets> => {
+      const raw: unknown = await invoke<unknown>('rename_project_asset', {
+        projectName,
+        assetKind,
+        oldKey,
+        newKey
+      })
+      return ProjectAssetsSchema.parse(raw)
+    }
+  )
 }
 
 export async function deleteProjectAsset(
@@ -115,10 +146,23 @@ export async function deleteProjectAsset(
   assetKind: ProjectAssetKind,
   key: string
 ): Promise<ProjectAssets> {
-  const raw = await invoke<unknown>('delete_project_asset', {
-    projectName,
-    assetKind,
-    key
-  })
-  return ProjectAssetsSchema.parse(raw)
+  return runLoggedOperation(
+    'asset.delete',
+    { projectName, assetKind, key },
+    async (): Promise<ProjectAssets> => {
+      const raw: unknown = await invoke<unknown>('delete_project_asset', {
+        projectName,
+        assetKind,
+        key
+      })
+      return ProjectAssetsSchema.parse(raw)
+    }
+  )
+}
+
+function pickedSourceKind(sourcePath: string): 'content-uri' | 'file-uri' | 'local-path' {
+  const normalized: string = sourcePath.toLowerCase()
+  if (normalized.startsWith('content://')) return 'content-uri'
+  if (normalized.startsWith('file://')) return 'file-uri'
+  return 'local-path'
 }

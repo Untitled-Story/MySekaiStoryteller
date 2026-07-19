@@ -3,6 +3,7 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use tauri::AppHandle;
 
 use super::{
@@ -90,6 +91,14 @@ pub fn import_project_asset(
     asset_kind: ProjectAssetKind,
     source_path: String,
 ) -> Result<ProjectAssetMutationResult, String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::asset",
+        "asset.import started project={} kind={:?} source_kind={}",
+        project_name,
+        asset_kind,
+        picked_source_kind(&source_path)
+    );
     let folder = asset_kind
         .asset_folder()
         .ok_or_else(|| "模型不能通过文件导入，请从模型注册表添加".to_string())?;
@@ -113,13 +122,7 @@ pub fn import_project_asset(
 
     let project_path = project_path(&app, &project_name)?;
     let mut assets = read_assets(&project_path)?;
-    let key = next_import_key(
-        &assets,
-        asset_kind,
-        &source,
-        &project_path,
-        &extension,
-    )?;
+    let key = next_import_key(&assets, asset_kind, &source, &project_path, &extension)?;
     let relative_path = format!("assets/{folder}/{key}.{extension}");
     let destination = resolve_project_file(&project_path, &relative_path)?;
     if destination.exists() {
@@ -153,6 +156,15 @@ pub fn import_project_asset(
         return Err(error);
     }
 
+    log::info!(
+        target: "backend::asset",
+        "asset.import completed project={} kind={:?} key={} copied_from_picker={} duration_ms={}",
+        project_name,
+        asset_kind,
+        key,
+        materialized.copied,
+        started_at.elapsed().as_millis()
+    );
     Ok(ProjectAssetMutationResult { key, assets })
 }
 
@@ -164,6 +176,15 @@ pub fn register_project_model(
     key: Option<String>,
     name: Option<String>,
 ) -> Result<ProjectAssetMutationResult, String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::asset",
+        "asset.model_register started project={} model_id={} custom_key={} custom_name={}",
+        project_name,
+        model_id,
+        key.as_ref().is_some_and(|value| !value.trim().is_empty()),
+        name.as_ref().is_some_and(|value| !value.trim().is_empty())
+    );
     let registry = get_model_registry(app.clone())?;
     let registry_entry = registry
         .get("models")
@@ -207,6 +228,14 @@ pub fn register_project_model(
     write_project_json(&project_path, "assets.json", &assets)?;
     update_assets_summary(&project_path, &assets)?;
 
+    log::info!(
+        target: "backend::asset",
+        "asset.model_register completed project={} model_id={} key={} duration_ms={}",
+        project_name,
+        model_id,
+        resolved_key,
+        started_at.elapsed().as_millis()
+    );
     Ok(ProjectAssetMutationResult {
         key: resolved_key,
         assets,
@@ -235,6 +264,15 @@ pub fn rename_project_asset(
     old_key: String,
     new_key: String,
 ) -> Result<Value, String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::asset",
+        "asset.rename started project={} kind={:?} old_key={} new_key={}",
+        project_name,
+        asset_kind,
+        old_key,
+        new_key
+    );
     validate_asset_key(&old_key)?;
     validate_asset_key(&new_key)?;
     if old_key == new_key {
@@ -250,7 +288,7 @@ pub fn rename_project_asset(
     rewrite_asset_references(&mut story, asset_kind, &old_key, &new_key);
 
     let file_move = rename_managed_asset_file(&project_path, asset_kind, &mut asset, &new_key)?;
-    insert_asset(&mut assets, asset_kind, new_key, asset)?;
+    insert_asset(&mut assets, asset_kind, new_key.clone(), asset)?;
 
     if let Some((from, to)) = &file_move {
         fs::rename(from, to).map_err(|error| format!("重命名资源文件失败: {error}"))?;
@@ -268,6 +306,15 @@ pub fn rename_project_asset(
     }
 
     update_assets_summary(&project_path, &assets)?;
+    log::info!(
+        target: "backend::asset",
+        "asset.rename completed project={} kind={:?} old_key={} new_key={} duration_ms={}",
+        project_name,
+        asset_kind,
+        old_key,
+        new_key,
+        started_at.elapsed().as_millis()
+    );
     Ok(assets)
 }
 
@@ -278,12 +325,28 @@ pub fn delete_project_asset(
     asset_kind: ProjectAssetKind,
     key: String,
 ) -> Result<Value, String> {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::asset",
+        "asset.delete started project={} kind={:?} key={}",
+        project_name,
+        asset_kind,
+        key
+    );
     validate_asset_key(&key)?;
     let project_path = project_path(&app, &project_name)?;
     let story =
         read_project_json_or_default(&project_path, STORY_FILE, super::default_story_json())?;
     let references = find_asset_references(&story, asset_kind, &key);
     if !references.is_empty() {
+        log::warn!(
+            target: "backend::asset",
+            "asset.delete blocked project={} kind={:?} key={} reference_count={}",
+            project_name,
+            asset_kind,
+            key,
+            references.len()
+        );
         let locations = references
             .iter()
             .map(|reference| format!("{} ({})", reference.path, reference.snippet_type))
@@ -328,7 +391,26 @@ pub fn delete_project_asset(
         }
     }
 
+    log::info!(
+        target: "backend::asset",
+        "asset.delete completed project={} kind={:?} key={} duration_ms={}",
+        project_name,
+        asset_kind,
+        key,
+        started_at.elapsed().as_millis()
+    );
     Ok(assets)
+}
+
+fn picked_source_kind(source_path: &str) -> &'static str {
+    let normalized = source_path.to_ascii_lowercase();
+    if normalized.starts_with("content://") {
+        "content_uri"
+    } else if normalized.starts_with("file://") {
+        "file_uri"
+    } else {
+        "local_path"
+    }
 }
 
 fn read_assets(project_path: &Path) -> Result<Value, String> {

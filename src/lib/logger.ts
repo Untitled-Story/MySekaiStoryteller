@@ -24,6 +24,7 @@ let initialized = false
 let pluginAvailable = true
 let pluginFailureReported = false
 const sessionId: string = createSessionId()
+let operationSequence = 0
 
 export const logger = {
   debug(event: string, details?: LogDetails): void {
@@ -57,6 +58,35 @@ export function initializeFrontendLogging(windowName: FrontendWindowName): void 
 
 export function describeError(error: unknown): LogDetails {
   return describeErrorValue(error, new Set<Error>())
+}
+
+export async function runLoggedOperation<T>(
+  event: string,
+  details: LogDetails,
+  operation: () => Promise<T>
+): Promise<T> {
+  operationSequence += 1
+  const operationId: string = `${sessionId}-${operationSequence}`
+  const startedAt: number = performance.now()
+  logger.info(`${event}.started`, { ...details, operationId })
+
+  try {
+    const result: T = await operation()
+    logger.info(`${event}.completed`, {
+      ...details,
+      operationId,
+      durationMs: Math.round(performance.now() - startedAt)
+    })
+    return result
+  } catch (error: unknown) {
+    logger.error(`${event}.failed`, {
+      ...details,
+      operationId,
+      durationMs: Math.round(performance.now() - startedAt),
+      error: describeError(error)
+    })
+    throw error
+  }
 }
 
 function describeErrorValue(error: unknown, seen: Set<Error>): LogDetails {

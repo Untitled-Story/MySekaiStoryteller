@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -25,9 +25,22 @@ pub async fn prepare_diagnostic_bundle(
     app: AppHandle,
     report: Value,
 ) -> Result<DiagnosticBundle, String> {
-    tauri::async_runtime::spawn_blocking(move || prepare_diagnostic_bundle_blocking(app, report))
-        .await
-        .map_err(|error| format!("诊断包任务失败: {error}"))?
+    let started_at = Instant::now();
+    log::info!(target: "backend::diagnostics", "diagnostic.prepare started");
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        prepare_diagnostic_bundle_blocking(app, report)
+    })
+    .await
+    .map_err(|error| format!("诊断包任务失败: {error}"))?;
+    if let Err(error) = &result {
+        log::error!(
+            target: "backend::diagnostics",
+            "diagnostic.prepare failed duration_ms={} error={}",
+            started_at.elapsed().as_millis(),
+            error
+        );
+    }
+    result
 }
 
 fn prepare_diagnostic_bundle_blocking(
@@ -65,11 +78,37 @@ pub async fn export_diagnostic_bundle(
     bundle_id: String,
     destination_path: String,
 ) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let started_at = Instant::now();
+    log::info!(
+        target: "backend::diagnostics",
+        "diagnostic.export started destination_kind={}",
+        picked_destination_kind(&destination_path)
+    );
+    let result = tauri::async_runtime::spawn_blocking(move || {
         export_diagnostic_bundle_blocking(app, bundle_id, destination_path)
     })
     .await
-    .map_err(|error| format!("诊断包导出任务失败: {error}"))?
+    .map_err(|error| format!("诊断包导出任务失败: {error}"))?;
+    if let Err(error) = &result {
+        log::error!(
+            target: "backend::diagnostics",
+            "diagnostic.export failed duration_ms={} error={}",
+            started_at.elapsed().as_millis(),
+            error
+        );
+    }
+    result
+}
+
+fn picked_destination_kind(destination_path: &str) -> &'static str {
+    let normalized = destination_path.to_ascii_lowercase();
+    if normalized.starts_with("content://") {
+        "content_uri"
+    } else if normalized.starts_with("file://") {
+        "file_uri"
+    } else {
+        "local_path"
+    }
 }
 
 fn export_diagnostic_bundle_blocking(

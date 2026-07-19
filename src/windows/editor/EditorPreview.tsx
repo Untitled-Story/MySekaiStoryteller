@@ -242,6 +242,21 @@ export function EditorPreview({
 
     function handleStoryEvent(event: StoryDispatcherEvent): void {
       if (disposed) return
+      if (event.type === 'snippet:start' || event.type === 'snippet:complete') {
+        logger.debug(`editor.preview_${event.type.replace(':', '_')}`, {
+          snippetId: event.snippet.id,
+          snippetType: event.snippet.type,
+          path: event.path
+        })
+      }
+      if (event.type === 'snippet:error') {
+        logger.error('editor.preview_snippet_failed', {
+          snippetId: event.snippet.id,
+          snippetType: event.snippet.type,
+          path: event.path,
+          error: describeLogError(event.error)
+        })
+      }
       if (event.type === 'snippet:start' && event.snippet.id) {
         activeSnippetIds.add(event.snippet.id)
         onActiveSnippetIdsChange(new Set(activeSnippetIds))

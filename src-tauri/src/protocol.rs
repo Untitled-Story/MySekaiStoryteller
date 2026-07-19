@@ -121,6 +121,11 @@ pub fn register_story_protocol<R: Runtime>(builder: tauri::Builder<R>) -> tauri:
                 }
 
                 let Some(path) = decode_request_path(&request) else {
+                    log::warn!(
+                        target: "backend::protocol",
+                        "asset.request rejected method={} reason=invalid_path",
+                        request.method()
+                    );
                     responder.respond(build_error_response(
                         &request,
                         StatusCode::BAD_REQUEST,
@@ -131,25 +136,47 @@ pub fn register_story_protocol<R: Runtime>(builder: tauri::Builder<R>) -> tauri:
 
                 match fs::read(&path) {
                     Ok(bytes) => responder.respond(build_file_response(&request, bytes, &path)),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => responder
-                        .respond(build_error_response(
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        log_protocol_read_failure(&request, &path, &error);
+                        responder.respond(build_error_response(
                             &request,
                             StatusCode::NOT_FOUND,
                             &format!("File not found: {}", path.display()),
-                        )),
-                    Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => responder
-                        .respond(build_error_response(
+                        ));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                        log_protocol_read_failure(&request, &path, &error);
+                        responder.respond(build_error_response(
                             &request,
                             StatusCode::FORBIDDEN,
                             &format!("Permission denied: {}", path.display()),
-                        )),
-                    Err(error) => responder.respond(build_error_response(
-                        &request,
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to read {}: {error}", path.display()),
-                    )),
+                        ));
+                    }
+                    Err(error) => {
+                        log_protocol_read_failure(&request, &path, &error);
+                        responder.respond(build_error_response(
+                            &request,
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            &format!("Failed to read {}: {error}", path.display()),
+                        ));
+                    }
                 }
             });
         },
     )
+}
+
+fn log_protocol_read_failure(request: &Request<Vec<u8>>, path: &PathBuf, error: &std::io::Error) {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown");
+    log::warn!(
+        target: "backend::protocol",
+        "asset.request failed method={} extension={} error_kind={:?} error={}",
+        request.method(),
+        extension,
+        error.kind(),
+        error
+    );
 }
