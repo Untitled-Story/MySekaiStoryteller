@@ -130,6 +130,7 @@ export type StorySceneApi = {
   commitState(state: StorySceneState): void
   invalidateState(): void
   restoreState(state: StorySceneState): Promise<void>
+  waitForPendingActions(): Promise<void>
   setLayoutMode(mode: LayoutModeData): Promise<void>
   setBackground(backgroundKey: string): Promise<void>
   showModel(options: StoryModelAppearOptions): Promise<void>

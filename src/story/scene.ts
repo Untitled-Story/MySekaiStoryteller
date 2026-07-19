@@ -146,6 +146,7 @@ type ParallelMotionManagerLike = {
   ): Promise<boolean>
   playMotionLastFrame(group: string, index: number): Promise<boolean>
   isFinished(): boolean
+  stopAllMotions(): void
 }
 
 type Live2DCoreModelLike = {
@@ -216,6 +217,7 @@ export function createStoryScene({
   app.stage.addChild(presentationRoot, layers.overlay)
   const customLayers = new Map<string, Container>()
   const disposers = new Set<StoryDisposeCallback>()
+  const pendingActions = new Set<Promise<void>>()
   let backgroundSprite: Sprite | null = null
   let dialogueUiPromise: Promise<DialogueUiState> | null = null
   let dialogueUi: DialogueUiState | null = null
@@ -282,6 +284,7 @@ export function createStoryScene({
         if (!restoredState) {
           await visualEffectManager.clear(0)
           for (const instance of models.values()) {
+            stopModelMotions(instance.model)
             resetModelParameters(instance.model)
             ensureAlphaFilter(instance.model).alpha = 0
             instance.model.visible = false
@@ -408,6 +411,11 @@ export function createStoryScene({
         fastForwarding = previousFastForwarding
       }
     },
+    async waitForPendingActions(): Promise<void> {
+      while (pendingActions.size > 0) {
+        await Promise.allSettled(Array.from(pendingActions))
+      }
+    },
     async setLayoutMode(mode: LayoutModeData): Promise<void> {
       layoutMode = mode
     },
@@ -444,17 +452,13 @@ export function createStoryScene({
         await closeModelEyes(model, 0, animateLinear)
       }
 
-      void delayMs(MOTION_START_DELAY_MS)
-        .then((): void => {
-          void applyAndWaitModelMotion(
-            model,
-            waitUntil,
-            options.motion,
-            options.facial,
-            true
-          ).catch((): void => undefined)
-        })
-        .catch((): void => undefined)
+      trackPendingAction(
+        delayMs(MOTION_START_DELAY_MS)
+          .then((): Promise<void> => {
+            return applyAndWaitModelMotion(model, waitUntil, options.motion, options.facial, true)
+          })
+          .catch((): void => undefined)
+      )
 
       await showTask
     },
@@ -646,6 +650,13 @@ export function createStoryScene({
     return () => {
       disposers.delete(dispose)
     }
+  }
+
+  function trackPendingAction(task: Promise<void>): void {
+    pendingActions.add(task)
+    void task.finally((): void => {
+      pendingActions.delete(task)
+    })
   }
 
   function getDialogueUi(): Promise<DialogueUiState> {
@@ -1234,6 +1245,7 @@ async function playModelLastFrame(
 ): Promise<void> {
   const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
     getParallelMotionManagers(model)
+  stopMotionManagers(managers)
   const waits: Promise<boolean>[] = []
 
   if (motion) {
@@ -1258,6 +1270,7 @@ async function applyModelLastFrame(
 ): Promise<void> {
   const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
     getParallelMotionManagers(model)
+  stopMotionManagers(managers)
   const tasks: Promise<boolean>[] = []
 
   if (motion) tasks.push(managers[0].playMotionLastFrame(motion, 0))
@@ -1275,6 +1288,7 @@ async function applyAndWaitModelMotion(
 ): Promise<void> {
   const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
     getParallelMotionManagers(model)
+  stopMotionManagers(managers)
   const waits: Promise<boolean>[] = []
 
   if (motion) {
@@ -1372,6 +1386,17 @@ function getParallelMotionManagers(
   }
 
   return [motionManager, facialManager]
+}
+
+function stopMotionManagers(
+  managers: [ParallelMotionManagerLike, ParallelMotionManagerLike]
+): void {
+  managers[0].stopAllMotions()
+  managers[1].stopAllMotions()
+}
+
+function stopModelMotions(model: SekaiLive2DModel): void {
+  stopMotionManagers(getParallelMotionManagers(model))
 }
 
 function waitForModelMotion(

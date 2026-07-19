@@ -216,6 +216,9 @@ export default class StoryDispatcher {
         await this.runLeafSnippet(snippet, path)
       }
 
+      if (snippet.id === pauseAfterSnippetId) {
+        await this.runtime.scene.waitForPendingActions()
+      }
       this.emit({ type: 'snippet:complete', snippet, path })
       if (trackState && this.logicalState) {
         this.logicalState = reduceStorySnippet(this.logicalState, snippet)
