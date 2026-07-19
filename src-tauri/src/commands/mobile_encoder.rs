@@ -61,20 +61,25 @@ pub fn run_mobile_encode_worker(
         }
     }
 
-    // MediaCodec is gated: OEM configure/start can *native-crash the whole process*
-    // (uncatchable from Java/Rust). Logs showed death right after "create begin".
-    // Default: openh264 only. Opt-in with env MSS_ANDROID_MEDIACODEC=1 after device-safe path.
+    // MediaCodec: prefer Android software AVC first (safer than OEM HW which can
+    // native-crash on configure). Default ON when JavaVM is ready; set
+    // MSS_ANDROID_MEDIACODEC=0 to force openh264-only.
     #[cfg(target_os = "android")]
     {
         let allow_hw = std::env::var("MSS_ANDROID_MEDIACODEC")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
+            .map(|v| {
+                !(v == "0"
+                    || v.eq_ignore_ascii_case("false")
+                    || v.eq_ignore_ascii_case("off")
+                    || v.eq_ignore_ascii_case("no"))
+            })
+            .unwrap_or(true);
         let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 10)
             .clamp(400_000, 20_000_000) as u32;
         if !allow_hw {
-            log::warn!(
+            log::info!(
                 target: "backend::render",
-                "mobile MediaCodec disabled by default (set MSS_ANDROID_MEDIACODEC=1 to try); using openh264"
+                "mobile MediaCodec disabled via MSS_ANDROID_MEDIACODEC; using openh264"
             );
         } else if !crate::commands::mobile_hw_encoder::java_vm_ready() {
             log::warn!(
@@ -206,6 +211,12 @@ pub fn run_mobile_encode_worker(
     let mut frame_index: u64 = 0;
     let sample_duration_ms: u32 = (1000 / fps).max(1);
     let mut wrote_samples = 0u64;
+    // Reuse conversion + annex-B buffers across frames (major soft-encode alloc cost).
+    let mut yuv = YUVBuffer::new(width as usize, height as usize);
+    let mut annex_b: Vec<u8> = Vec::with_capacity(64 * 1024);
+    let mut encode_ns_acc: u128 = 0;
+    let mut encode_ns_count: u64 = 0;
+    let encode_started = std::time::Instant::now();
 
     log::info!(
         target: "backend::render",
@@ -224,6 +235,15 @@ pub fn run_mobile_encode_worker(
                 if stop_flag.load(Ordering::Relaxed) {
                     break;
                 }
+                let data = match crate::commands::render::expand_frame_payload(data, frame_bytes)
+                {
+                    Ok(d) => d,
+                    Err(e) => {
+                        log::error!(target: "backend::render", "mobile frame expand failed: {e}");
+                        stop_flag.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                };
                 if data.is_empty() || data.len() % frame_bytes != 0 {
                     log::error!(
                         target: "backend::render",
@@ -240,20 +260,15 @@ pub fn run_mobile_encode_worker(
                     if frame_index == 0 {
                         encoder.force_intra_frame();
                     }
-                    if frame_index > 0 && frame_index % 30 == 0 {
-                        log::info!(
-                            target: "backend::render",
-                            "mobile encoder progress frames={} path={}",
-                            frame_index,
-                            export_path
-                        );
-                    }
+                    let t0 = std::time::Instant::now();
                     if let Err(e) = encode_one_frame(
                         &mut encoder,
                         &mut mp4,
                         &mut track_ready,
                         &mut sps,
                         &mut pps,
+                        &mut yuv,
+                        &mut annex_b,
                         frame,
                         width as usize,
                         height as usize,
@@ -265,7 +280,26 @@ pub fn run_mobile_encode_worker(
                         stop_flag.store(true, Ordering::Relaxed);
                         break;
                     }
+                    encode_ns_acc = encode_ns_acc.saturating_add(t0.elapsed().as_nanos());
+                    encode_ns_count = encode_ns_count.saturating_add(1);
                     frame_index = frame_index.saturating_add(1);
+                    if frame_index > 0 && frame_index % 30 == 0 {
+                        let avg_ms = if encode_ns_count > 0 {
+                            (encode_ns_acc / u128::from(encode_ns_count)) as f64 / 1_000_000.0
+                        } else {
+                            0.0
+                        };
+                        let wall_fps = frame_index as f64
+                            / encode_started.elapsed().as_secs_f64().max(0.001);
+                        log::info!(
+                            target: "backend::render",
+                            "mobile encoder progress frames={} path={} avg_encode_ms={avg_ms:.2} wall_fps={wall_fps:.2}",
+                            frame_index,
+                            export_path
+                        );
+                        encode_ns_acc = 0;
+                        encode_ns_count = 0;
+                    }
                 }
             }
             Ok(RenderMessage::Stop) => break,
@@ -288,6 +322,8 @@ pub fn run_mobile_encode_worker(
                         &mut track_ready,
                         &mut sps,
                         &mut pps,
+                        &mut yuv,
+                        &mut annex_b,
                         frame,
                         width as usize,
                         height as usize,
@@ -328,6 +364,9 @@ fn run_hw_encode_loop(
     let sample_duration_us: i64 = (1_000_000i64 / i64::from(fps.max(1))).max(1);
     let mut encode_error: Option<String> = None;
     let mut nv12 = vec![0u8; width.saturating_mul(height).saturating_mul(3) / 2];
+    let encode_started = std::time::Instant::now();
+    let mut encode_ns_acc: u128 = 0;
+    let mut encode_ns_count: u64 = 0;
 
     loop {
         if stop_flag.load(Ordering::Relaxed) {
@@ -338,6 +377,15 @@ fn run_hw_encode_loop(
                 if stop_flag.load(Ordering::Relaxed) {
                     break;
                 }
+                let data = match crate::commands::render::expand_frame_payload(data, frame_bytes)
+                {
+                    Ok(d) => d,
+                    Err(e) => {
+                        log::error!(target: "backend::render", "mobile hw frame expand failed: {e}");
+                        encode_error = Some(e);
+                        break;
+                    }
+                };
                 if data.is_empty() || data.len() % frame_bytes != 0 {
                     log::error!(
                         target: "backend::render",
@@ -353,6 +401,7 @@ fn run_hw_encode_loop(
                     let start = i * frame_bytes;
                     let frame = &data[start..start + frame_bytes];
                     let pts = (frame_index as i64).saturating_mul(sample_duration_us);
+                    let t0 = std::time::Instant::now();
                     rgba_to_nv12(frame, width, height, &mut nv12);
                     if let Err(e) = crate::commands::mobile_hw_encoder::hw_encoder_encode_nv12(
                         session, &nv12, pts,
@@ -362,12 +411,23 @@ fn run_hw_encode_loop(
                         stop_flag.store(true, Ordering::Relaxed);
                         break;
                     }
+                    encode_ns_acc = encode_ns_acc.saturating_add(t0.elapsed().as_nanos());
+                    encode_ns_count = encode_ns_count.saturating_add(1);
                     frame_index = frame_index.saturating_add(1);
                     if frame_index > 0 && frame_index % 30 == 0 {
+                        let avg_ms = if encode_ns_count > 0 {
+                            (encode_ns_acc / u128::from(encode_ns_count)) as f64 / 1_000_000.0
+                        } else {
+                            0.0
+                        };
+                        let wall_fps = frame_index as f64
+                            / encode_started.elapsed().as_secs_f64().max(0.001);
                         log::info!(
                             target: "backend::render",
-                            "mobile MediaCodec progress frames={frame_index}"
+                            "mobile MediaCodec progress frames={frame_index} avg_encode_ms={avg_ms:.2} wall_fps={wall_fps:.2}"
                         );
+                        encode_ns_acc = 0;
+                        encode_ns_count = 0;
                     }
                 }
                 if encode_error.is_some() {
@@ -416,30 +476,29 @@ fn run_hw_encode_loop(
     }
 }
 
-/// BT.601 full-range-ish RGBA → NV12 for MediaCodec.
+/// BT.601 full-range-ish RGBA → NV12 for MediaCodec (tight loop, no per-pixel clamps).
 #[cfg(target_os = "android")]
 fn rgba_to_nv12(rgba: &[u8], width: usize, height: usize, out: &mut [u8]) {
     let frame = width * height;
+    debug_assert!(out.len() >= frame + frame / 2);
+    debug_assert!(rgba.len() >= frame * 4);
+    let (y_plane, uv_plane) = out.split_at_mut(frame);
+    let mut src = 0usize;
     let mut y_i = 0usize;
-    let mut uv_i = frame;
-    let mut i = 0usize;
+    let mut uv_i = 0usize;
     for row in 0..height {
+        let even_row = (row & 1) == 0;
         for col in 0..width {
-            let r = rgba[i] as i32;
-            let g = rgba[i + 1] as i32;
-            let b = rgba[i + 2] as i32;
-            i += 4;
-            let mut y = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
-            y = y.clamp(0, 255);
-            out[y_i] = y as u8;
+            let r = rgba[src] as i32;
+            let g = rgba[src + 1] as i32;
+            let b = rgba[src + 2] as i32;
+            src += 4;
+            // Fixed-point BT.601; values stay in range for 0..255 inputs.
+            y_plane[y_i] = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16) as u8;
             y_i += 1;
-            if row % 2 == 0 && col % 2 == 0 && uv_i + 1 < out.len() {
-                let mut u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
-                let mut v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
-                u = u.clamp(0, 255);
-                v = v.clamp(0, 255);
-                out[uv_i] = u as u8;
-                out[uv_i + 1] = v as u8;
+            if even_row && (col & 1) == 0 {
+                uv_plane[uv_i] = (((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128) as u8;
+                uv_plane[uv_i + 1] = (((112 * r - 94 * g - 18 * b + 128) >> 8) + 128) as u8;
                 uv_i += 2;
             }
         }
@@ -460,6 +519,8 @@ fn encode_one_frame<W: Write + std::io::Seek>(
     track_ready: &mut bool,
     sps: &mut Vec<u8>,
     pps: &mut Vec<u8>,
+    yuv: &mut YUVBuffer,
+    annex_b: &mut Vec<u8>,
     rgba: &[u8],
     width: usize,
     height: usize,
@@ -468,13 +529,14 @@ fn encode_one_frame<W: Write + std::io::Seek>(
     wrote_samples: &mut u64,
 ) -> Result<(), String> {
     let rgb = RgbaSliceU8::new(rgba, (width, height));
-    let yuv = YUVBuffer::from_rgb_source(rgb);
+    yuv.read_rgb(rgb);
     let bitstream = encoder
-        .encode(&yuv)
+        .encode(yuv)
         .map_err(|e| format!("openh264 encode: {e}"))?;
 
-    let annex_b = bitstream.to_vec();
-    let nals = split_annex_b(&annex_b);
+    annex_b.clear();
+    bitstream.write_vec(annex_b);
+    let nals = split_annex_b(annex_b);
     if nals.is_empty() {
         return Ok(());
     }

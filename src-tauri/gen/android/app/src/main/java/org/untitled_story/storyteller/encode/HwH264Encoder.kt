@@ -21,7 +21,8 @@ import kotlin.math.min
 object HwH264Encoder {
   private const val TAG = "HwH264Encoder"
   private const val MIME = "video/avc"
-  private const val TIMEOUT_US = 10_000L
+  // Longer dequeue timeout reduces busy spin on soft encoders (emulator c2.android.*).
+  private const val TIMEOUT_US = 50_000L
 
   private val nextId = AtomicLong(1)
   private val sessions = ConcurrentHashMap<Long, Session>()
@@ -292,24 +293,50 @@ object HwH264Encoder {
 
   private fun pickAvcEncoderName(): String? {
     val list = MediaCodecList(MediaCodecList.ALL_CODECS)
-    var fallback: String? = null
+    var softPick: String? = null
+    var hwPick: String? = null
     for (info in list.codecInfos) {
       if (!info.isEncoder) continue
       if (!info.supportedTypes.any { it.equals(MIME, ignoreCase = true) }) continue
-      val name = info.name.lowercase()
-      // Prefer OEM hardware encoders; keep a software encoder as last resort.
+      val name = info.name
+      val lower = name.lowercase()
       val soft =
-        name.contains("google") ||
-          name.contains("sw") ||
-          name.contains("android.software") ||
-          name.startsWith("c2.android") ||
-          name.startsWith("omx.google")
-      if (!soft) {
-        return info.name
+        lower.contains("google") ||
+          lower.contains("sw") ||
+          lower.contains("android.software") ||
+          lower.startsWith("c2.android") ||
+          lower.startsWith("omx.google")
+      if (soft) {
+        if (softPick == null) softPick = name
+      } else if (hwPick == null) {
+        hwPick = name
       }
-      if (fallback == null) fallback = info.name
     }
-    return fallback
+    // Emulator/goldfish: software only (no real HW; HW path is slow/flaky).
+    // Real devices: prefer OEM HW (orders of magnitude faster than c2.android soft).
+    val emulator =
+      Build.FINGERPRINT.startsWith("generic") ||
+        Build.FINGERPRINT.startsWith("unknown") ||
+        Build.MODEL.contains("google_sdk") ||
+        Build.MODEL.contains("Emulator") ||
+        Build.MODEL.contains("Android SDK") ||
+        Build.MANUFACTURER.contains("Genymotion") ||
+        Build.HARDWARE.contains("goldfish") ||
+        Build.HARDWARE.contains("ranchu") ||
+        Build.PRODUCT.contains("sdk_gphone") ||
+        Build.PRODUCT.contains("emulator") ||
+        Build.PRODUCT.contains("simulator")
+    val chosen =
+      if (emulator) {
+        softPick ?: hwPick
+      } else {
+        hwPick ?: softPick
+      }
+    Log.i(
+      TAG,
+      "pickAvcEncoder emulator=$emulator soft=$softPick hw=$hwPick chosen=$chosen"
+    )
+    return chosen
   }
 
   private fun colorFormatCandidates(info: MediaCodecInfo): List<Int> {

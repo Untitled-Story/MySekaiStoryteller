@@ -1258,7 +1258,8 @@ async function runExportPipeline({
   const pixelReader = createPixelReader(app, exportWidth, exportHeight, frameByteLength)
   // Higher inflight + larger batches; HTTP 503 still provides backpressure.
   // Allow modest overlap with encode once the worker stays alive.
-  const maxInflight = isMobileRuntime() ? 2 : isWorker ? 3 : 4
+  // Mobile: JPEG bridge is tiny — more inflight overlaps Live2D capture with encode.
+  const maxInflight = isMobileRuntime() ? 4 : isWorker ? 3 : 4
   const freeBatches: Uint8Array[] = Array.from(
     { length: maxInflight },
     () => new Uint8Array(frameByteLength * batchFrames)
@@ -1322,7 +1323,10 @@ async function runExportPipeline({
       let lastError: Error | null = null
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          await streamFrame(sessionKey, payload)
+          await streamFrame(sessionKey, payload, {
+            width: exportWidth,
+            height: exportHeight
+          })
           return
         } catch (error: unknown) {
           const msg =
@@ -1806,7 +1810,9 @@ async function runExportPipeline({
    * deepen only when the story may have scheduled new work.
    */
   async function drainStoryMicrotasks(maxTurns: number = 8): Promise<void> {
-    const turns = Math.max(1, Math.min(48, Math.floor(maxTurns)))
+    // Mobile WebView: each await is costly; keep drains short.
+    const cap = isMobileRuntime() ? 8 : 48
+    const turns = Math.max(1, Math.min(cap, Math.floor(maxTurns)))
     for (let i = 0; i < turns; i += 1) {
       await Promise.resolve()
     }
@@ -1821,7 +1827,7 @@ async function runExportPipeline({
     const startedAt: number = performance.now()
     let spins = 0
     // Hard cap: export must not hang forever on a stuck Assets.load / startMotion.
-    const maxWaitMs: number = 10_000
+    const maxWaitMs: number = isMobileRuntime() ? 4_000 : 10_000
     while (isStoryAsyncPending() && spins < 20_000 && !shouldAbort()) {
       if (performance.now() - startedAt > maxWaitMs) {
         logger.warn('export.story_async_wait_timeout', {
@@ -1835,8 +1841,13 @@ async function runExportPipeline({
       spins += 1
       await Promise.resolve()
       if (isStoryAsyncPending()) {
+        // Prefer rAF over setTimeout(0) on mobile (fewer 4–16ms timer slices).
         await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, 0)
+          if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => resolve())
+          } else {
+            window.setTimeout(resolve, 0)
+          }
         })
       }
     }
@@ -1850,7 +1861,15 @@ async function runExportPipeline({
     clock.advanceManual(deltaMs)
     // Large warm jumps: fewer idle drains (story still gets a yield + Live2D present).
     const largeWarmJump = deltaMs >= frameIntervalMs * 2.5
-    await drainStoryMicrotasks(largeWarmJump ? 4 : 8)
+    const mobile = isMobileRuntime()
+    // Mobile: skip pure microtask spinning unless story may schedule more work.
+    if (!mobile) {
+      await drainStoryMicrotasks(largeWarmJump ? 4 : 8)
+    } else if (isStoryAsyncPending()) {
+      await drainStoryMicrotasks(2)
+    } else {
+      await Promise.resolve()
+    }
     // Pixi/Live2D must use the same virtual timeline as the story (not wall clock).
     // Ticker.update(currentTime) derives deltaMS from currentTime - lastTime.
     app.ticker.update(clock.getSyntheticAppTimeMs())
@@ -1860,13 +1879,11 @@ async function runExportPipeline({
     clock.pollTasks()
     if (isStoryAsyncPending()) {
       await waitForStoryExternalIdle()
-      await drainStoryMicrotasks(12)
+      await drainStoryMicrotasks(mobile ? 3 : 12)
       app.renderer.render({ container: app.stage })
       clock.pollTasks()
-    } else if (!largeWarmJump) {
-      await drainStoryMicrotasks(4)
-    } else {
-      await drainStoryMicrotasks(2)
+    } else if (!mobile) {
+      await drainStoryMicrotasks(largeWarmJump ? 2 : 4)
     }
   }
 
@@ -1951,8 +1968,13 @@ async function runExportPipeline({
       }
     }
 
-    // advanceStoryClock already rendered; re-present when we need a stable capture surface.
-    if (needPresent && (!options.advanceClock || needReadback || !advancedStoryClock)) {
+    // advanceStoryClock already rendered. Re-present only when we did not just advance,
+    // or when overshoot/static capture needs a fresh surface without clock advance.
+    // Mobile: skip the second full-scene render on the hot capture path (saves ~1 Live2D pass).
+    const needSecondPresent: boolean =
+      needPresent &&
+      (!advancedStoryClock || (!isMobileRuntime() && needReadback && !options.advanceClock))
+    if (needSecondPresent) {
       app.renderer.render({ container: app.stage })
     }
 
@@ -1966,8 +1988,16 @@ async function runExportPipeline({
         frameIndexBefore >= startFrame &&
         framesProcessed < captureTotal
       ) {
+        const streamStarted = performance.now()
         await enqueueCapturedFrame(readyFrame)
         framesProcessed += 1
+        if (isMobileRuntime() && framesProcessed % 30 === 0) {
+          logger.info('export.mobile_capture_tick', {
+            framesProcessed,
+            avgFrameMs: Math.round(avgFrameDeltaMs()),
+            lastStreamMs: Math.round(performance.now() - streamStarted)
+          })
+        }
       }
     }
 

@@ -212,21 +212,112 @@ export function validateRenderSegment(
 const streamFrameSlotBySession: Map<string, number> = new Map()
 /** After IPC fails, prefer file bridge until this timestamp (ms). */
 const streamFramePreferFileUntil: Map<string, number> = new Map()
+/** Reused canvas for mobile RGBA→JPEG compression (avoids multi-MB IPC). */
+let mobileJpegCanvas: HTMLCanvasElement | null = null
+let mobileJpegCtx: CanvasRenderingContext2D | null = null
+
+function isMobileUa(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+}
+
+async function rgbaToJpegBytes(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  quality: number = 0.82
+): Promise<Uint8Array> {
+  if (width < 1 || height < 1) {
+    throw new Error('invalid jpeg dimensions')
+  }
+  const expected = width * height * 4
+  if (rgba.byteLength < expected) {
+    throw new Error(`rgba too small ${rgba.byteLength} < ${expected}`)
+  }
+  if (!mobileJpegCanvas) {
+    mobileJpegCanvas = document.createElement('canvas')
+    mobileJpegCtx = mobileJpegCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  const canvas = mobileJpegCanvas
+  const ctx = mobileJpegCtx
+  if (!canvas || !ctx) {
+    throw new Error('jpeg canvas unavailable')
+  }
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width
+    canvas.height = height
+  }
+  // Copy into a fresh clamped buffer — ImageData rejects shared/offset views on some WebViews.
+  const clamped = new Uint8ClampedArray(expected)
+  clamped.set(rgba.subarray(0, expected))
+  const imageData = new ImageData(clamped, width, height)
+  ctx.putImageData(imageData, 0, 0)
+  const blob: Blob | null = await new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(b), 'image/jpeg', quality)
+  })
+  if (!blob) {
+    throw new Error('canvas.toBlob jpeg failed')
+  }
+  const ab = await blob.arrayBuffer()
+  return new Uint8Array(ab)
+}
+
+export type StreamFrameOptions = {
+  width?: number
+  height?: number
+}
 
 /** Push packed RGBA frame bytes into the native encode queue. */
-export async function streamFrame(projectName: string, data: Uint8Array | number[]): Promise<void> {
-  const bytes: Uint8Array = data instanceof Uint8Array ? data : Uint8Array.from(data)
+export async function streamFrame(
+  projectName: string,
+  data: Uint8Array | number[],
+  options?: StreamFrameOptions
+): Promise<void> {
+  let bytes: Uint8Array = data instanceof Uint8Array ? data : Uint8Array.from(data)
   // Do NOT Array.from() multi-MB frames into number[] (JSON freezes Android WebView).
 
   const safeName = projectName.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 48)
   const slot: number = (streamFrameSlotBySession.get(safeName) ?? 0) ^ 1
   streamFrameSlotBySession.set(safeName, slot)
-  const fileName: string = `render-frame-${safeName}-${slot}.rgba`
-  // Prefer binary IPC (no multi-MB disk I/O). File bridge only as fallback.
-  const preferFile = (streamFramePreferFileUntil.get(safeName) ?? 0) > Date.now()
+  // Mobile: multi-MB RGBA IPC is ~2s/frame. Compress to JPEG (~50–150KB) first.
+  const mobile = isMobileUa()
+  let fileName: string = `render-frame-${safeName}-${slot}.rgba`
+  if (mobile && bytes.byteLength >= 160 * 90 * 4) {
+    let w = Math.max(0, Math.floor(options?.width ?? 0))
+    let h = Math.max(0, Math.floor(options?.height ?? 0))
+    if (w * h * 4 !== bytes.byteLength) {
+      // Infer WxH from packed RGBA when caller omitted size.
+      const px = bytes.byteLength / 4
+      w = 0
+      h = 0
+      for (const candW of [1920, 1600, 1280, 960, 854, 720, 640, 480]) {
+        if (px % candW === 0) {
+          const candH = px / candW
+          if (candH >= 90 && candH <= 2160) {
+            w = candW
+            h = candH
+            break
+          }
+        }
+      }
+    }
+    if (w > 0 && h > 0 && w * h * 4 === bytes.byteLength) {
+      try {
+        // 0.75 balances size vs toBlob cost on Android WebView.
+        bytes = await rgbaToJpegBytes(bytes, w, h, 0.75)
+        fileName = `render-frame-${safeName}-${slot}.jpg`
+      } catch {
+        // Fall through with raw RGBA.
+      }
+    }
+  }
+
+  // Desktop: prefer IPC. Mobile: prefer AppCache file bridge of (JPEG or RGBA).
+  // Never use BaseDirectory.Cache on Android (external cache outside $APPCACHE).
+  const preferFile = mobile || (streamFramePreferFileUntil.get(safeName) ?? 0) > Date.now()
 
   async function viaFile(): Promise<void> {
-    await writeFile(fileName, bytes, { baseDir: BaseDirectory.Cache })
+    await writeFile(fileName, bytes, { baseDir: BaseDirectory.AppCache })
     await invoke('stream_frame_file', {
       projectName,
       path: fileName
@@ -240,35 +331,39 @@ export async function streamFrame(projectName: string, data: Uint8Array | number
     })
   }
 
-  if (!preferFile) {
+  if (preferFile) {
     try {
-      await viaIpc()
+      await viaFile()
       return
-    } catch (directError: unknown) {
+    } catch (fileError: unknown) {
       try {
-        await viaFile()
-        streamFramePreferFileUntil.set(safeName, Date.now() + 5_000)
+        await viaIpc()
+        if (mobile) {
+          streamFramePreferFileUntil.set(safeName, Date.now() + 30_000)
+        } else {
+          streamFramePreferFileUntil.delete(safeName)
+        }
         return
-      } catch (fileError: unknown) {
-        const directMsg = directError instanceof Error ? directError.message : String(directError)
+      } catch (directError: unknown) {
         const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
-        throw new Error(`Frame stream failed (ipc: ${directMsg}; file: ${fileMsg})`)
+        const directMsg = directError instanceof Error ? directError.message : String(directError)
+        throw new Error(`Frame stream failed (file: ${fileMsg}; ipc: ${directMsg})`)
       }
     }
   }
 
   try {
-    await viaFile()
+    await viaIpc()
     return
-  } catch (fileError: unknown) {
+  } catch (directError: unknown) {
     try {
-      await viaIpc()
-      streamFramePreferFileUntil.delete(safeName)
+      await viaFile()
+      streamFramePreferFileUntil.set(safeName, Date.now() + 5_000)
       return
-    } catch (directError: unknown) {
-      const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
+    } catch (fileError: unknown) {
       const directMsg = directError instanceof Error ? directError.message : String(directError)
-      throw new Error(`Frame stream failed (file: ${fileMsg}; ipc: ${directMsg})`)
+      const fileMsg = fileError instanceof Error ? fileError.message : String(fileError)
+      throw new Error(`Frame stream failed (ipc: ${directMsg}; file: ${fileMsg})`)
     }
   }
 }

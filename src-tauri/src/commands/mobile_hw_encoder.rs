@@ -1,6 +1,6 @@
 //! Android MediaCodec H.264 encoder via JNI (Kotlin HwH264Encoder).
 
-use jni::objects::{JByteArray, JObject, JValue};
+use jni::objects::{GlobalRef, JByteArray, JObject, JValue};
 use jni::sys::jlong;
 use jni::{AttachGuard, JavaVM};
 use std::sync::OnceLock;
@@ -8,6 +8,8 @@ use std::sync::OnceLock;
 const CLASS: &str = "org/untitled_story/storyteller/encode/HwH264Encoder";
 
 static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
+/// Cached from MainActivity ClassLoader — worker-thread FindClass only sees system loader.
+static HW_ENCODER_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 
 /// Call once from MainActivity (JNI) so worker threads can attach.
 pub fn install_java_vm(vm: JavaVM) {
@@ -17,8 +19,37 @@ pub fn install_java_vm(vm: JavaVM) {
     }
 }
 
+/// Cache HwH264Encoder class while we still have the app ClassLoader (MainActivity).
+pub fn install_hw_encoder_class(env: &mut jni::JNIEnv) {
+    if HW_ENCODER_CLASS.get().is_some() {
+        return;
+    }
+    match env.find_class(CLASS) {
+        Ok(class) => match env.new_global_ref(class) {
+            Ok(gref) => {
+                let _ = HW_ENCODER_CLASS.set(gref);
+                log::info!(
+                    target: "backend::render",
+                    "HwH264Encoder class cached for worker-thread JNI"
+                );
+            }
+            Err(e) => log::error!(
+                target: "backend::render",
+                "HwH264Encoder global ref failed: {e}"
+            ),
+        },
+        Err(e) => {
+            let _ = env.exception_clear();
+            log::error!(
+                target: "backend::render",
+                "HwH264Encoder find_class on MainActivity failed: {e}"
+            );
+        }
+    }
+}
+
 pub fn java_vm_ready() -> bool {
-    JAVA_VM.get().is_some()
+    JAVA_VM.get().is_some() && HW_ENCODER_CLASS.get().is_some()
 }
 
 fn java_vm() -> Result<&'static JavaVM, String> {
@@ -33,6 +64,24 @@ fn attach() -> Result<AttachGuard<'static>, String> {
         .map_err(|e| format!("attach_current_thread: {e}"))
 }
 
+fn encoder_class<'a>(env: &mut jni::JNIEnv<'a>) -> Result<&'static GlobalRef, String> {
+    if let Some(gref) = HW_ENCODER_CLASS.get() {
+        return Ok(gref);
+    }
+    // Last resort (usually fails on worker threads) — cache if it works.
+    let class = env.find_class(CLASS).map_err(|e| {
+        let _ = env.exception_clear();
+        format!("find_class {CLASS}: {e}")
+    })?;
+    let gref = env
+        .new_global_ref(class)
+        .map_err(|e| format!("global_ref {CLASS}: {e}"))?;
+    let _ = HW_ENCODER_CLASS.set(gref);
+    HW_ENCODER_CLASS
+        .get()
+        .ok_or_else(|| "HwH264Encoder class cache race".into())
+}
+
 /// Create a hardware encode session writing H.264/AVC into `path` via MediaMuxer.
 pub fn hw_encoder_create(
     path: &str,
@@ -42,28 +91,25 @@ pub fn hw_encoder_create(
     bitrate: u32,
 ) -> Result<i64, String> {
     if !java_vm_ready() {
-        return Err("JavaVM not ready".into());
+        return Err("JavaVM/HwH264Encoder class not ready".into());
     }
     let mut env = attach()?;
     let path_j = env
         .new_string(path)
         .map_err(|e| format!("new_string path: {e}"))?;
-    let class = env
-        .find_class(CLASS)
-        .map_err(|e| format!("find_class {CLASS}: {e}"))?;
-    let result = env
-        .call_static_method(
-            class,
-            "create",
-            "(Ljava/lang/String;IIII)J",
-            &[
-                JValue::Object(&JObject::from(path_j)),
-                JValue::Int(width as i32),
-                JValue::Int(height as i32),
-                JValue::Int(fps as i32),
-                JValue::Int(bitrate as i32),
-            ],
-        );
+    let class = encoder_class(&mut env)?;
+    let result = env.call_static_method(
+        class,
+        "create",
+        "(Ljava/lang/String;IIII)J",
+        &[
+            JValue::Object(&JObject::from(path_j)),
+            JValue::Int(width as i32),
+            JValue::Int(height as i32),
+            JValue::Int(fps as i32),
+            JValue::Int(bitrate as i32),
+        ],
+    );
     if env.exception_check().unwrap_or(false) {
         let _ = env.exception_describe();
         let _ = env.exception_clear();
@@ -88,9 +134,7 @@ pub fn hw_encoder_encode(session_id: i64, rgba: &[u8], pts_us: i64) -> Result<()
     let arr: JByteArray = env
         .byte_array_from_slice(rgba)
         .map_err(|e| format!("byte_array_from_slice: {e}"))?;
-    let class = env
-        .find_class(CLASS)
-        .map_err(|e| format!("find_class {CLASS}: {e}"))?;
+    let class = encoder_class(&mut env)?;
     env.call_static_method(
         class,
         "encodeRgba",
@@ -115,9 +159,7 @@ pub fn hw_encoder_encode_nv12(session_id: i64, nv12: &[u8], pts_us: i64) -> Resu
     let arr: JByteArray = env
         .byte_array_from_slice(nv12)
         .map_err(|e| format!("byte_array_from_slice nv12: {e}"))?;
-    let class = env
-        .find_class(CLASS)
-        .map_err(|e| format!("find_class {CLASS}: {e}"))?;
+    let class = encoder_class(&mut env)?;
     env.call_static_method(
         class,
         "encodeNv12",
@@ -138,9 +180,7 @@ pub fn hw_encoder_encode_nv12(session_id: i64, nv12: &[u8], pts_us: i64) -> Resu
 
 pub fn hw_encoder_finish(session_id: i64) -> Result<(), String> {
     let mut env = attach()?;
-    let class = env
-        .find_class(CLASS)
-        .map_err(|e| format!("find_class {CLASS}: {e}"))?;
+    let class = encoder_class(&mut env)?;
     env.call_static_method(class, "finish", "(J)V", &[JValue::Long(session_id as jlong)])
         .map_err(|e| {
             let _ = env.exception_describe();
@@ -152,7 +192,7 @@ pub fn hw_encoder_finish(session_id: i64) -> Result<(), String> {
 
 pub fn hw_encoder_destroy(session_id: i64) {
     if let Ok(mut env) = attach() {
-        if let Ok(class) = env.find_class(CLASS) {
+        if let Ok(class) = encoder_class(&mut env) {
             let _ = env.call_static_method(
                 class,
                 "destroy",
@@ -173,6 +213,7 @@ pub extern "system" fn Java_org_untitled_1story_storyteller_MainActivity_mssInst
     match env.get_java_vm() {
         Ok(vm) => {
             install_java_vm(vm);
+            install_hw_encoder_class(&mut env);
             log::info!(
                 target: "backend::render",
                 "Android JavaVM installed via MainActivity JNI"

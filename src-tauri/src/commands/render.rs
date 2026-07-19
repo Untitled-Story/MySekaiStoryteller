@@ -216,6 +216,9 @@ pub struct RenderSession {
     pub stop_addr: SocketAddr,
     /// ffmpeg pid for force-kill when stdin write deadlocks.
     pub ffmpeg_pid: Arc<Mutex<Option<u32>>>,
+    /// Packed RGBA bytes per frame (width*height*4); reserved for bridge validation.
+    #[allow(dead_code)]
+    pub frame_bytes: usize,
 }
 
 pub struct RenderManager {
@@ -715,8 +718,9 @@ pub fn start_render_session(
     // HTTP path uses send_timeout so a full queue returns 503 instead of hanging forever.
     // Mobile soft-encode is slow; keep the queue tiny to bound RAM (~frame_bytes * N).
     // Soft encoder is slow; keep a few frames buffered without multi-100MB RAM.
+    // Mobile: JPEG payloads are small — deeper queue absorbs capture bursts.
     #[cfg(mobile)]
-    let (tx, rx) = bounded::<RenderMessage>(3);
+    let (tx, rx) = bounded::<RenderMessage>(16);
     #[cfg(desktop)]
     let (tx, rx) = bounded::<RenderMessage>(48);
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -987,6 +991,9 @@ pub fn start_render_session(
             }
         }
 
+        let frame_bytes = (config.width as usize)
+            .saturating_mul(config.height as usize)
+            .saturating_mul(4);
         sessions.insert(
             session_id.clone(),
             RenderSession {
@@ -996,6 +1003,7 @@ pub fn start_render_session(
                 stop_flag,
                 stop_addr,
                 ffmpeg_pid,
+                frame_bytes,
             },
         );
     }
@@ -1004,6 +1012,33 @@ pub fn start_render_session(
         upload_url,
         session_id,
     })
+}
+
+/// Decode JPEG frame bridge payloads on the encode worker (keeps IPC path fast).
+/// Raw RGBA batches (exact multiple of frame size) pass through unchanged.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn expand_frame_payload(data: Vec<u8>, frame_bytes: usize) -> Result<Vec<u8>, String> {
+    if data.is_empty() {
+        return Err("empty frame payload".into());
+    }
+    if frame_bytes > 0 && (data.len() == frame_bytes || data.len() % frame_bytes == 0) {
+        return Ok(data);
+    }
+    let is_jpeg = data.len() >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff;
+    if !is_jpeg {
+        return Ok(data);
+    }
+    let img = image::load_from_memory(&data)
+        .map_err(|e| format!("jpeg decode failed: {e}"))?
+        .to_rgba8();
+    let rgba = img.into_raw();
+    if frame_bytes > 0 && rgba.len() != frame_bytes {
+        return Err(format!(
+            "jpeg decoded size {} != expected frame bytes {frame_bytes}",
+            rgba.len()
+        ));
+    }
+    Ok(rgba)
 }
 
 #[tauri::command]
@@ -1022,6 +1057,7 @@ pub fn stream_frame(
 
     // Soft encoder can lag hard on phones; wait longer than the old 2–4s so capture
     // does not abort while openh264 is still chewing a prior frame.
+    // JPEG payloads are small — queue them raw; encode worker expands.
     let bytes = data.len();
     match tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(20_000)) {
         Ok(()) => Ok(()),
@@ -1035,7 +1071,7 @@ pub fn stream_frame(
     }
 }
 
-/// Prefer this on mobile: read a temp RGBA batch file instead of huge JSON number arrays.
+/// Prefer this on mobile: read a temp RGBA/JPEG batch file instead of huge IPC payloads.
 #[tauri::command]
 pub fn stream_frame_file(
     app: AppHandle,
