@@ -40,6 +40,7 @@ export type SettingsHook = {
   setOnboarding: (value: OnboardingSettings) => void
   setInteraction: (value: InteractionSettings) => void
   setTouchMode: (value: boolean) => void
+  setFullscreenMode: (value: boolean) => void
   setWorkspaceDir: (dir: string) => void
 }
 
@@ -241,6 +242,11 @@ export function useSettingsState(): SettingsHook {
       setInteractionState((prev) => ({
         ...prev,
         touchMode: value
+      })),
+    setFullscreenMode: (value) =>
+      setInteractionState((prev) => ({
+        ...prev,
+        fullscreenMode: value
       })),
     setWorkspaceDir: (dir: string): void => {
       // Persist immediately so backend project commands never race with the

@@ -49,12 +49,13 @@ export default function HomePage(): JSX.Element {
   const finishTouchPrompt = useCallback(
     (enabled: boolean): void => {
       setInteraction({
+        ...interaction,
         touchMode: enabled,
         touchModePromptSeen: true
       })
       setTouchPromptOpen(false)
     },
-    [setInteraction]
+    [interaction, setInteraction]
   )
 
   const latest: ProjectMetadata | null =

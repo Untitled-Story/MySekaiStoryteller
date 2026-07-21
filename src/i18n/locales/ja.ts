@@ -197,7 +197,11 @@ export const ja: typeof en = {
     touchMode: 'タッチモード',
     touchModeDescription:
       'マウスホバーを使わず、一覧の操作ボタンを常に表示して指で操作しやすくします。',
-    touchModeAria: 'タッチモードを切り替え'
+    touchModeAria: 'タッチモードを切り替え',
+    fullscreenMode: 'フルスクリーンモード',
+    fullscreenModeDescription:
+      'Androidの没入型フルスクリーンを強制し、ステータスバーとナビゲーションバーを隠します。システムナビが画面下部を覆う場合に使用してください。',
+    fullscreenModeAria: 'フルスクリーンモードを切り替え'
   },
   about: {
     specialThanks: 'スペシャルサンクス',
