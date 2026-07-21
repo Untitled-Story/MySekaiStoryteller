@@ -72,21 +72,26 @@ export function unlockOrientation(): void {
 }
 
 export function enterImmersiveMode(): boolean {
+  return setImmersiveMode(true)
+}
+
+export function exitImmersiveMode(): void {
+  setImmersiveMode(false)
+}
+
+export function setImmersiveMode(enabled: boolean): boolean {
   const nativeBridge: NativeOrientationBridge | undefined = getNativeOrientationBridge()
   if (!nativeBridge?.setImmersive) return false
 
   try {
-    nativeBridge.setImmersive(true)
+    nativeBridge.setImmersive(enabled)
     return true
   } catch {
     return false
   }
 }
 
-export function exitImmersiveMode(): void {
-  try {
-    getNativeOrientationBridge()?.setImmersive?.(false)
-  } catch {
-    // The activity may already be closing.
-  }
+/** Apply Android immersive fullscreen from the settings preference. */
+export function applyFullscreenModePreference(enabled: boolean): boolean {
+  return setImmersiveMode(enabled)
 }
