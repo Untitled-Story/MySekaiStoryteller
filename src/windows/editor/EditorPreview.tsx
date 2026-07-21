@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Application } from 'pixi.js'
-import { LoaderCircle, Pause, Play, RotateCcw, Square } from 'lucide-react'
+import { LoaderCircle, Pause, Play, RefreshCw, RotateCcw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/style'
 import { describeError as describeLogError, logger } from '@/lib/logger'
@@ -77,6 +77,7 @@ export function EditorPreview({
   const playbackQueueRef = useRef<Promise<void>>(Promise.resolve())
   const engineLifecycleRef = useRef<Promise<void>>(Promise.resolve())
   const [engine, setEngine] = useState<PreviewEngine | null>(null)
+  const [engineEpoch, setEngineEpoch] = useState<number>(0)
   const [status, setStatus] = useState<PreviewStatus>('idle')
   const [message, setMessage] = useState<string>(() => t('editor.waitingPreview'))
 
@@ -212,7 +213,7 @@ export function EditorPreview({
     return (): void => {
       disposeEngine()
     }
-  }, [input, onActiveSnippetIdsChange, t])
+  }, [engineEpoch, input, onActiveSnippetIdsChange, t])
 
   useEffect((): (() => void) | undefined => {
     if (!engine) return undefined
@@ -358,6 +359,15 @@ export function EditorPreview({
     onPreviewFromBeginning()
   }
 
+  function refreshPreview(): void {
+    if (status === 'loading') return
+    initialLoadRef.current = true
+    setEngine(null)
+    setStatus('loading')
+    setMessage(t('editor.initializingPreview'))
+    setEngineEpoch((current: number): number => current + 1)
+  }
+
   function togglePause(): void {
     const dispatcher: StoryDispatcher | undefined = sessionRef.current?.dispatcher
     if (!dispatcher) return
@@ -490,6 +500,18 @@ export function EditorPreview({
             onClick={stop}
           >
             <Square className="size-3.5 fill-current" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={compact ? 'size-9' : 'size-8'}
+            aria-label={t('editor.refreshPreview')}
+            title={t('editor.refreshPreview')}
+            disabled={status === 'loading'}
+            onClick={refreshPreview}
+          >
+            <RefreshCw className={cn('size-3.5', status === 'loading' && 'animate-spin')} />
           </Button>
         </div>
         <div className={cn('mx-3 h-px flex-1', compact ? 'bg-white/15' : 'bg-border')} />
