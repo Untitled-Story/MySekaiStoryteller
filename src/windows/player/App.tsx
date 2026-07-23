@@ -1058,6 +1058,10 @@ type WorkerProgressEvent = {
   warmProgress?: number
   warmFrameCount?: number
   warmTotalFrames?: number
+  /** Absolute story/export timeline frame (advances during warm and capture). */
+  timelineFrame?: number
+  /** Monotonic heartbeat so coordinator knows the worker is alive even at 0 frames. */
+  heartbeatSeq?: number
   message?: string
   fps?: number
   speed?: number
@@ -1196,6 +1200,7 @@ async function runExportPipeline({
       storyDone = true
     })
 
+  let workerHeartbeatSeq = 0
   async function emitWorkerProgress(
     status: RenderStats['status'],
     progress: number,
@@ -1211,11 +1216,13 @@ async function runExportPipeline({
       warmProgress?: number
       warmFrameCount?: number
       warmTotalFrames?: number
+      timelineFrame?: number
       storyEndedAtFrame?: number
     }
   ): Promise<void> {
     const groupId = renderConfig.exportGroupId ?? renderConfig.sessionId
     if (!isWorker || !groupId) return
+    workerHeartbeatSeq += 1
     const payload: WorkerProgressEvent = {
       sessionId: groupId,
       workerIndex,
@@ -1227,6 +1234,8 @@ async function runExportPipeline({
       warmProgress: extras?.warmProgress,
       warmFrameCount: extras?.warmFrameCount,
       warmTotalFrames: extras?.warmTotalFrames,
+      timelineFrame: extras?.timelineFrame ?? globalFrameIndex,
+      heartbeatSeq: workerHeartbeatSeq,
       message: extras?.message,
       fps: extras?.fps,
       speed: extras?.speed,
@@ -1235,7 +1244,8 @@ async function runExportPipeline({
       totalDuration: extras?.totalDuration,
       storyEndedAtFrame: extras?.storyEndedAtFrame
     }
-    await emit('export-worker-progress', payload)
+    // Fire-and-forget: awaiting IPC can freeze the capture loop if the host is busy.
+    void emit('export-worker-progress', payload).catch(() => undefined)
   }
 
   // Soft budget for single/unbounded exports: story duration estimate undercounts
@@ -1427,9 +1437,10 @@ async function runExportPipeline({
     pendingUploads.push(task)
     // Bound wait: never block capture loop more than ~2s on backpressure.
     if (pendingUploads.length > maxInflight) {
+      // Keep capture moving: short backpressure wait, then continue (extra tasks still run).
       await Promise.race([
         Promise.allSettled(pendingUploads.splice(0, pendingUploads.length - maxInflight + 1)),
-        new Promise<void>((resolve) => window.setTimeout(resolve, 2000))
+        new Promise<void>((resolve) => window.setTimeout(resolve, isMobileRuntime() ? 2000 : 500))
       ])
     }
   }
@@ -1644,7 +1655,17 @@ async function runExportPipeline({
     speed: 0,
     warmProgress: 0,
     warmFrameCount: 0,
-    warmTotalFrames: Math.max(0, startFrame)
+    warmTotalFrames: Math.max(0, startFrame),
+    timelineFrame: globalFrameIndex
+  })
+  logger.info('export.capture_ready', {
+    workerIndex: isWorker ? workerIndex : 0,
+    startFrame,
+    endFrame: Number.isFinite(endFrame) ? endFrame : null,
+    captureTotal,
+    uploadUrl: uploadUrl ? uploadUrl.slice(0, 64) : null,
+    sessionKey,
+    groupId: renderConfig.exportGroupId ?? renderConfig.sessionId ?? null
   })
 
   // Overshoot past endFrame to flush PBO/batch lag; never upload more than captureTotal.
@@ -1829,6 +1850,8 @@ async function runExportPipeline({
           ]
     })
     // Fire-and-forget: never block capture on Tauri IPC.
+    // Always send timelineFrame/globalFrameIndex so coordinator does not false-stall
+    // while framesProcessed is still 0 (PBO lag / first upload).
     void emitWorkerProgress(status, captureProgress, reportFrames, captureTotal, {
       fps: actualFps,
       speed: tickSpeed,
@@ -1836,8 +1859,9 @@ async function runExportPipeline({
       currentTime: captureStoryTime,
       totalDuration: captureTotal / exportFps,
       warmProgress,
-      warmFrameCount: isWarming ? globalFrameIndex : warmTotal,
-      warmTotalFrames: warmTotal
+      warmFrameCount: globalFrameIndex,
+      warmTotalFrames: Math.max(warmTotal, startFrame),
+      timelineFrame: globalFrameIndex
     })
   }
 
@@ -1950,6 +1974,7 @@ async function runExportPipeline({
     }
   }
 
+  let captureStepLogLeft = 8
   async function captureOneStep(options: {
     advanceClock: boolean
     allowUpload: boolean
@@ -1958,6 +1983,18 @@ async function runExportPipeline({
   }): Promise<void> {
     const presentOpt = options.present !== false
     const frameIndexBefore = globalFrameIndex
+    if (captureStepLogLeft > 0) {
+      captureStepLogLeft -= 1
+      logger.info('export.capture_step_begin', {
+        workerIndex: isWorker ? workerIndex : 0,
+        frame: frameIndexBefore,
+        startFrame,
+        advanceClock: options.advanceClock,
+        allowUpload: options.allowUpload,
+        storyDone,
+        pendingClock: clock.hasPendingTasks()
+      })
+    }
     const enteredRange = frameIndexBefore >= startFrame
     const nearCapture = frameIndexBefore + WARM_GPU_PRIME_FRAMES >= startFrame
     // Live2D applies ticker delta only inside renderLive2D. Far warm MUST still render,
@@ -2125,6 +2162,34 @@ async function runExportPipeline({
     framesProcessed = Math.min(framesProcessed, captureTotal)
   }
 
+  // Independent of captureOneStep: if story/GPU/upload blocks, coordinator still sees life + timeline.
+  const workerHeartbeatTimer = isWorker
+    ? window.setInterval(() => {
+        if (shouldAbort()) return
+        const isWarmingHb = globalFrameIndex < startFrame
+        const reportFramesHb = Math.min(framesProcessed, captureTotal)
+        const captureProgressHb = Math.min(1, reportFramesHb / Math.max(1, captureTotal))
+        void emitWorkerProgress(
+          isWarmingHb ? 'warming' : 'rendering',
+          captureProgressHb,
+          reportFramesHb,
+          captureTotal,
+          {
+            wallElapsedSec: wallElapsedSecNow(),
+            warmProgress: isWarmingHb
+              ? Math.min(0.999, globalFrameIndex / Math.max(1, startFrame))
+              : startFrame > 0
+                ? 1
+                : 0,
+            warmFrameCount: globalFrameIndex,
+            warmTotalFrames: Math.max(1, startFrame),
+            timelineFrame: globalFrameIndex,
+            message: `hb@${globalFrameIndex}`
+          }
+        )
+      }, 500)
+    : 0
+
   try {
     while (!shouldAbort()) {
       await waitIfPaused()
@@ -2143,6 +2208,16 @@ async function runExportPipeline({
       ensureCaptureBudget(globalFrameIndex)
       await captureOneStep({ advanceClock: true, allowUpload: true })
       ensureCaptureBudget(globalFrameIndex)
+      if (!isMobileRuntime() && framesProcessed > 0 && framesProcessed % 30 === 0) {
+        logger.info('export.desktop_capture_tick', {
+          workerIndex: isWorker ? workerIndex : 0,
+          globalFrameIndex,
+          framesProcessed,
+          captureTotal,
+          startFrame,
+          endFrame: Number.isFinite(endFrame) ? endFrame : null
+        })
+      }
 
       if (performance.now() - lastStatsAt > 500) {
         lastStatsAt = performance.now()
@@ -2213,6 +2288,7 @@ async function runExportPipeline({
       throw new Error('渲染已取消')
     }
 
+    if (workerHeartbeatTimer) window.clearInterval(workerHeartbeatTimer)
     publishCaptureStats('finalizing')
     ensureCaptureBudget(globalFrameIndex)
     await Promise.race([
@@ -2422,6 +2498,7 @@ async function runExportPipeline({
       if (shouldAbort()) {
         throw new Error('渲染已取消')
       }
+      if (workerHeartbeatTimer) window.clearInterval(workerHeartbeatTimer)
       publishCaptureStats('finalizing')
       ensureCaptureBudget(globalFrameIndex)
       await Promise.race([
@@ -2460,6 +2537,7 @@ async function runExportPipeline({
       throw new Error('渲染已取消')
     }
   } catch (error: unknown) {
+    if (workerHeartbeatTimer) window.clearInterval(workerHeartbeatTimer)
     await Promise.allSettled(pendingUploads)
     await stopRenderSession(sessionKey).catch(() => undefined)
     const message = error instanceof Error ? error.message : 'Export failed'
@@ -2468,10 +2546,11 @@ async function runExportPipeline({
       framesProcessed / Math.max(1, captureTotal),
       framesProcessed,
       captureTotal,
-      { message, wallElapsedSec: wallElapsedSecNow() }
+      { message, wallElapsedSec: wallElapsedSecNow(), timelineFrame: globalFrameIndex }
     )
     throw error
   } finally {
+    if (workerHeartbeatTimer) window.clearInterval(workerHeartbeatTimer)
     controlUnlisten?.()
     pixelReader.destroy()
     clock.setTickerDriven(true)
@@ -2569,11 +2648,15 @@ async function runCoordinatorExport(options: {
     warmProgress: number
     warmFrameCount: number
     warmTotalFrames: number
+    timelineFrame: number
+    heartbeatSeq: number
     fps: number
     speed: number
     lastProgressAt: number
     lastFrameCount: number
     lastWarmFrameCount: number
+    lastTimelineFrame: number
+    lastHeartbeatSeq: number
     lastEndFrame: number | null
     message?: string
     /** Wall-clock phase spans for waterfall (sec from export start). */
@@ -2595,11 +2678,15 @@ async function runCoordinatorExport(options: {
       warmProgress: 0,
       warmFrameCount: 0,
       warmTotalFrames: 0,
+      timelineFrame: 0,
+      heartbeatSeq: 0,
       fps: 0,
       speed: 0,
       lastProgressAt: Date.now(),
       lastFrameCount: 0,
       lastWarmFrameCount: 0,
+      lastTimelineFrame: 0,
+      lastHeartbeatSeq: 0,
       lastEndFrame: null,
       warmStartSec: null,
       warmEndSec: null,
@@ -3239,6 +3326,10 @@ async function runCoordinatorExport(options: {
     slot.lastProgressAt = Date.now()
     slot.lastFrameCount = 0
     slot.lastWarmFrameCount = 0
+    slot.lastTimelineFrame = 0
+    slot.lastHeartbeatSeq = 0
+    slot.timelineFrame = continueFrom ?? job.startFrame
+    slot.heartbeatSeq = 0
     slot.message = undefined
 
     if (mode === 'open' || !openedSlots.has(slotId)) {
@@ -3394,24 +3485,58 @@ async function runCoordinatorExport(options: {
 
   const unlistenProgress = await listen<WorkerProgressEvent>('export-worker-progress', (event) => {
     const payload = event.payload
-    if (payload.sessionId !== prepared.sessionId) return
+    if (payload.sessionId !== prepared.sessionId) {
+      logger.warn('export.progress_ignored', {
+        reason: 'session_mismatch',
+        got: payload.sessionId,
+        expected: prepared.sessionId,
+        workerIndex: payload.workerIndex
+      })
+      return
+    }
     const slot = slots.get(payload.workerIndex)
-    if (!slot) return
-    if (slot.job && payload.jobId !== undefined && payload.jobId !== slot.job.jobId) return
+    if (!slot) {
+      logger.warn('export.progress_ignored', {
+        reason: 'unknown_slot',
+        workerIndex: payload.workerIndex,
+        sessionId: payload.sessionId
+      })
+      return
+    }
+    if (slot.job && payload.jobId !== undefined && payload.jobId !== slot.job.jobId) {
+      logger.warn('export.progress_ignored', {
+        reason: 'job_mismatch',
+        workerIndex: payload.workerIndex,
+        gotJobId: payload.jobId,
+        expectedJobId: slot.job.jobId
+      })
+      return
+    }
 
     const nextWarm = Math.max(0, payload.warmFrameCount ?? slot.warmFrameCount)
     const nextFrames = Math.max(0, payload.frameCount)
-    // Capture-only frameCount stays 0 during warm-up — also treat warm ticks as progress,
-    // otherwise watchdog false-stalls long pre-roll and requeues healthy jobs.
+    const nextTimeline = Math.max(
+      0,
+      payload.timelineFrame ?? payload.warmFrameCount ?? slot.timelineFrame
+    )
+    const nextHb = Math.max(0, payload.heartbeatSeq ?? 0)
+    // Capture-only frameCount stays 0 during warm-up / PBO lag — timeline + heartbeat count.
+    // Do NOT treat heartbeatSeq alone as progress — that would disable stall detection
+    // for hung workers that only send hb@sameFrame. Timeline/frame advances are real work.
     const progressed =
       nextFrames > slot.lastFrameCount ||
       nextWarm > slot.lastWarmFrameCount ||
+      nextTimeline > slot.lastTimelineFrame ||
       payload.status !== slot.status ||
       (typeof payload.fps === 'number' && payload.fps > 0.5)
     if (progressed) {
       slot.lastProgressAt = Date.now()
       slot.lastFrameCount = nextFrames
       slot.lastWarmFrameCount = nextWarm
+      slot.lastTimelineFrame = nextTimeline
+      slot.lastHeartbeatSeq = nextHb
+    } else if (nextHb > slot.lastHeartbeatSeq) {
+      slot.lastHeartbeatSeq = nextHb
     }
     slot.status = payload.status
     noteSlotPhase(slot, payload.status)
@@ -3420,6 +3545,8 @@ async function runCoordinatorExport(options: {
     slot.warmProgress = Math.min(1, Math.max(0, payload.warmProgress ?? slot.warmProgress))
     slot.warmFrameCount = nextWarm
     slot.warmTotalFrames = Math.max(0, payload.warmTotalFrames ?? slot.warmTotalFrames)
+    slot.timelineFrame = nextTimeline
+    slot.heartbeatSeq = nextHb
     slot.fps = payload.fps ?? slot.fps
     slot.speed = payload.speed ?? slot.speed
     maybeExtendFromProgress(payload)

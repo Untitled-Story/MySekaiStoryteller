@@ -259,11 +259,13 @@ async fn open_player_desktop(
             .focused(true)
             .always_on_top(false);
     } else if is_worker {
-        // Try fully hidden workers. If WebKit throttles WebGL while hidden,
-        // warm/capture may stall — retest multi-worker export after restart.
+        // IMPORTANT: do NOT use visible(false) on Linux/WebKit.
+        // Hidden webviews throttle/freeze WebGL + timers → multi-worker export
+        // sits at 0 frames until coordinator false-stalls (40s rendering / ~79s warming).
+        // Keep workers visible but out of the way (taskbar skipped, not focused).
         builder = builder
             .skip_taskbar(true)
-            .visible(false)
+            .visible(true)
             .focused(false)
             .always_on_bottom(true);
     }
