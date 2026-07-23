@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -253,8 +253,7 @@ pub fn prepare_parallel_export(
         .join("outputs")
         .join(".tmp")
         .join(&session_id);
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp dir: {e}"))?;
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
     // Ensure final export parent exists.
     if let Some(parent) = Path::new(&args.export_path).parent() {
@@ -682,7 +681,6 @@ pub fn start_render_session(
         config.fps
     );
 
-
     if config.width == 0 || config.height == 0 {
         return Err("Invalid render size".to_string());
     }
@@ -714,7 +712,7 @@ pub fn start_render_session(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(project_name);
 
-        // Bounded queue for backpressure. Keep modest: each frame is width*height*4 bytes.
+    // Bounded queue for backpressure. Keep modest: each frame is width*height*4 bytes.
     // HTTP path uses send_timeout so a full queue returns 503 instead of hanging forever.
     // Mobile soft-encode is slow; keep the queue tiny to bound RAM (~frame_bytes * N).
     // Soft encoder is slow; keep a few frames buffered without multi-100MB RAM.
@@ -741,7 +739,6 @@ pub fn start_render_session(
 
     #[cfg(desktop)]
     let worker_handle = thread::spawn(move || {
-
         let size = format!("{}x{}", config_clone.width, config_clone.height);
         let fps = config_clone.fps.to_string();
 
@@ -781,8 +778,7 @@ pub fn start_render_session(
             }
         };
 
-        let frame_bytes =
-            (config_clone.width as usize) * (config_clone.height as usize) * 4;
+        let frame_bytes = (config_clone.width as usize) * (config_clone.height as usize) * 4;
 
         loop {
             if stop_flag_worker.load(Ordering::Relaxed) {
@@ -865,17 +861,9 @@ pub fn start_render_session(
         }
     });
 
-    #[cfg(mobile)]
-    let (upload_url, stop_addr, server_handle) = {
-        // Mobile uses binary IPC (`stream_frame`); skip tiny_http entirely.
-        (
-            String::from("ipc://stream_frame"),
-            SocketAddr::from(([127, 0, 0, 1], 0)),
-            None::<thread::JoinHandle<()>>,
-        )
-    };
-
-    #[cfg(desktop)]
+    // All platforms use a localhost binary HTTP frame server. On Android this avoids
+    // the Tauri JavaBridge/AppCache path, which consumed ~100% JavaBridge CPU and
+    // 300-600ms per 720p frame.
     let (upload_url, stop_addr, server_handle) = {
         let server =
             Server::http("127.0.0.1:0").map_err(|e| format!("Failed to bind frame server: {e}"))?;
@@ -927,10 +915,9 @@ pub fn start_render_session(
                     // Move whole batch once — avoid per-frame to_vec copies.
                     let mut send_failed = false;
                     let mut overloaded = false;
-                    match http_tx.send_timeout(
-                        RenderMessage::FrameBatch(body),
-                        Duration::from_secs(5),
-                    ) {
+                    match http_tx
+                        .send_timeout(RenderMessage::FrameBatch(body), Duration::from_secs(5))
+                    {
                         Ok(()) => {}
                         Err(crossbeam_channel::SendTimeoutError::Timeout(_)) => {
                             overloaded = true;
@@ -1059,7 +1046,10 @@ pub fn stream_frame(
     // does not abort while openh264 is still chewing a prior frame.
     // JPEG payloads are small — queue them raw; encode worker expands.
     let bytes = data.len();
-    match tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(20_000)) {
+    match tx.send_timeout(
+        RenderMessage::FrameBatch(data),
+        Duration::from_millis(20_000),
+    ) {
         Ok(()) => Ok(()),
         Err(e) => {
             log::warn!(
@@ -1087,12 +1077,8 @@ pub fn stream_frame_file(
             .map_err(|e| format!("cache dir: {e}"))?
             .join(&path)
     };
-    let data = std::fs::read(&resolved).map_err(|e| {
-        format!(
-            "read frame file failed path={} err={e}",
-            resolved.display()
-        )
-    })?;
+    let data = std::fs::read(&resolved)
+        .map_err(|e| format!("read frame file failed path={} err={e}", resolved.display()))?;
     if data.is_empty() {
         return Err("frame file empty".into());
     }
@@ -1104,7 +1090,10 @@ pub fn stream_frame_file(
             .ok_or_else(|| "No active render session found for this project".to_string())?
     };
     let bytes = data.len();
-    match tx.send_timeout(RenderMessage::FrameBatch(data), Duration::from_millis(20_000)) {
+    match tx.send_timeout(
+        RenderMessage::FrameBatch(data),
+        Duration::from_millis(20_000),
+    ) {
         Ok(()) => {
             let _ = std::fs::remove_file(&resolved);
             Ok(())
@@ -1150,9 +1139,7 @@ pub fn stop_render_session(
                     .args(["-15", &pid.to_string()])
                     .status();
                 thread::sleep(Duration::from_millis(400));
-                let _ = Command::new("kill")
-                    .args(["-9", &pid.to_string()])
-                    .status();
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
             }
         }
 
@@ -1199,7 +1186,9 @@ pub fn validate_render_segment(path: String, min_duration_sec: f64) -> Result<f6
             .map_err(|e| format!("ffprobe failed: {e}"))?;
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Invalid segment (no moov/unreadable): {path}: {err}"));
+            return Err(format!(
+                "Invalid segment (no moov/unreadable): {path}: {err}"
+            ));
         }
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let duration: f64 = text
@@ -1323,10 +1312,7 @@ pub struct PublishRenderOutputArgs {
 
 /// Copy a finished render into a user-selected path (may be content:// on Android).
 #[tauri::command]
-pub fn publish_render_output(
-    app: AppHandle,
-    args: PublishRenderOutputArgs,
-) -> Result<(), String> {
+pub fn publish_render_output(app: AppHandle, args: PublishRenderOutputArgs) -> Result<(), String> {
     log::info!(
         target: "backend::render",
         "publish_render_output source={} dest={}",
@@ -1346,8 +1332,7 @@ pub fn publish_render_output(
     let lowered = dest.to_ascii_lowercase();
     if lowered.starts_with("content://") || lowered.starts_with("file://") {
         use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
-        let file_path =
-            FilePath::from_str(&dest).map_err(|e| format!("解析导出目标失败: {e}"))?;
+        let file_path = FilePath::from_str(&dest).map_err(|e| format!("解析导出目标失败: {e}"))?;
         let mut options = OpenOptions::new();
         options.write(true).truncate(true).create(true);
         let mut file = app

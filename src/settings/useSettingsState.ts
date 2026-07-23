@@ -18,6 +18,7 @@ import { DEFAULT_ONBOARDING, normalizeOnboardingSettings } from '@/onboarding/ty
 import { defaultPlaybackFont, normalizePlaybackFont } from './fonts'
 import { defaultShortcutSettings, normalizeShortcutSettings } from './shortcuts'
 import { describeError, logger } from '@/lib/logger'
+import { isMobileRuntime } from '@/lib/platform'
 import { DEFAULT_INTERACTION, normalizeInteractionSettings } from '@/lib/touchMode'
 import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { applyAppLanguage, normalizeAppLanguage } from '@/i18n'
@@ -52,12 +53,25 @@ const DEFAULT_PLAYBACK: PlaybackSettings = {
   font: defaultPlaybackFont()
 }
 
-export const DEFAULT_EXPORT_PREFS: ExportPreferences = {
+/** Desktop default export size. */
+export const DEFAULT_EXPORT_PREFS_DESKTOP: ExportPreferences = {
   width: 1920,
   height: 1080,
   fps: 30,
   concurrency: 2
 }
+
+/** Mobile default: 720p — 1080p capture is ~2.25× pixels and was ~0.8 wall_fps on 13 Pro. */
+export const DEFAULT_EXPORT_PREFS_MOBILE: ExportPreferences = {
+  width: 1280,
+  height: 720,
+  fps: 30,
+  concurrency: 1
+}
+
+export const DEFAULT_EXPORT_PREFS: ExportPreferences = isMobileRuntime()
+  ? { ...DEFAULT_EXPORT_PREFS_MOBILE }
+  : { ...DEFAULT_EXPORT_PREFS_DESKTOP }
 
 export type UseSettingsStateOptions = {
   /** When false, load settings for UI but never write them back (export windows). */

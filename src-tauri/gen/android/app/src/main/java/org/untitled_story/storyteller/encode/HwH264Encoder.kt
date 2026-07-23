@@ -21,8 +21,11 @@ import kotlin.math.min
 object HwH264Encoder {
   private const val TAG = "HwH264Encoder"
   private const val MIME = "video/avc"
-  // Longer dequeue timeout reduces busy spin on soft encoders (emulator c2.android.*).
-  private const val TIMEOUT_US = 50_000L
+  // Non-blocking drain on the hot path; finish uses a longer wait for EOS.
+  // 50ms timeouts previously inflated avg_encode_ms and serialized capture.
+  private const val TIMEOUT_US = 0L
+  private const val TIMEOUT_INPUT_US = 2_000L
+  private const val TIMEOUT_FINISH_US = 50_000L
 
   private val nextId = AtomicLong(1)
   private val sessions = ConcurrentHashMap<Long, Session>()
@@ -102,6 +105,20 @@ object HwH264Encoder {
       }
 
       muxer = MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+      val inputFmt = codec!!.inputFormat
+      val stride =
+        if (inputFmt.containsKey(MediaFormat.KEY_STRIDE)) {
+          inputFmt.getInteger(MediaFormat.KEY_STRIDE).coerceAtLeast(w)
+        } else {
+          w
+        }
+      val sliceHeight =
+        if (inputFmt.containsKey(MediaFormat.KEY_SLICE_HEIGHT)) {
+          inputFmt.getInteger(MediaFormat.KEY_SLICE_HEIGHT).coerceAtLeast(h)
+        } else {
+          h
+        }
+      Log.i(TAG, "input layout stride=$stride sliceHeight=$sliceHeight color=$colorFormat")
       val session =
         Session(
           codec = codec!!,
@@ -110,6 +127,8 @@ object HwH264Encoder {
           height = h,
           fps = frameRate,
           colorFormat = colorFormat,
+          stride = stride,
+          sliceHeight = sliceHeight,
           nv12 = ByteArray(w * h * 3 / 2)
         )
       val id = nextId.getAndIncrement()
@@ -220,18 +239,22 @@ object HwH264Encoder {
   }
 
   private fun queueInput(session: Session, nv12: ByteArray, ptsUs: Long, endOfStream: Boolean) {
+    var spins = 0
     while (true) {
-      val index = session.codec.dequeueInputBuffer(TIMEOUT_US)
+      val timeout = if (endOfStream) TIMEOUT_FINISH_US else TIMEOUT_INPUT_US
+      val index = session.codec.dequeueInputBuffer(timeout)
       if (index >= 0) {
         val input: ByteBuffer =
           session.codec.getInputBuffer(index)
             ?: throw IllegalStateException("null input buffer")
         input.clear()
-        if (!endOfStream && nv12.isNotEmpty()) {
-          input.put(nv12)
-        }
+        val size =
+          if (!endOfStream && nv12.isNotEmpty()) {
+            copyNv12ToInput(session, input, nv12)
+          } else {
+            0
+          }
         val flags = if (endOfStream) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
-        val size = if (endOfStream) 0 else nv12.size
         session.codec.queueInputBuffer(index, 0, size, ptsUs, flags)
         if (!endOfStream) {
           session.lastPtsUs = ptsUs
@@ -239,15 +262,20 @@ object HwH264Encoder {
         }
         return
       }
-      // No free input slot yet — drain a bit then retry.
+      // No free input slot yet — non-blocking drain then retry (cap spins to avoid hang).
       drainOutput(session, endOfStream = false)
+      spins += 1
+      if (!endOfStream && spins > 500) {
+        throw IllegalStateException("MediaCodec input buffer starvation")
+      }
     }
   }
 
   private fun drainOutput(session: Session, endOfStream: Boolean) {
     val info = MediaCodec.BufferInfo()
     while (true) {
-      val outIndex = session.codec.dequeueOutputBuffer(info, TIMEOUT_US)
+      val timeout = if (endOfStream) TIMEOUT_FINISH_US else TIMEOUT_US
+      val outIndex = session.codec.dequeueOutputBuffer(info, timeout)
       when {
         outIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
           if (!endOfStream) return
@@ -289,6 +317,35 @@ object HwH264Encoder {
         return
       }
     }
+  }
+
+  /** Copy tightly-packed NV12 into encoder buffer respecting stride/slice-height. */
+  private fun copyNv12ToInput(session: Session, input: ByteBuffer, nv12: ByteArray): Int {
+    val w = session.width
+    val h = session.height
+    val stride = session.stride.coerceAtLeast(w)
+    val sliceHeight = session.sliceHeight.coerceAtLeast(h)
+    val ySrcSize = w * h
+    if (stride == w && sliceHeight == h) {
+      val n = min(nv12.size, ySrcSize + ySrcSize / 2)
+      input.put(nv12, 0, n)
+      return n
+    }
+    var src = 0
+    for (row in 0 until h) {
+      input.position(row * stride)
+      input.put(nv12, src, w)
+      src += w
+    }
+    val uvDstBase = sliceHeight * stride
+    var uvSrc = ySrcSize
+    val uvRows = h / 2
+    for (row in 0 until uvRows) {
+      input.position(uvDstBase + row * stride)
+      input.put(nv12, uvSrc, w)
+      uvSrc += w
+    }
+    return uvDstBase + uvRows * stride
   }
 
   private fun pickAvcEncoderName(): String? {
@@ -341,18 +398,20 @@ object HwH264Encoder {
 
   private fun colorFormatCandidates(info: MediaCodecInfo): List<Int> {
     val caps = info.getCapabilitiesForType(MIME)
+    // Only semi-planar NV12-style layouts. Packed NV12 into Planar/I420 causes color cast.
     val preferred =
       listOf(
-        MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar,
-        MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
-        MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
+        MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar, // 21 NV12
+        0x7FA30C04, // COLOR_QCOM_FormatYUV420SemiPlanar
+        0x7FA30C00, // COLOR_TI_FormatYUV420PackedSemiPlanar
       )
     val out = ArrayList<Int>()
     for (fmt in preferred) {
       if (caps.colorFormats.contains(fmt)) out.add(fmt)
     }
-    for (fmt in caps.colorFormats) {
-      if (!out.contains(fmt)) out.add(fmt)
+    val flexible = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
+    if (out.isEmpty() && caps.colorFormats.contains(flexible)) {
+      out.add(flexible)
     }
     if (out.isEmpty()) {
       out.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
@@ -360,13 +419,14 @@ object HwH264Encoder {
     return out
   }
 
-  /** BT.601 full-range-ish RGBA → NV12 (YUV420 semi-planar). */
+  /** BT.601 limited-range RGBA → NV12, vertical flip for WebGL bottom-up readback. */
   private fun rgbaToNv12(rgba: ByteArray, width: Int, height: Int, out: ByteArray) {
     val frame = width * height
     var yIndex = 0
     var uvIndex = frame
-    var i = 0
-    for (row in 0 until height) {
+    for (dstRow in 0 until height) {
+      val srcRow = height - 1 - dstRow
+      var i = srcRow * width * 4
       for (col in 0 until width) {
         val r = rgba[i].toInt() and 0xff
         val g = rgba[i + 1].toInt() and 0xff
@@ -375,16 +435,13 @@ object HwH264Encoder {
         var y = ((66 * r + 129 * g + 25 * b + 128) shr 8) + 16
         y = min(255, max(0, y))
         out[yIndex++] = y.toByte()
-        if (row % 2 == 0 && col % 2 == 0) {
+        if (dstRow % 2 == 0 && col % 2 == 0) {
           var u = ((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128
           var v = ((112 * r - 94 * g - 18 * b + 128) shr 8) + 128
           u = min(255, max(0, u))
           v = min(255, max(0, v))
-          // NV12: UV interleaved
-          if (uvIndex + 1 < out.size) {
-            out[uvIndex++] = u.toByte()
-            out[uvIndex++] = v.toByte()
-          }
+          out[uvIndex++] = u.toByte()
+          out[uvIndex++] = v.toByte()
         }
       }
     }
@@ -397,6 +454,8 @@ object HwH264Encoder {
     val height: Int,
     val fps: Int,
     val colorFormat: Int,
+    val stride: Int,
+    val sliceHeight: Int,
     val nv12: ByteArray,
     val lock: Any = Any(),
     var trackIndex: Int = -1,

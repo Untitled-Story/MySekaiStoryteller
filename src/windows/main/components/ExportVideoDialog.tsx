@@ -13,7 +13,11 @@ import {
 } from '@/components/ui/Dialog'
 import type { RenderConfig } from '@/settings/types'
 import { useSettings } from '@/settings/useSettings'
-import { DEFAULT_EXPORT_PREFS, normalizeExportPrefs } from '@/settings/useSettingsState'
+import {
+  DEFAULT_EXPORT_PREFS,
+  DEFAULT_EXPORT_PREFS_MOBILE,
+  normalizeExportPrefs
+} from '@/settings/useSettingsState'
 import { getDataPath, getPublicMoviesDir } from '@/workspace/api'
 import { openPlayerWindow } from '@/windows/api'
 import {
@@ -53,10 +57,15 @@ export function ExportVideoDialog({
         const dataPath = await getDataPath()
         if (cancelled || !projectTitle) return
         const prefs = normalizeExportPrefs(exportPrefs)
-        // Mobile: user chooses resolution/fps; only concurrency is forced to 1.
-        const width = prefs.width
-        const height = prefs.height
+        // Mobile: concurrency forced to 1. Prefer 720p when prefs still look like desktop 1080p defaults
+        // (legacy installs) so export is usable; user can still raise resolution in the dialog.
+        let width = prefs.width
+        let height = prefs.height
         const fps = prefs.fps
+        if (mobileRuntime && width >= 1920 && height >= 1080) {
+          width = DEFAULT_EXPORT_PREFS_MOBILE.width
+          height = DEFAULT_EXPORT_PREFS_MOBILE.height
+        }
         let exportPath = buildDefaultExportPath(dataPath, projectTitle)
         if (mobileRuntime) {
           try {

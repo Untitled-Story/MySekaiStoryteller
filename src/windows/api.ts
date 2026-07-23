@@ -277,16 +277,23 @@ export async function streamFrame(
   // Do NOT Array.from() multi-MB frames into number[] (JSON freezes Android WebView).
 
   const safeName = projectName.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 48)
-  const slot: number = (streamFrameSlotBySession.get(safeName) ?? 0) ^ 1
+  const slot: number = (streamFrameSlotBySession.get(safeName) ?? 0) + 1
   streamFrameSlotBySession.set(safeName, slot)
-  // Mobile: multi-MB RGBA IPC is ~2s/frame. Compress to JPEG (~50–150KB) first.
   const mobile = isMobileUa()
+  // Mobile file bridge: prefer raw RGBA (AppCache).
+  // JPEG was added to shrink IPC, but on 13 Pro toBlob+decode cost 300–850ms/frame and
+  // dominated wall clock after capture/readback were already ~20ms. RGBA file write is faster
+  // overall once encode reuses a GlobalRef NV12 buffer (no per-frame Java OOM).
+  // Keep JPEG only as fallback when RGBA file stream fails repeatedly.
   let fileName: string = `render-frame-${safeName}-${slot}.rgba`
-  if (mobile && bytes.byteLength >= 160 * 90 * 4) {
+  const preferJpeg =
+    mobile &&
+    bytes.byteLength >= 160 * 90 * 4 &&
+    (streamFramePreferFileUntil.get(`${safeName}:jpeg`) ?? 0) > Date.now()
+  if (preferJpeg) {
     let w = Math.max(0, Math.floor(options?.width ?? 0))
     let h = Math.max(0, Math.floor(options?.height ?? 0))
     if (w * h * 4 !== bytes.byteLength) {
-      // Infer WxH from packed RGBA when caller omitted size.
       const px = bytes.byteLength / 4
       w = 0
       h = 0
@@ -303,7 +310,6 @@ export async function streamFrame(
     }
     if (w > 0 && h > 0 && w * h * 4 === bytes.byteLength) {
       try {
-        // 0.75 balances size vs toBlob cost on Android WebView.
         bytes = await rgbaToJpegBytes(bytes, w, h, 0.75)
         fileName = `render-frame-${safeName}-${slot}.jpg`
       } catch {
@@ -312,7 +318,7 @@ export async function streamFrame(
     }
   }
 
-  // Desktop: prefer IPC. Mobile: prefer AppCache file bridge of (JPEG or RGBA).
+  // Desktop: prefer IPC. Mobile: prefer AppCache file bridge of RGBA (or JPEG fallback).
   // Never use BaseDirectory.Cache on Android (external cache outside $APPCACHE).
   const preferFile = mobile || (streamFramePreferFileUntil.get(safeName) ?? 0) > Date.now()
 
@@ -336,9 +342,14 @@ export async function streamFrame(
       await viaFile()
       return
     } catch (fileError: unknown) {
+      // If raw RGBA file path fails on mobile, try JPEG file for a while (smaller).
+      if (mobile && !fileName.endsWith('.jpg') && bytes.byteLength >= 160 * 90 * 4) {
+        streamFramePreferFileUntil.set(`${safeName}:jpeg`, Date.now() + 30_000)
+      }
       try {
         await viaIpc()
         if (mobile) {
+          // Prefer file again soon — multi-MB IPC is still worse than file on Android.
           streamFramePreferFileUntil.set(safeName, Date.now() + 30_000)
         } else {
           streamFramePreferFileUntil.delete(safeName)

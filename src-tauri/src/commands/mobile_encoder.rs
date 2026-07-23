@@ -3,10 +3,10 @@
 use crate::commands::render::{RenderConfig, RenderMessage};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
-use mp4::{
-    AvcConfig, MediaConfig, Mp4Config, Mp4Sample, Mp4Writer, TrackConfig, TrackType,
+use mp4::{AvcConfig, MediaConfig, Mp4Config, Mp4Sample, Mp4Writer, TrackConfig, TrackType};
+use openh264::encoder::{
+    BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod,
 };
-use openh264::encoder::{BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod};
 use openh264::formats::{RgbaSliceU8, YUVBuffer};
 use openh264::OpenH264API;
 use std::fs::File;
@@ -156,16 +156,18 @@ pub fn run_mobile_encode_worker(
     }
 
     // Soft path: tighter bitrate for CPU encode.
-    let bitrate = ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 6_000_000) as u32;
+    let bitrate =
+        ((width as u64) * (height as u64) * (fps as u64) / 18).clamp(250_000, 6_000_000) as u32;
     let enc_config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(bitrate))
         .max_frame_rate(FrameRate::from_hz(fps as f32))
         .skip_frames(false)
         .complexity(Complexity::Low)
-        .intra_frame_period(IntraFramePeriod::from_num_frames(fps.saturating_mul(3).max(1)));
+        .intra_frame_period(IntraFramePeriod::from_num_frames(
+            fps.saturating_mul(3).max(1),
+        ));
 
-    let mut encoder = match Encoder::with_api_config(OpenH264API::from_source(), enc_config)
-    {
+    let mut encoder = match Encoder::with_api_config(OpenH264API::from_source(), enc_config) {
         Ok(enc) => enc,
         Err(e) => {
             log::error!(target: "backend::render", "mobile openh264 init failed: {e}");
@@ -235,8 +237,7 @@ pub fn run_mobile_encode_worker(
                 if stop_flag.load(Ordering::Relaxed) {
                     break;
                 }
-                let data = match crate::commands::render::expand_frame_payload(data, frame_bytes)
-                {
+                let data = match crate::commands::render::expand_frame_payload(data, frame_bytes) {
                     Ok(d) => d,
                     Err(e) => {
                         log::error!(target: "backend::render", "mobile frame expand failed: {e}");
@@ -289,8 +290,8 @@ pub fn run_mobile_encode_worker(
                         } else {
                             0.0
                         };
-                        let wall_fps = frame_index as f64
-                            / encode_started.elapsed().as_secs_f64().max(0.001);
+                        let wall_fps =
+                            frame_index as f64 / encode_started.elapsed().as_secs_f64().max(0.001);
                         log::info!(
                             target: "backend::render",
                             "mobile encoder progress frames={} path={} avg_encode_ms={avg_ms:.2} wall_fps={wall_fps:.2}",
@@ -349,7 +350,6 @@ pub fn run_mobile_encode_worker(
     );
 }
 
-
 #[cfg(target_os = "android")]
 fn run_hw_encode_loop(
     rx: Receiver<RenderMessage>,
@@ -360,6 +360,14 @@ fn run_hw_encode_loop(
     height: usize,
     fps: u32,
 ) {
+    // Keep JNIEnv attached for the whole loop — per-frame attach/detach was very expensive.
+    if let Err(e) = crate::commands::mobile_hw_encoder::attach_encode_thread_permanently() {
+        log::warn!(
+            target: "backend::render",
+            "mobile MediaCodec permanent JNI attach failed (will attach per call): {e}"
+        );
+    }
+
     let mut frame_index: u64 = 0;
     let sample_duration_us: i64 = (1_000_000i64 / i64::from(fps.max(1))).max(1);
     let mut encode_error: Option<String> = None;
@@ -367,6 +375,9 @@ fn run_hw_encode_loop(
     let encode_started = std::time::Instant::now();
     let mut encode_ns_acc: u128 = 0;
     let mut encode_ns_count: u64 = 0;
+    let mut expand_ns_acc: u128 = 0;
+    let mut convert_ns_acc: u128 = 0;
+    let mut jni_ns_acc: u128 = 0;
 
     loop {
         if stop_flag.load(Ordering::Relaxed) {
@@ -377,8 +388,8 @@ fn run_hw_encode_loop(
                 if stop_flag.load(Ordering::Relaxed) {
                     break;
                 }
-                let data = match crate::commands::render::expand_frame_payload(data, frame_bytes)
-                {
+                let t_expand = std::time::Instant::now();
+                let data = match crate::commands::render::expand_frame_payload(data, frame_bytes) {
                     Ok(d) => d,
                     Err(e) => {
                         log::error!(target: "backend::render", "mobile hw frame expand failed: {e}");
@@ -386,6 +397,7 @@ fn run_hw_encode_loop(
                         break;
                     }
                 };
+                expand_ns_acc = expand_ns_acc.saturating_add(t_expand.elapsed().as_nanos());
                 if data.is_empty() || data.len() % frame_bytes != 0 {
                     log::error!(
                         target: "backend::render",
@@ -402,7 +414,10 @@ fn run_hw_encode_loop(
                     let frame = &data[start..start + frame_bytes];
                     let pts = (frame_index as i64).saturating_mul(sample_duration_us);
                     let t0 = std::time::Instant::now();
+                    let t_convert = std::time::Instant::now();
                     rgba_to_nv12(frame, width, height, &mut nv12);
+                    convert_ns_acc = convert_ns_acc.saturating_add(t_convert.elapsed().as_nanos());
+                    let t_jni = std::time::Instant::now();
                     if let Err(e) = crate::commands::mobile_hw_encoder::hw_encoder_encode_nv12(
                         session, &nv12, pts,
                     ) {
@@ -411,23 +426,27 @@ fn run_hw_encode_loop(
                         stop_flag.store(true, Ordering::Relaxed);
                         break;
                     }
+                    jni_ns_acc = jni_ns_acc.saturating_add(t_jni.elapsed().as_nanos());
                     encode_ns_acc = encode_ns_acc.saturating_add(t0.elapsed().as_nanos());
                     encode_ns_count = encode_ns_count.saturating_add(1);
                     frame_index = frame_index.saturating_add(1);
                     if frame_index > 0 && frame_index % 30 == 0 {
-                        let avg_ms = if encode_ns_count > 0 {
-                            (encode_ns_acc / u128::from(encode_ns_count)) as f64 / 1_000_000.0
-                        } else {
-                            0.0
-                        };
-                        let wall_fps = frame_index as f64
-                            / encode_started.elapsed().as_secs_f64().max(0.001);
+                        let n = encode_ns_count.max(1);
+                        let avg_ms = (encode_ns_acc / u128::from(n)) as f64 / 1_000_000.0;
+                        let avg_expand_ms = (expand_ns_acc / u128::from(n)) as f64 / 1_000_000.0;
+                        let avg_convert_ms = (convert_ns_acc / u128::from(n)) as f64 / 1_000_000.0;
+                        let avg_jni_ms = (jni_ns_acc / u128::from(n)) as f64 / 1_000_000.0;
+                        let wall_fps =
+                            frame_index as f64 / encode_started.elapsed().as_secs_f64().max(0.001);
                         log::info!(
                             target: "backend::render",
-                            "mobile MediaCodec progress frames={frame_index} avg_encode_ms={avg_ms:.2} wall_fps={wall_fps:.2}"
+                            "mobile MediaCodec progress frames={frame_index} avg_encode_ms={avg_ms:.2} expand_ms={avg_expand_ms:.2} convert_ms={avg_convert_ms:.2} jni_ms={avg_jni_ms:.2} wall_fps={wall_fps:.2}"
                         );
                         encode_ns_acc = 0;
                         encode_ns_count = 0;
+                        expand_ns_acc = 0;
+                        convert_ns_acc = 0;
+                        jni_ns_acc = 0;
                     }
                 }
                 if encode_error.is_some() {
@@ -474,29 +493,86 @@ fn run_hw_encode_loop(
             crate::commands::mobile_hw_encoder::hw_encoder_destroy(session);
         }
     }
+    crate::commands::mobile_hw_encoder::release_nv12_jni_buffer();
 }
 
-/// BT.601 full-range-ish RGBA → NV12 for MediaCodec (tight loop, no per-pixel clamps).
+/// BT.601 limited-range RGBA → NV12 for MediaCodec.
+/// WebGL `readPixels` is bottom-up; desktop FFmpeg applies `vflip`, so mobile must flip here.
+/// Parallel by row-pair halves on multi-core phones (13 Pro convert was 30–90ms @720p/1080p).
 #[cfg(target_os = "android")]
 fn rgba_to_nv12(rgba: &[u8], width: usize, height: usize, out: &mut [u8]) {
     let frame = width * height;
     debug_assert!(out.len() >= frame + frame / 2);
     debug_assert!(rgba.len() >= frame * 4);
+    if width == 0 || height == 0 {
+        return;
+    }
     let (y_plane, uv_plane) = out.split_at_mut(frame);
-    let mut src = 0usize;
+    // Split work on even row-pair boundaries so UV plane writes do not race.
+    let pair_rows = height / 2;
+    if pair_rows >= 4 {
+        let mid_pairs = pair_rows / 2;
+        let mid_row = mid_pairs * 2;
+        let y_mid = mid_row * width;
+        let uv_mid = mid_pairs * width;
+        let (y_lo, y_hi) = y_plane.split_at_mut(y_mid);
+        let (uv_lo, uv_hi) = uv_plane.split_at_mut(uv_mid);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                rgba_to_nv12_rows_flipped(rgba, width, height, 0, mid_row, y_lo, uv_lo);
+            });
+            rgba_to_nv12_rows_flipped(rgba, width, height, mid_row, height, y_hi, uv_hi);
+        });
+        return;
+    }
+    rgba_to_nv12_rows_flipped(rgba, width, height, 0, height, y_plane, uv_plane);
+}
+
+/// Convert destination rows [dst_row0, dst_row1) reading source rows bottom-up (vflip).
+#[cfg(target_os = "android")]
+fn rgba_to_nv12_rows_flipped(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    dst_row0: usize,
+    dst_row1: usize,
+    y_plane: &mut [u8],
+    uv_plane: &mut [u8],
+) {
+    let row_bytes = width * 4;
     let mut y_i = 0usize;
     let mut uv_i = 0usize;
-    for row in 0..height {
-        let even_row = (row & 1) == 0;
-        for col in 0..width {
+    for dst_row in dst_row0..dst_row1 {
+        let src_row = height - 1 - dst_row;
+        let mut src = src_row * row_bytes;
+        let even_row = (dst_row & 1) == 0;
+        let mut col = 0usize;
+        while col + 1 < width {
+            let r0 = rgba[src] as i32;
+            let g0 = rgba[src + 1] as i32;
+            let b0 = rgba[src + 2] as i32;
+            let r1 = rgba[src + 4] as i32;
+            let g1 = rgba[src + 5] as i32;
+            let b1 = rgba[src + 6] as i32;
+            src += 8;
+            y_plane[y_i] = (((66 * r0 + 129 * g0 + 25 * b0 + 128) >> 8) + 16) as u8;
+            y_plane[y_i + 1] = (((66 * r1 + 129 * g1 + 25 * b1 + 128) >> 8) + 16) as u8;
+            y_i += 2;
+            if even_row {
+                // NV12: interleaved U,V. Sample top-left of the 2x2 block in destination space.
+                uv_plane[uv_i] = (((-38 * r0 - 74 * g0 + 112 * b0 + 128) >> 8) + 128) as u8;
+                uv_plane[uv_i + 1] = (((112 * r0 - 94 * g0 - 18 * b0 + 128) >> 8) + 128) as u8;
+                uv_i += 2;
+            }
+            col += 2;
+        }
+        if col < width {
             let r = rgba[src] as i32;
             let g = rgba[src + 1] as i32;
             let b = rgba[src + 2] as i32;
-            src += 4;
-            // Fixed-point BT.601; values stay in range for 0..255 inputs.
             y_plane[y_i] = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16) as u8;
             y_i += 1;
-            if even_row && (col & 1) == 0 {
+            if even_row {
                 uv_plane[uv_i] = (((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128) as u8;
                 uv_plane[uv_i + 1] = (((112 * r - 94 * g - 18 * b + 128) >> 8) + 128) as u8;
                 uv_i += 2;
@@ -528,7 +604,20 @@ fn encode_one_frame<W: Write + std::io::Seek>(
     sample_duration_ms: u32,
     wrote_samples: &mut u64,
 ) -> Result<(), String> {
-    let rgb = RgbaSliceU8::new(rgba, (width, height));
+    // WebGL readback is bottom-up; match desktop ffmpeg `vflip` / MediaCodec path.
+    let flipped;
+    let rgba_for_enc: &[u8] = {
+        let row = width * 4;
+        let mut buf = vec![0u8; width * height * 4];
+        for y in 0..height {
+            let src = (height - 1 - y) * row;
+            let dst = y * row;
+            buf[dst..dst + row].copy_from_slice(&rgba[src..src + row]);
+        }
+        flipped = buf;
+        &flipped
+    };
+    let rgb = RgbaSliceU8::new(rgba_for_enc, (width, height));
     yuv.read_rgb(rgb);
     let bitstream = encoder
         .encode(yuv)
@@ -655,60 +744,78 @@ fn nals_to_avcc(nals: &[Vec<u8>]) -> Vec<u8> {
 
 /// Lightweight MP4 validation without ffprobe.
 pub fn validate_mp4_basic(path: &str, min_duration_sec: f64) -> Result<f64, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("read failed: {e}"))?;
-    if bytes.len() < 64 {
-        return Err(format!("Segment too small ({} bytes): {path}", bytes.len()));
+    let mut last_error = String::new();
+    for attempt in 0..5 {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                last_error = format!("read failed: {e}");
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+        };
+        if bytes.len() >= 64
+            && find_box(&bytes, b"ftyp")
+            && find_box(&bytes, b"moov")
+            && find_box(&bytes, b"mdat")
+        {
+            return Ok(min_duration_sec.max(0.05));
+        }
+        last_error = if bytes.len() < 64 {
+            format!("Segment too small ({} bytes)", bytes.len())
+        } else {
+            "Invalid MP4 (missing ftyp/moov/mdat)".to_string()
+        };
+        if attempt < 4 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
-    let has_ftyp = find_box(&bytes, b"ftyp");
-    let has_moov = find_box(&bytes, b"moov");
-    let has_mdat = find_box(&bytes, b"mdat");
-    if !has_ftyp || !has_moov {
-        return Err(format!("Invalid MP4 (missing ftyp/moov): {path}"));
-    }
-    if !has_mdat {
-        return Err(format!("Invalid MP4 (missing mdat): {path}"));
-    }
-    // Duration estimate from size is unreliable; accept if structure is sound.
-    // Callers still pass min_duration for logging; return at least the floor.
-    Ok(min_duration_sec.max(0.05))
+    Err(format!("{last_error}: {path}"))
 }
 
 fn find_box(data: &[u8], name: &[u8; 4]) -> bool {
-    let mut i = 0usize;
-    while i + 8 <= data.len() {
-        let size = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
-        let typ = &data[i + 4..i + 8];
+    let mut offset = 0usize;
+    while offset + 8 <= data.len() {
+        let size32 = u32::from_be_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]) as usize;
+        let typ = &data[offset + 4..offset + 8];
         if typ == name {
             return true;
         }
-        if size < 8 {
-            return false;
-        }
-        if size == 1 {
-            // largesize — skip 8 more
-            if i + 16 > data.len() {
+        let box_size = if size32 == 0 {
+            data.len() - offset
+        } else if size32 == 1 {
+            if offset + 16 > data.len() {
                 return false;
             }
             let large = u64::from_be_bytes([
-                data[i + 8],
-                data[i + 9],
-                data[i + 10],
-                data[i + 11],
-                data[i + 12],
-                data[i + 13],
-                data[i + 14],
-                data[i + 15],
-            ]) as usize;
-            if large < 16 {
-                return false;
+                data[offset + 8],
+                data[offset + 9],
+                data[offset + 10],
+                data[offset + 11],
+                data[offset + 12],
+                data[offset + 13],
+                data[offset + 14],
+                data[offset + 15],
+            ]);
+            match usize::try_from(large) {
+                Ok(size) if size >= 16 => size,
+                _ => return false,
             }
-            i = i.saturating_add(large);
+        } else if size32 >= 8 {
+            size32
         } else {
-            i = i.saturating_add(size);
-        }
-        if i == 0 {
-            break;
-        }
+            return false;
+        };
+        let next = match offset.checked_add(box_size) {
+            Some(next) if next <= data.len() && next > offset => next,
+            _ => return false,
+        };
+        offset = next;
     }
     false
 }

@@ -1257,13 +1257,17 @@ async function runExportPipeline({
 
   const pixelReader = createPixelReader(app, exportWidth, exportHeight, frameByteLength)
   // Higher inflight + larger batches; HTTP 503 still provides backpressure.
-  // Allow modest overlap with encode once the worker stays alive.
-  // Mobile: JPEG bridge is tiny — more inflight overlaps Live2D capture with encode.
-  const maxInflight = isMobileRuntime() ? 4 : isWorker ? 3 : 4
-  const freeBatches: Uint8Array[] = Array.from(
-    { length: maxInflight },
-    () => new Uint8Array(frameByteLength * batchFrames)
-  )
+  // Mobile: skip multi-MB RGBA batch pool — stream single frames (JPEG bridge is small).
+  const maxInflight = isMobileRuntime() ? 1 : isWorker ? 3 : 4
+  const freeBatches: Uint8Array[] = isMobileRuntime()
+    ? []
+    : Array.from({ length: maxInflight }, () => new Uint8Array(frameByteLength * batchFrames))
+  // Capture sub-timers (mobile diagnostics).
+  let timingStoryMs = 0
+  let timingRenderMs = 0
+  let timingReadbackMs = 0
+  let timingStreamMs = 0
+  let timingSamples = 0
 
   function pushFrameDelta(delta: number): void {
     frameTimeRing[frameTimeWrite] = delta
@@ -1277,13 +1281,19 @@ async function runExportPipeline({
     for (let i = 0; i < frameTimeCount; i += 1) sum += frameTimeRing[i]
     return sum / frameTimeCount
   }
-  let activeBatch = freeBatches.pop() ?? new Uint8Array(frameByteLength * batchFrames)
+  let activeBatch = isMobileRuntime()
+    ? new Uint8Array(0)
+    : (freeBatches.pop() ?? new Uint8Array(frameByteLength * batchFrames))
   let batchCount = 0
   const batchWaiters: Array<() => void> = []
   const pendingUploads: Promise<void>[] = []
   let uploadError: Error | null = null
 
   function acquireBatchBuffer(): Promise<Uint8Array> {
+    if (isMobileRuntime()) {
+      // Mobile does not pool multi-MB RGBA batches.
+      return Promise.resolve(new Uint8Array(0))
+    }
     const buf = freeBatches.pop()
     if (buf) return Promise.resolve(buf)
     // Never hang forever if uploads are stuck holding buffers.
@@ -1313,10 +1323,7 @@ async function runExportPipeline({
 
   async function postFramesWithRetry(payload: Uint8Array): Promise<void> {
     const useIpc: boolean =
-      !uploadUrl ||
-      uploadUrl.startsWith('ipc://') ||
-      uploadUrl === 'stream_frame' ||
-      isMobileRuntime()
+      !uploadUrl || uploadUrl.startsWith('ipc://') || uploadUrl === 'stream_frame'
     if (useIpc) {
       // Mobile soft-encode backpressure can last seconds; retry queue timeouts longer.
       const maxAttempts = isMobileRuntime() ? 12 : 3
@@ -1426,6 +1433,23 @@ async function runExportPipeline({
 
   async function enqueueCapturedFrame(frame: Uint8Array): Promise<void> {
     if (framesProcessed >= captureTotal) return
+    // Mobile: stream the readback buffer directly (no multi-MB RGBA batch pool).
+    // Copy once into an owned buffer so the PBO ring can reuse `readyFrame` while upload runs.
+    // Do not await the full encode path — that serialized capture behind MediaCodec (~0.8fps).
+    if (isMobileRuntime()) {
+      const owned = new Uint8Array(frame.byteLength)
+      owned.set(frame)
+      const streamStarted = performance.now()
+      try {
+        await postFramesWithRetry(owned)
+      } catch (error: unknown) {
+        uploadError = error instanceof Error ? error : new Error('Frame upload failed')
+        logger.warn('export.frame_upload_failed', { error: describeError(uploadError) })
+      } finally {
+        timingStreamMs += performance.now() - streamStarted
+      }
+      return
+    }
     activeBatch.set(frame, batchCount * frameByteLength)
     batchCount += 1
     await flushBatch(false)
@@ -1827,7 +1851,8 @@ async function runExportPipeline({
     const startedAt: number = performance.now()
     let spins = 0
     // Hard cap: export must not hang forever on a stuck Assets.load / startMotion.
-    const maxWaitMs: number = isMobileRuntime() ? 4_000 : 10_000
+    const maxWaitMs: number = isMobileRuntime() ? 2_500 : 10_000
+    const mobile = isMobileRuntime()
     while (isStoryAsyncPending() && spins < 20_000 && !shouldAbort()) {
       if (performance.now() - startedAt > maxWaitMs) {
         logger.warn('export.story_async_wait_timeout', {
@@ -1841,9 +1866,12 @@ async function runExportPipeline({
       spins += 1
       await Promise.resolve()
       if (isStoryAsyncPending()) {
-        // Prefer rAF over setTimeout(0) on mobile (fewer 4–16ms timer slices).
+        // Mobile export: prefer microtask/setTimeout(0) over rAF — rAF is vsync-capped (~8–16ms)
+        // and was stacking into multi-hundred-ms waits per frame on 120Hz devices.
         await new Promise<void>((resolve) => {
-          if (typeof window.requestAnimationFrame === 'function') {
+          if (mobile) {
+            window.setTimeout(resolve, 0)
+          } else if (typeof window.requestAnimationFrame === 'function') {
             window.requestAnimationFrame(() => resolve())
           } else {
             window.setTimeout(resolve, 0)
@@ -1855,6 +1883,7 @@ async function runExportPipeline({
 
   async function advanceStoryClock(deltaMs: number): Promise<void> {
     if (deltaMs <= 0) return
+    const t0 = performance.now()
     // Do not advance virtual time while story is blocked on external async work.
     await waitForStoryExternalIdle()
     // Always drive story timers/VFX first so waitUntil(motion) and animations see this step.
@@ -1870,6 +1899,7 @@ async function runExportPipeline({
     } else {
       await Promise.resolve()
     }
+    const tStory = performance.now()
     // Pixi/Live2D must use the same virtual timeline as the story (not wall clock).
     // Ticker.update(currentTime) derives deltaMS from currentTime - lastTime.
     app.ticker.update(clock.getSyntheticAppTimeMs())
@@ -1884,6 +1914,10 @@ async function runExportPipeline({
       clock.pollTasks()
     } else if (!mobile) {
       await drainStoryMicrotasks(largeWarmJump ? 2 : 4)
+    }
+    if (mobile) {
+      timingStoryMs += tStory - t0
+      timingRenderMs += performance.now() - tStory
     }
   }
 
@@ -1980,7 +2014,11 @@ async function runExportPipeline({
 
     if (needReadback) {
       // PBO returns the previous frame. Overshoot re-renders without advancing story time.
+      const tRead = performance.now()
       const previous = pixelReader.capture(readyFrame)
+      if (isMobileRuntime()) {
+        timingReadbackMs += performance.now() - tRead
+      }
       // Upload uses the story time of this step (index before advance).
       if (
         previous &&
@@ -1991,12 +2029,23 @@ async function runExportPipeline({
         const streamStarted = performance.now()
         await enqueueCapturedFrame(readyFrame)
         framesProcessed += 1
+        timingSamples += 1
         if (isMobileRuntime() && framesProcessed % 30 === 0) {
+          const n = Math.max(1, timingSamples)
           logger.info('export.mobile_capture_tick', {
             framesProcessed,
             avgFrameMs: Math.round(avgFrameDeltaMs()),
-            lastStreamMs: Math.round(performance.now() - streamStarted)
+            lastStreamMs: Math.round(performance.now() - streamStarted),
+            storyAdvanceMs: Math.round(timingStoryMs / n),
+            renderMs: Math.round(timingRenderMs / n),
+            readbackMs: Math.round(timingReadbackMs / n),
+            streamMs: Math.round(timingStreamMs / n)
           })
+          timingStoryMs = 0
+          timingRenderMs = 0
+          timingReadbackMs = 0
+          timingStreamMs = 0
+          timingSamples = 0
         }
       }
     }
@@ -3680,7 +3729,9 @@ function createPboPixelReader(
   height: number,
   frameByteLength: number
 ): PixelReader {
-  const depth = 3
+  // Deeper ring reduces forced GPU sync on mobile (capture was stalling in clientWaitSync).
+  const depth = 4
+  const lagFrames = 2
   const pbos: WebGLBuffer[] = []
   const fences: Array<WebGLSync | null> = Array.from({ length: depth }, () => null)
   for (let i = 0; i < depth; i += 1) {
@@ -3715,10 +3766,13 @@ function createPboPixelReader(
   function waitReady(index: number): void {
     const fence = fences[index]
     if (!fence) return
-    // Prefer non-blocking poll; fall back to short wait to avoid infinite stall.
-    const status = gl.clientWaitSync(fence, 0, 0)
+    // Non-blocking first; only short-wait if still pending (avoid 2ms+ hard stalls every frame).
+    let status = gl.clientWaitSync(fence, 0, 0)
     if (status === gl.TIMEOUT_EXPIRED || status === gl.WAIT_FAILED) {
-      gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 2_000_000)
+      status = gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 500_000)
+      if (status === gl.TIMEOUT_EXPIRED || status === gl.WAIT_FAILED) {
+        gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 2_000_000)
+      }
     }
     clearFence(index)
   }
@@ -3737,11 +3791,11 @@ function createPboPixelReader(
       writeIndex = (writeIndex + 1) % depth
       framesStarted += 1
 
-      // 1-frame lag: return the buffer written on the previous capture.
-      if (framesStarted < 2) {
+      // Multi-frame lag: GPU finishes while we advance the next story frame.
+      if (framesStarted <= lagFrames) {
         return false
       }
-      const readyIndex = (current + depth - 1) % depth
+      const readyIndex = (current + depth - lagFrames) % depth
       readInto(readyIndex, out)
       return true
     },
