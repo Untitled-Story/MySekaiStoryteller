@@ -243,12 +243,15 @@ export default function App({
   const flushEditorWritesRef = useRef<() => Promise<boolean>>(
     (): Promise<boolean> => Promise.resolve(true)
   )
+  const canManualSaveRef = useRef<boolean>(false)
 
   const story: EditorStory = history.present
   storyRef.current = story
   loadedProjectRef.current = loadedProject
   const isDirty: boolean = !storiesEqual(history.present, history.saved)
   const editorSaving: boolean = savingStory || savingAssets || projectMutationInProgress
+  const canManualSave: boolean = !editorSaving && (isDirty || storySaveStatus === 'error')
+  canManualSaveRef.current = canManualSave
   const saveButtonTitle: string = editorSaving
     ? t('editor.saving')
     : storySaveStatus === 'error'
@@ -299,6 +302,7 @@ export default function App({
     function saveOnShortcut(event: KeyboardEvent): void {
       if (!matchesShortcut(event, saveShortcut)) return
       event.preventDefault()
+      if (!canManualSaveRef.current) return
       void flushEditorWritesRef.current()
     }
 
@@ -1314,6 +1318,7 @@ export default function App({
             className={cn('size-9', storySaveStatus === 'error' && 'text-destructive')}
             aria-label={saveButtonTitle}
             title={saveButtonTitle}
+            disabled={!canManualSave}
             onClick={(): void => {
               void flushEditorWrites()
             }}
