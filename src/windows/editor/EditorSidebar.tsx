@@ -2,6 +2,7 @@ import type {
   ChangeEvent,
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -35,6 +36,7 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
+import { Switch } from '@/components/ui/Switch'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -93,6 +95,9 @@ type StoryContextMoves = {
 export function EditorSidebar({
   activePanel,
   searchQuery,
+  touchMode,
+  dragMode,
+  onDragModeChange,
   treeNodes,
   selectedNodeId,
   activeSnippetIds,
@@ -117,6 +122,9 @@ export function EditorSidebar({
 }: {
   activePanel: EditorSidebarTab
   searchQuery: string
+  touchMode: boolean
+  dragMode: boolean
+  onDragModeChange: (enabled: boolean) => void
   treeNodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
   activeSnippetIds: ReadonlySet<string>
@@ -142,10 +150,16 @@ export function EditorSidebar({
   const { t } = useTranslation()
   const searchLabel: string =
     activePanel === 'story' ? t('editor.searchSnippets') : t('editor.searchAssets')
+  const searching: boolean = searchQuery.trim().length > 0
+  const dragEnabled: boolean = !searching && (!touchMode || dragMode)
+  const touchRowDrag: boolean = touchMode && dragMode
+  const dragDisabledHint: string = searching
+    ? t('editor.dragDisabledHint')
+    : t('editor.dragModeDisabledHint')
 
   return (
     <aside className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r bg-muted/20">
-      <div className="flex h-12 shrink-0 items-center border-b px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <div className="flex h-8 items-center rounded-md bg-muted p-0.5">
           <TabButton
             active={activePanel === 'story'}
@@ -158,13 +172,23 @@ export function EditorSidebar({
             onClick={(): void => onActivePanelChange('assets')}
           />
         </div>
+        {touchMode ? (
+          <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="truncate">{t('editor.dragMode')}</span>
+            <Switch
+              checked={dragMode}
+              aria-label={t('editor.dragModeAria')}
+              onCheckedChange={onDragModeChange}
+            />
+          </label>
+        ) : null}
         {activePanel === 'story' ? (
           <Button
             type="button"
             variant="ghost"
             size="icon"
             data-tour="editor-add-snippet"
-            className="ml-auto size-8"
+            className="ml-auto size-8 shrink-0"
             aria-label={t('editor.addSnippet')}
             title={t('editor.addSnippet')}
             onClick={(): void => onAddDialogOpenChange(true)}
@@ -172,7 +196,7 @@ export function EditorSidebar({
             <Plus className="size-4" />
           </Button>
         ) : (
-          <LibraryBig className="ml-auto size-4 text-muted-foreground" />
+          <LibraryBig className="ml-auto size-4 shrink-0 text-muted-foreground" />
         )}
       </div>
 
@@ -204,7 +228,9 @@ export function EditorSidebar({
           onDelete={onDeleteSnippet}
           onToggleParallel={onToggleParallel}
           onMove={onMoveSnippet}
-          dragEnabled={!searchQuery.trim()}
+          dragEnabled={dragEnabled}
+          touchRowDrag={touchRowDrag}
+          dragDisabledHint={dragDisabledHint}
           onAdd={(): void => onAddDialogOpenChange(true)}
         />
       ) : (
@@ -253,6 +279,10 @@ function TabButton({
   )
 }
 
+const TOUCH_ROW_DRAG_LONG_PRESS_MS: number = 380
+const TOUCH_ROW_DRAG_CANCEL_PX: number = 14
+const DRAG_ACTIVATE_PX: number = 6
+
 function StoryTree({
   nodes,
   selectedNodeId,
@@ -266,6 +296,8 @@ function StoryTree({
   onToggleParallel,
   onMove,
   dragEnabled,
+  touchRowDrag,
+  dragDisabledHint,
   onAdd
 }: {
   nodes: readonly FlatTreeNode[]
@@ -280,44 +312,92 @@ function StoryTree({
   onToggleParallel: (nodeId: string) => void
   onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   dragEnabled: boolean
+  touchRowDrag: boolean
+  dragDisabledHint: string
   onAdd: () => void
 }): JSX.Element {
   const { t } = useTranslation()
   const treeRef = useRef<HTMLDivElement | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+  const suppressClickRef = useRef<boolean>(false)
   const pointerRef = useRef<{
     pointerId: number
     sourceId: string
     startX: number
     startY: number
     active: boolean
+    armed: boolean
+    requiresLongPress: boolean
   } | null>(null)
   const dropTargetRef = useRef<StoryDropTarget | null>(null)
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<StoryDropTarget | null>(null)
+
+  function clearLongPressTimer(): void {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
 
   function updateDropTarget(nextTarget: StoryDropTarget | null): void {
     dropTargetRef.current = nextTarget
     setDropTarget(nextTarget)
   }
 
+  function resetPointerState(event?: ReactPointerEvent<HTMLDivElement>): void {
+    clearLongPressTimer()
+    if (event && treeRef.current?.hasPointerCapture(event.pointerId)) {
+      treeRef.current.releasePointerCapture(event.pointerId)
+    }
+    pointerRef.current = null
+    setDraggedNodeId(null)
+    updateDropTarget(null)
+  }
+
+  function armPointerDrag(pointerId: number): void {
+    const pointer: typeof pointerRef.current = pointerRef.current
+    if (!pointer || pointer.pointerId !== pointerId || pointer.armed) return
+    pointer.armed = true
+    treeRef.current?.setPointerCapture(pointerId)
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!dragEnabled || event.button !== 0) return
     if (!(event.target instanceof Element)) return
-    if (!event.target.closest('[data-drag-handle]')) return
     if (event.target.closest('[data-no-drag]')) return
 
     const row: HTMLElement | null = event.target.closest<HTMLElement>('[data-snippet-id]')
     const sourceId: string | undefined = row?.dataset.snippetId
     if (!sourceId) return
 
-    event.currentTarget.setPointerCapture(event.pointerId)
+    const fromHandle: boolean = Boolean(event.target.closest('[data-drag-handle]'))
+    // Desktop: grip-handle only. Touch drag mode: entire snippet row.
+    if (!touchRowDrag && !fromHandle) return
+
+    const requiresLongPress: boolean = touchRowDrag
+    clearLongPressTimer()
     pointerRef.current = {
       pointerId: event.pointerId,
       sourceId,
       startX: event.clientX,
       startY: event.clientY,
-      active: false
+      active: false,
+      armed: !requiresLongPress,
+      requiresLongPress
     }
+
+    if (!requiresLongPress) {
+      event.currentTarget.setPointerCapture(event.pointerId)
+      return
+    }
+
+    // Keep the row gesture under our control for the full long-press window.
+    event.currentTarget.setPointerCapture(event.pointerId)
+    longPressTimerRef.current = window.setTimeout((): void => {
+      longPressTimerRef.current = null
+      armPointerDrag(event.pointerId)
+    }, TOUCH_ROW_DRAG_LONG_PRESS_MS)
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -328,9 +408,18 @@ function StoryTree({
       event.clientX - pointer.startX,
       event.clientY - pointer.startY
     )
+
+    if (!pointer.armed) {
+      if (distance > TOUCH_ROW_DRAG_CANCEL_PX) {
+        resetPointerState()
+      }
+      return
+    }
+
     if (!pointer.active) {
-      if (distance < 6) return
+      if (distance < DRAG_ACTIVATE_PX) return
       pointer.active = true
+      suppressClickRef.current = true
       setDraggedNodeId(pointer.sourceId)
     }
 
@@ -400,12 +489,15 @@ function StoryTree({
       onMove(pointer.sourceId, dropTargetRef.current.nodeId, dropTargetRef.current.placement)
       event?.preventDefault()
     }
-    if (event && treeRef.current?.hasPointerCapture(event.pointerId)) {
-      treeRef.current.releasePointerCapture(event.pointerId)
+    resetPointerState(event)
+  }
+
+  function handleSelect(nodeId: string): void {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
     }
-    pointerRef.current = null
-    setDraggedNodeId(null)
-    updateDropTarget(null)
+    onSelect(nodeId)
   }
 
   return (
@@ -430,6 +522,8 @@ function StoryTree({
               hasActiveSnippets={activeSnippetIds.size > 0}
               expanded={expandedParallelIds.has(flatNode.node.id)}
               dragEnabled={dragEnabled}
+              touchRowDrag={touchRowDrag}
+              dragDisabledHint={dragDisabledHint}
               dragging={draggedNodeId === flatNode.node.id}
               dropPlacement={
                 dropTarget?.indicatorNodeId === flatNode.node.id
@@ -439,7 +533,7 @@ function StoryTree({
               dropIndicatorDepth={
                 dropTarget?.indicatorNodeId === flatNode.node.id ? dropTarget.indicatorDepth : null
               }
-              onSelect={onSelect}
+              onSelect={handleSelect}
               onContextSelect={onContextSelect}
               onPreview={onPreview}
               onDuplicate={onDuplicate}
@@ -475,6 +569,8 @@ function StoryNodeRow({
   hasActiveSnippets,
   expanded,
   dragEnabled,
+  touchRowDrag,
+  dragDisabledHint,
   dragging,
   dropPlacement,
   dropIndicatorDepth,
@@ -493,6 +589,8 @@ function StoryNodeRow({
   hasActiveSnippets: boolean
   expanded: boolean
   dragEnabled: boolean
+  touchRowDrag: boolean
+  dragDisabledHint: string
   dragging: boolean
   dropPlacement: SnippetDropPlacement | null
   dropIndicatorDepth: number | null
@@ -521,91 +619,123 @@ function StoryNodeRow({
     }
   })
 
+  const row: JSX.Element = (
+    <div
+      className={cn(
+        'relative transition-opacity',
+        dragging && 'opacity-35',
+        // Whole-row long-press drag needs touch-none; handle-only touch-none
+        // leaves the rest of the row to browser scroll and cancels the press.
+        touchRowDrag && dragEnabled && 'touch-none select-none'
+      )}
+      style={{ paddingLeft: `${flatNode.depth * 18}px` }}
+      data-snippet-id={node.id}
+      onContextMenu={
+        touchRowDrag
+          ? (event: ReactMouseEvent<HTMLDivElement>): void => {
+              event.preventDefault()
+            }
+          : undefined
+      }
+      {...(touchRowDrag ? {} : longPressHandlers)}
+    >
+      {dropPlacement === 'before' && (
+        <span
+          className="pointer-events-none absolute top-0 right-2 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary"
+          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+        />
+      )}
+      {dropPlacement === 'after' && (
+        <span
+          className="pointer-events-none absolute right-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary"
+          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+        />
+      )}
+      {flatNode.depth > 0 && (
+        <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
+      )}
+      <button
+        type="button"
+        title={
+          dragEnabled
+            ? touchRowDrag
+              ? t('editor.dragModeLongPressHint')
+              : t('editor.dragHint')
+            : dragDisabledHint
+        }
+        className={cn(
+          'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
+          selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
+          isParallel && !selected && 'bg-violet-500/[0.035]',
+          dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60',
+          touchRowDrag && dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+        )}
+        onClick={(): void => {
+          if (!touchRowDrag) onSelect(node.id)
+        }}
+      >
+        <span
+          data-drag-handle
+          className={cn(
+            'flex shrink-0',
+            dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+          )}
+          title={dragEnabled ? t('editor.dragHandle') : undefined}
+        >
+          <GripVertical
+            className={cn(
+              'size-3',
+              touchRowDrag && dragEnabled ? 'text-muted-foreground' : 'text-muted-foreground/45'
+            )}
+          />
+        </span>
+        <span
+          className={cn(
+            'flex size-6 shrink-0 items-center justify-center rounded-sm',
+            TONE_CLASS_NAMES[presentation.tone]
+          )}
+        >
+          <Icon className="size-3.5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-xs font-medium">{node.type}</span>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {formatNodeSummary(node)}
+          </span>
+        </span>
+        {(active || (!hasActiveSnippets && selected)) && (
+          <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+        )}
+      </button>
+      {isParallel && (
+        <button
+          type="button"
+          className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
+          title={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
+          data-no-drag={!touchRowDrag ? true : undefined}
+          onClick={(): void => {
+            if (!touchRowDrag) onToggleParallel(node.id)
+          }}
+        >
+          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        </button>
+      )}
+      {isParallel && flatNode.childCount > 0 && (
+        <span className="absolute right-9 bottom-1 font-mono text-[9px] text-violet-700/80">
+          {flatNode.childCount}
+        </span>
+      )}
+    </div>
+  )
+
+  // Drag mode is reorder-only: no context menu / long-press actions.
+  if (touchRowDrag) return row
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild onContextMenu={(): void => onContextSelect(node.id)}>
-        <div
-          className={cn('relative transition-opacity', dragging && 'opacity-35')}
-          style={{ paddingLeft: `${flatNode.depth * 18}px` }}
-          data-snippet-id={node.id}
-          {...longPressHandlers}
-        >
-          {dropPlacement === 'before' && (
-            <span
-              className="pointer-events-none absolute top-0 right-2 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary"
-              style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
-            />
-          )}
-          {dropPlacement === 'after' && (
-            <span
-              className="pointer-events-none absolute right-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary"
-              style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
-            />
-          )}
-          {flatNode.depth > 0 && (
-            <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
-          )}
-          <button
-            type="button"
-            title={dragEnabled ? t('editor.dragHint') : t('editor.dragDisabledHint')}
-            className={cn(
-              'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
-              selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
-              isParallel && !selected && 'bg-violet-500/[0.035]',
-              dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60'
-            )}
-            onClick={(): void => onSelect(node.id)}
-          >
-            <span
-              data-drag-handle
-              className={cn(
-                'flex shrink-0',
-                dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
-              )}
-              title={dragEnabled ? t('editor.dragHandle') : undefined}
-            >
-              <GripVertical className="size-3 text-muted-foreground/45" />
-            </span>
-            <span
-              className={cn(
-                'flex size-6 shrink-0 items-center justify-center rounded-sm',
-                TONE_CLASS_NAMES[presentation.tone]
-              )}
-            >
-              <Icon className="size-3.5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-medium">{node.type}</span>
-              <span className="block truncate text-[11px] text-muted-foreground">
-                {formatNodeSummary(node)}
-              </span>
-            </span>
-            {(active || (!hasActiveSnippets && selected)) && (
-              <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-            )}
-          </button>
-          {isParallel && (
-            <button
-              type="button"
-              className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
-              title={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
-              data-no-drag
-              onClick={(): void => onToggleParallel(node.id)}
-            >
-              {expanded ? (
-                <ChevronDown className="size-3.5" />
-              ) : (
-                <ChevronRight className="size-3.5" />
-              )}
-            </button>
-          )}
-          {isParallel && flatNode.childCount > 0 && (
-            <span className="absolute right-9 bottom-1 font-mono text-[9px] text-violet-700/80">
-              {flatNode.childCount}
-            </span>
-          )}
-        </div>
+        {row}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52 font-medium select-none">
         <ContextMenuItem onClick={(): void => onPreview(node.id)}>

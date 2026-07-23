@@ -194,6 +194,7 @@ export default function App({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [activePanel, setActivePanel] = useState<EditorSidebarTab>('story')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [dragMode, setDragMode] = useState<boolean>(false)
   const [expandedParallelIds, setExpandedParallelIds] = useState<ReadonlySet<string>>(
     (): ReadonlySet<string> => new Set()
   )
@@ -1129,10 +1130,14 @@ export default function App({
   const tabletLayout: boolean = viewportMode === 'tablet' && !mobileLandscapeLayout
   const compactChrome: boolean = phoneLayout || tabletLayout || mobileLandscapeLayout
 
+  const touchMode: boolean = settings?.interaction.touchMode ?? false
   const sidebarNode: JSX.Element = (
     <EditorSidebar
       activePanel={activePanel}
       searchQuery={searchQuery}
+      touchMode={touchMode}
+      dragMode={dragMode}
+      onDragModeChange={setDragMode}
       treeNodes={treeNodes}
       selectedNodeId={selectedNode?.id ?? null}
       activeSnippetIds={activeSnippetIds}
@@ -1145,13 +1150,13 @@ export default function App({
       onSelectNode={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
+        if (phoneLayout && !dragMode) setMobileBottomTab('properties')
         requestPreview(nodeId, true)
       }}
       onContextSelectSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
+        if (phoneLayout && !dragMode) setMobileBottomTab('properties')
       }}
       onPreviewSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
