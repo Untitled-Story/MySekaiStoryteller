@@ -1238,6 +1238,8 @@ async function runExportPipeline({
     await emit('export-worker-progress', payload)
   }
 
+  // Soft budget for single/unbounded exports: story duration estimate undercounts
+  // ending ScreenFadeOut/holds, so we grow this while the story is still running.
   let captureTotal =
     Number.isFinite(endFrame) && endFrame > startFrame
       ? endFrame - startFrame
@@ -1252,7 +1254,8 @@ async function runExportPipeline({
   let idleAfterStoryFrames = 0
   let hungWarmFrames = 0
   // Estimate is short for motions; keep capturing until story is truly idle longer.
-  const maxIdleAfterStory = Math.ceil(exportFps * 1.5)
+  // Keep a short black hold after ScreenFadeOut completes (storyDone fires at alpha=1).
+  const maxIdleAfterStory = Math.ceil(exportFps * 2.0)
   const readyFrame = new Uint8Array(frameByteLength)
 
   const pixelReader = createPixelReader(app, exportWidth, exportHeight, frameByteLength)
@@ -1432,6 +1435,7 @@ async function runExportPipeline({
   }
 
   async function enqueueCapturedFrame(frame: Uint8Array): Promise<void> {
+    ensureCaptureBudget(startFrame + framesProcessed)
     if (framesProcessed >= captureTotal) return
     // Mobile: stream the readback buffer directly (no multi-MB RGBA batch pool).
     // Copy once into an owned buffer so the PBO ring can reuse `readyFrame` while upload runs.
@@ -1645,6 +1649,31 @@ async function runExportPipeline({
 
   // Overshoot past endFrame to flush PBO/batch lag; never upload more than captureTotal.
   const overshootPad = Math.max(4, batchFrames + 2)
+  // Keep enough headroom for PBO lag + a short black hold after the last story animation.
+  const liveCaptureHeadroom = Math.max(overshootPad + 2, Math.ceil(exportFps * 2))
+
+  function ensureCaptureBudget(minAbsoluteFrame: number = globalFrameIndex): void {
+    if (Number.isFinite(endFrame) && endFrame > startFrame) {
+      captureTotal = Math.max(1, Math.floor(endFrame) - startFrame)
+      return
+    }
+    const inRange = Math.max(0, minAbsoluteFrame - startFrame)
+    if (!storyDone) {
+      // Story still running: never stop uploading mid-fade just because estimate was short.
+      captureTotal = Math.max(
+        captureTotal,
+        inRange + liveCaptureHeadroom,
+        framesProcessed + liveCaptureHeadroom
+      )
+      return
+    }
+    // After natural end, allow idle tail / PBO drain frames.
+    captureTotal = Math.max(
+      captureTotal,
+      framesProcessed + overshootPad,
+      inRange + Math.max(overshootPad, Math.ceil(exportFps * 0.5))
+    )
+  }
   // Wall-clock phase markers for single/worker debug waterfall.
   let warmStartSec: number | null = startFrame > 0 ? 0 : null
   let warmEndSec: number | null = startFrame > 0 ? null : 0
@@ -2111,7 +2140,9 @@ async function runExportPipeline({
         if (globalFrameIndex >= endFrame) break
       }
 
+      ensureCaptureBudget(globalFrameIndex)
       await captureOneStep({ advanceClock: true, allowUpload: true })
+      ensureCaptureBudget(globalFrameIndex)
 
       if (performance.now() - lastStatsAt > 500) {
         lastStatsAt = performance.now()
@@ -2183,6 +2214,7 @@ async function runExportPipeline({
     }
 
     publishCaptureStats('finalizing')
+    ensureCaptureBudget(globalFrameIndex)
     await Promise.race([
       flushCaptureTail(),
       new Promise<void>((resolve) => window.setTimeout(resolve, 6000))
@@ -2196,6 +2228,7 @@ async function runExportPipeline({
       logger.warn('export.upload_after_capture_failed', { error: describeError(uploadError) })
     }
 
+    ensureCaptureBudget(globalFrameIndex)
     framesProcessed = Math.min(framesProcessed, captureTotal)
     const reportDoneFrames = framesProcessed
     // Must finalize encoder + validate moov BEFORE done, or concat yields short/corrupt video.
@@ -2390,6 +2423,7 @@ async function runExportPipeline({
         throw new Error('渲染已取消')
       }
       publishCaptureStats('finalizing')
+      ensureCaptureBudget(globalFrameIndex)
       await Promise.race([
         flushCaptureTail(),
         new Promise<void>((resolve) => window.setTimeout(resolve, 6000))
@@ -2397,6 +2431,7 @@ async function runExportPipeline({
       if (shouldAbort()) {
         throw new Error('渲染已取消')
       }
+      ensureCaptureBudget(globalFrameIndex)
       framesProcessed = Math.min(framesProcessed, captureTotal)
       await finalizeSegmentFile(framesProcessed)
       if (shouldAbort()) {
