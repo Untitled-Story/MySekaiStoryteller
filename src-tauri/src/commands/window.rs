@@ -3,7 +3,7 @@ use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::Value;
 use tauri::AppHandle;
 #[cfg(desktop)]
-use tauri::{Emitter, Manager, WebviewUrl};
+use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl};
 
 #[tauri::command]
 pub async fn open_editor(app: AppHandle, project_name: String) -> Result<(), String> {
@@ -216,7 +216,7 @@ async fn open_player_desktop(
         (900.0, 640.0)
     } else if is_export_progress {
         // Title + bar + frames line + actions; OS chrome is outside inner_size.
-        (440.0, 280.0)
+        (480.0, 320.0)
     } else {
         (1280.0, 720.0)
     };
@@ -259,27 +259,101 @@ async fn open_player_desktop(
             .focused(true)
             .always_on_top(false);
     } else if is_worker {
-        // IMPORTANT: do NOT use visible(false) on Linux/WebKit.
-        // Hidden webviews throttle/freeze WebGL + timers → multi-worker export
-        // sits at 0 frames until coordinator false-stalls (40s rendering / ~79s warming).
-        // Keep workers visible but out of the way (taskbar skipped, not focused).
+        // IMPORTANT: do NOT use visible(false) or minimize() by default.
+        // Hidden/minimized webviews throttle/freeze WebGL + timers on Linux/WebKit →
+        // multi-worker export sits at 0 frames until coordinator false-stalls.
+        // Keep workers "visible" to the compositor, but place them off-screen and
+        // skip the taskbar so users are not flooded with black undecorated windows.
+        // Debug: MSS_SHOW_EXPORT_WORKERS=1 keeps them on-screen.
         builder = builder
             .skip_taskbar(true)
             .visible(true)
             .focused(false)
             .always_on_bottom(true);
+
+        if !show_export_workers_on_screen() {
+            let (lx, ly) = export_worker_offscreen_logical(&app, width, height, worker_index);
+            builder = builder.position(lx, ly);
+        }
     }
 
-    builder.build().map_err(|error: tauri::Error| {
+    let window = builder.build().map_err(|error: tauri::Error| {
         log::error!(target: "backend::window", "open_player build failed label={label}: {error}");
         error.to_string()
     })?;
+
+    if is_worker && !show_export_workers_on_screen() {
+        let (px, py) = export_worker_offscreen_physical(&app, width, height, worker_index);
+        if let Err(error) = window.set_position(PhysicalPosition::new(px, py)) {
+            log::warn!(
+                target: "backend::window",
+                "open_player worker off-screen set_position failed label={label}: {error}"
+            );
+        } else {
+            log::info!(
+                target: "backend::window",
+                "open_player worker off-screen label={label} pos=({px},{py})"
+            );
+        }
+    }
 
     log::info!(
         target: "backend::window",
         "open_player created window label={label} project={project_owned} render={is_render} role={role}"
     );
     Ok(())
+}
+
+#[cfg(desktop)]
+fn show_export_workers_on_screen() -> bool {
+    matches!(
+        std::env::var("MSS_SHOW_EXPORT_WORKERS")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+/// Logical coords for WebviewWindowBuilder::position (scale-aware).
+#[cfg(desktop)]
+fn export_worker_offscreen_logical(
+    app: &AppHandle,
+    width: f64,
+    height: f64,
+    worker_index: Option<u64>,
+) -> (f64, f64) {
+    let (px, py) = export_worker_offscreen_physical(app, width, height, worker_index);
+    let scale = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0)
+        .max(0.1);
+    (px as f64 / scale, py as f64 / scale)
+}
+
+/// Physical desktop coords fully outside the primary monitor work area.
+#[cfg(desktop)]
+fn export_worker_offscreen_physical(
+    app: &AppHandle,
+    width: f64,
+    height: f64,
+    worker_index: Option<u64>,
+) -> (i32, i32) {
+    let slot = worker_index.unwrap_or(0) as i32;
+    if let Ok(Some(monitor)) = app.primary_monitor() {
+        let scale = monitor.scale_factor().max(0.1);
+        let phys_w = (width * scale).ceil() as i32;
+        let pos = monitor.position();
+        // Fully left of the primary monitor; tiny y stagger avoids identical stacking.
+        let x = pos.x - phys_w - 64;
+        let y = pos.y + slot * 8;
+        return (x, y);
+    }
+    let _ = height;
+    (-((width.ceil() as i32) + 64), -64 + slot * 8)
 }
 
 #[cfg(desktop)]

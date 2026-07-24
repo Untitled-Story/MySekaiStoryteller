@@ -230,42 +230,45 @@ export default function App({
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), [])
   const mobileRuntime: boolean = isMobileRuntime()
   const inAppNavigation: boolean = prefersInAppNavigation()
-  const stashedRenderConfigRef = useRef<RenderConfig | null>(null)
+  // Sticky state (not a ref) so config survives takePendingRenderConfig without render-time ref I/O.
+  const [stickyRenderConfig, setStickyRenderConfig] = useState<RenderConfig | null>(null)
   // Query-string config (desktop multi-window) or stashed config (Android/iOS in-app).
   const renderConfig = useMemo((): RenderConfig | null => {
     const fromQuery = parseRenderConfig(searchParams.get('renderConfig'))
-    if (fromQuery) {
-      stashedRenderConfigRef.current = fromQuery
-      return fromQuery
-    }
-    if (stashedRenderConfigRef.current) {
-      return stashedRenderConfigRef.current
-    }
+    if (fromQuery) return fromQuery
     const pending = peekPendingRenderConfig(preferredProjectName ?? projectName)
-    if (!pending) return null
-    const normalized: RenderConfig =
-      mobileRuntime || inAppNavigation
+    if (pending) {
+      return mobileRuntime || inAppNavigation
         ? { ...pending, concurrency: 1, role: 'single', workers: 1 }
         : pending
-    stashedRenderConfigRef.current = normalized
-    return normalized
-  }, [searchParams, preferredProjectName, projectName, mobileRuntime, inAppNavigation])
+    }
+    return stickyRenderConfig
+  }, [
+    searchParams,
+    preferredProjectName,
+    projectName,
+    mobileRuntime,
+    inAppNavigation,
+    stickyRenderConfig
+  ])
   const isRenderMode = searchParams.get('render') === 'true' || Boolean(renderConfig)
   const exportRole = renderConfig?.role ?? (isRenderMode ? 'single' : undefined)
   const isExportDebug = isRenderMode && exportRole === 'debug'
   const concurrency =
     mobileRuntime || inAppNavigation ? 1 : clampConcurrency(renderConfig?.concurrency)
 
-  // Master behavior: force landscape + immersive for all in-app player sessions (play + export).
+  // Mobile play: force landscape + immersive. Render mode keeps free orientation so the
+  // export dashboard can stay portrait-friendly; frames use fixed canvas size, not device rotation.
   useEffect((): (() => void) | undefined => {
     if (!inAppNavigation) return undefined
 
+    const lockLandscapeForSession: boolean = !isRenderMode
     let cancelled = false
     void (async (): Promise<void> => {
       // Window fullscreen is desktop-oriented; ignore failures on Android single-webview.
       try {
         await getCurrentWindow().setFullscreen(true)
-        logger.info('player.mobile_fullscreen_entered')
+        logger.info('player.mobile_fullscreen_entered', { isRenderMode })
       } catch (error: unknown) {
         logger.warn('player.mobile_fullscreen_enter_failed', { error: describeError(error) })
       }
@@ -274,8 +277,18 @@ export default function App({
         return
       }
 
-      const immersive: boolean = enterImmersiveMode()
-      if (immersive) logger.info('player.immersive_mode_entered')
+      // Immersive chrome is useful for playback; skip during render to avoid fighting the dashboard.
+      if (!isRenderMode) {
+        const immersive: boolean = enterImmersiveMode()
+        if (immersive) logger.info('player.immersive_mode_entered')
+      }
+
+      if (!lockLandscapeForSession) {
+        // Clear any leftover play-session lock when navigating into export.
+        unlockOrientation()
+        logger.info('player.orientation_lock_skipped', { reason: 'render_mode' })
+        return
+      }
 
       const locked: boolean = await lockLandscapeOrientation()
       if (cancelled) {
@@ -288,7 +301,7 @@ export default function App({
 
     return (): void => {
       cancelled = true
-      unlockOrientation()
+      if (lockLandscapeForSession) unlockOrientation()
       void getCurrentWindow()
         .setFullscreen(false)
         .catch((error: unknown): void => {
@@ -297,9 +310,9 @@ export default function App({
         .finally((): void => {
           exitImmersiveMode()
         })
-      logger.info('player.orientation_unlocked')
+      if (lockLandscapeForSession) logger.info('player.orientation_unlocked')
     }
-  }, [inAppNavigation])
+  }, [inAppNavigation, isRenderMode])
 
   // Align export chrome (and player shell) with app light/dark tokens.
   useEffect(() => {
@@ -368,8 +381,8 @@ export default function App({
     renderStatsRef.current = renderStats
   }, [renderStats])
 
-  const publishExportUi = useMemo(() => {
-    return (stats: RenderStats): void => {
+  const publishExportUi = useCallback(
+    (stats: RenderStats): void => {
       if (!isRenderMode || exportRole === 'worker' || exportRole === 'debug') return
       const groupId =
         exportControlRef.current.groupId ??
@@ -393,11 +406,12 @@ export default function App({
         error: stats.status === 'error' ? stats.message : undefined
       }
       void emit(EXPORT_UI_PROGRESS_EVENT, payload)
-    }
-  }, [isRenderMode, exportRole, renderConfig, projectName])
+    },
+    [isRenderMode, exportRole, renderConfig, projectName]
+  )
 
-  const publishDebugStats = useMemo(() => {
-    return (stats: RenderStats, force = false): void => {
+  const publishDebugStats = useCallback(
+    (stats: RenderStats, force = false): void => {
       if (!isRenderMode || exportRole === 'worker' || exportRole === 'debug') return
       const now = performance.now()
       const statusChanged = stats.status !== lastDebugStatusRef.current
@@ -450,12 +464,19 @@ export default function App({
         }
       }
       void emit(EXPORT_DEBUG_STATS_EVENT, debugPayload)
+    },
+    [isRenderMode, exportRole, renderConfig, projectName]
+  )
+
+  useEffect(() => {
+    if (renderConfig) {
+      setStickyRenderConfig(renderConfig)
     }
-  }, [isRenderMode, exportRole, renderConfig, projectName])
+  }, [renderConfig])
 
   useEffect(() => {
     if (isRenderMode && projectName) {
-      // Drop storage entry once sticky ref holds config (avoid reusing on next play).
+      // Drop storage entry once sticky state holds config (avoid reusing on next play).
       takePendingRenderConfig(projectName)
     }
   }, [isRenderMode, projectName])
@@ -463,7 +484,7 @@ export default function App({
   useEffect(() => {
     return () => {
       if (projectName) clearPendingRenderConfig(projectName)
-      stashedRenderConfigRef.current = null
+      setStickyRenderConfig(null)
     }
   }, [projectName])
 
@@ -1504,7 +1525,7 @@ async function runExportPipeline({
     } finally {
       await releaseExportWakeLock(exportWakeLock)
       exportWakeLock = null
-      // Keep landscape/immersive until the export route unmounts.
+      // Orientation is free during render; unmount handles any residual cleanup.
     }
     const minDur = Math.max(0.05, (Math.max(1, expectedFrames) - 2) / exportFps)
     // Brief FS settle.
