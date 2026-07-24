@@ -97,6 +97,8 @@ export const zhCN = {
     exportFailed: '项目导出失败：{{error}}'
   },
   home: {
+    render: '渲染',
+    renderVideo: '渲染视频',
     welcome: '欢迎回来',
     recent: '上次编辑',
     continueEditing: '继续编辑',

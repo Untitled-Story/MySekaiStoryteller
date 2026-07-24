@@ -103,6 +103,8 @@ export const ja: typeof en = {
     exportFailed: 'プロジェクトのエクスポートに失敗しました: {{error}}'
   },
   home: {
+    render: 'レンダー',
+    renderVideo: '動画レンダー',
     welcome: 'おかえりなさい',
     recent: '最近の編集',
     continueEditing: '編集を続ける',

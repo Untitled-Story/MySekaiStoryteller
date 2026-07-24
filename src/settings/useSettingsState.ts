@@ -5,6 +5,7 @@ import type {
   AppSettings,
   AppLanguage,
   AppearanceSettings,
+  ExportPreferences,
   InteractionSettings,
   PlaybackFontSettings,
   PlaybackSettings,
@@ -17,6 +18,7 @@ import { DEFAULT_ONBOARDING, normalizeOnboardingSettings } from '@/onboarding/ty
 import { defaultPlaybackFont, normalizePlaybackFont } from './fonts'
 import { defaultShortcutSettings, normalizeShortcutSettings } from './shortcuts'
 import { describeError, logger } from '@/lib/logger'
+import { isMobileRuntime } from '@/lib/platform'
 import { DEFAULT_INTERACTION, normalizeInteractionSettings } from '@/lib/touchMode'
 import { listen, type Event as TauriEvent } from '@tauri-apps/api/event'
 import { applyAppLanguage, normalizeAppLanguage } from '@/i18n'
@@ -29,6 +31,7 @@ export type SettingsHook = {
   shortcuts: ShortcutSettings
   onboarding: OnboardingSettings
   interaction: InteractionSettings
+  exportPrefs: ExportPreferences
   workspaceDir: string | null
   setLanguage: (language: AppLanguage) => void
   setFollowSystem: (follow: boolean) => void
@@ -40,6 +43,7 @@ export type SettingsHook = {
   setOnboarding: (value: OnboardingSettings) => void
   setInteraction: (value: InteractionSettings) => void
   setTouchMode: (value: boolean) => void
+  setExportPrefs: (value: ExportPreferences) => void
   setWorkspaceDir: (dir: string) => void
 }
 
@@ -49,7 +53,33 @@ const DEFAULT_PLAYBACK: PlaybackSettings = {
   font: defaultPlaybackFont()
 }
 
-export function useSettingsState(): SettingsHook {
+/** Desktop default export size. */
+export const DEFAULT_EXPORT_PREFS_DESKTOP: ExportPreferences = {
+  width: 1920,
+  height: 1080,
+  fps: 30,
+  concurrency: 2
+}
+
+/** Mobile default: 720p — 1080p capture is ~2.25× pixels and was ~0.8 wall_fps on 13 Pro. */
+export const DEFAULT_EXPORT_PREFS_MOBILE: ExportPreferences = {
+  width: 1280,
+  height: 720,
+  fps: 30,
+  concurrency: 1
+}
+
+export const DEFAULT_EXPORT_PREFS: ExportPreferences = isMobileRuntime()
+  ? { ...DEFAULT_EXPORT_PREFS_MOBILE }
+  : { ...DEFAULT_EXPORT_PREFS_DESKTOP }
+
+export type UseSettingsStateOptions = {
+  /** When false, load settings for UI but never write them back (export windows). */
+  persist?: boolean
+}
+
+export function useSettingsState(options: UseSettingsStateOptions = {}): SettingsHook {
+  const persist: boolean = options.persist !== false
   const systemTheme = useSystemTheme()
   const [language, setLanguage] = useState<AppLanguage>('system')
 
@@ -66,6 +96,9 @@ export function useSettingsState(): SettingsHook {
   const [shortcuts, setShortcuts] = useState<ShortcutSettings>(defaultShortcutSettings)
   const [onboarding, setOnboarding] = useState<OnboardingSettings>(DEFAULT_ONBOARDING)
   const [interaction, setInteractionState] = useState<InteractionSettings>(DEFAULT_INTERACTION)
+  const [exportPrefs, setExportPrefsState] = useState<ExportPreferences>(() => ({
+    ...DEFAULT_EXPORT_PREFS
+  }))
   const [loaded, setLoaded] = useState(false)
   const [persistenceReady, setPersistenceReady] = useState(false)
 
@@ -108,13 +141,15 @@ export function useSettingsState(): SettingsHook {
         setInteractionState(
           normalizeInteractionSettings(stored.interaction, { detectDefaultWhenMissing: true })
         )
+        setExportPrefsState(normalizeExportPrefs(stored.export))
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setPersistenceReady(true)
         setLoaded(true)
         logger.info('settings.load_completed', {
           durationMs: Math.round(performance.now() - startedAt),
           found: true,
-          hasWorkspace: Boolean(stored.workspaceDir)
+          hasWorkspace: Boolean(stored.workspaceDir),
+          hasExportPrefs: Boolean(stored.export)
         })
       })
       .catch((error: unknown): void => {
@@ -165,9 +200,9 @@ export function useSettingsState(): SettingsHook {
     applyAppLanguage(language)
   }, [language])
 
-  // Save settings when they change
+  // Save settings when they change (main/settings UI only — never export workers).
   useEffect(() => {
-    if (!loaded || !persistenceReady) return
+    if (!loaded || !persistenceReady || !persist) return
 
     const payload: AppSettings = {
       language,
@@ -179,6 +214,7 @@ export function useSettingsState(): SettingsHook {
       shortcuts,
       onboarding,
       interaction,
+      export: exportPrefs,
       workspaceDir: workspaceDir ?? undefined
     }
 
@@ -192,9 +228,11 @@ export function useSettingsState(): SettingsHook {
     shortcuts,
     onboarding,
     interaction,
+    exportPrefs,
     workspaceDir,
     loaded,
     persistenceReady,
+    persist,
     language
   ])
 
@@ -206,6 +244,7 @@ export function useSettingsState(): SettingsHook {
     shortcuts,
     onboarding,
     interaction,
+    exportPrefs,
     workspaceDir,
     setLanguage,
     setFollowSystem: (follow) =>
@@ -242,6 +281,9 @@ export function useSettingsState(): SettingsHook {
         ...prev,
         touchMode: value
       })),
+    setExportPrefs: (value: ExportPreferences): void => {
+      setExportPrefsState(normalizeExportPrefs(value))
+    },
     setWorkspaceDir: (dir: string): void => {
       // Persist immediately so backend project commands never race with the
       // debounced settings effect (critical on first-run / clear-data mobile).
@@ -257,6 +299,7 @@ export function useSettingsState(): SettingsHook {
         shortcuts,
         onboarding,
         interaction,
+        export: exportPrefs,
         workspaceDir: dir
       }
       void saveSettings(payload)
@@ -274,4 +317,26 @@ function normalizeRenderPrecision(value: RenderPrecision | undefined): RenderPre
   if (value === 'Auto') return value
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
   return DEFAULT_PLAYBACK.renderPrecision
+}
+
+export function normalizeExportPrefs(
+  value: ExportPreferences | undefined | null
+): ExportPreferences {
+  const width =
+    typeof value?.width === 'number' && Number.isFinite(value.width) && value.width >= 160
+      ? Math.floor(value.width)
+      : DEFAULT_EXPORT_PREFS.width
+  const height =
+    typeof value?.height === 'number' && Number.isFinite(value.height) && value.height >= 90
+      ? Math.floor(value.height)
+      : DEFAULT_EXPORT_PREFS.height
+  const fps =
+    typeof value?.fps === 'number' && Number.isFinite(value.fps) && value.fps >= 1
+      ? Math.min(240, Math.floor(value.fps))
+      : DEFAULT_EXPORT_PREFS.fps
+  const concurrency =
+    typeof value?.concurrency === 'number' && Number.isFinite(value.concurrency)
+      ? Math.min(4, Math.max(1, Math.floor(value.concurrency)))
+      : DEFAULT_EXPORT_PREFS.concurrency
+  return { width, height, fps, concurrency }
 }

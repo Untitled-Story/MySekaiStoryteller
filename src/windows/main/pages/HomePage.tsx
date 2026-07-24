@@ -1,7 +1,8 @@
 import type { JSX } from 'react'
 import { useCallback, useState } from 'react'
-import { Plus, Edit3, Play, Clock, Folder, Settings } from 'lucide-react'
+import { Plus, Edit3, Play, Clock, Folder, Settings, Clapperboard } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
+import { ExportVideoDialog } from '@/windows/main/components/ExportVideoDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import type { ProjectMetadata } from '@/project/metadata'
 import { timeAgo } from '@/windows/main/utils/time'
@@ -30,6 +31,7 @@ export default function HomePage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [exportTarget, setExportTarget] = useState<string | null>(null)
   const [touchPromptOpen, setTouchPromptOpen] = useState(false)
   const [touchPromptValue, setTouchPromptValue] = useState(false)
   const navigate = useNavigate()
@@ -142,6 +144,14 @@ export default function HomePage(): JSX.Element {
                   <Play className="h-3.5 w-3.5" />
                   {t('common.play')}
                 </button>
+                <button
+                  onClick={() => setExportTarget(latest.title)}
+                  className="flex items-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
+                  title={t('home.renderVideo')}
+                >
+                  <Clapperboard className="h-3.5 w-3.5" />
+                  {t('home.render')}
+                </button>
               </div>
             </div>
           ) : (
@@ -193,6 +203,13 @@ export default function HomePage(): JSX.Element {
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleProjectCreated}
+      />
+      <ExportVideoDialog
+        open={exportTarget !== null}
+        projectTitle={exportTarget}
+        onOpenChange={(open) => {
+          if (!open) setExportTarget(null)
+        }}
       />
       <MainProductTour
         active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}

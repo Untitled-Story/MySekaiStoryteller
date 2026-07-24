@@ -16,7 +16,8 @@ import {
   Trash2,
   Clock,
   Download,
-  Upload
+  Upload,
+  Clapperboard
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { useSettings } from '@/settings/useSettings'
@@ -25,6 +26,7 @@ import { isMobileRuntime } from '@/lib/platform'
 
 import { cn } from '@/lib/style'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
+import { ExportVideoDialog } from '@/windows/main/components/ExportVideoDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
 import type { ProjectMetadata } from '@/project/metadata'
@@ -65,6 +67,7 @@ type ExportNotice = {
 }
 
 export default function ProjectsPage(): JSX.Element {
+  const [exportTarget, setExportTarget] = useState<string | null>(null)
   const { t } = useTranslation()
   const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
@@ -353,6 +356,16 @@ export default function ProjectsPage(): JSX.Element {
                       >
                         <Play className="w-3.5 h-3.5" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={phoneLayout ? 'size-10' : 'size-9'}
+                        aria-label={t('home.renderVideo')}
+                        title={t('home.renderVideo')}
+                        onClick={() => setExportTarget(metadata.title)}
+                      >
+                        <Clapperboard className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </ContextMenuTrigger>
@@ -467,6 +480,13 @@ export default function ProjectsPage(): JSX.Element {
           onDismiss={(): void => setExportNotice(null)}
         />
       )}
+      <ExportVideoDialog
+        projectTitle={exportTarget}
+        open={!!exportTarget}
+        onOpenChange={(open) => {
+          if (!open) setExportTarget(null)
+        }}
+      />
     </div>
   )
 }
