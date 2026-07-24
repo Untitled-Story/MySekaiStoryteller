@@ -126,27 +126,34 @@ export function ExportProgressDashboard({
         : 'bg-primary'
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <h1 className="text-base font-semibold tracking-tight">{title}</h1>
-            <p className="truncate text-xs text-muted-foreground">
+    <div className="flex min-h-screen w-full flex-col bg-background text-foreground select-none">
+      <div className="flex w-full flex-1 flex-col gap-3 p-6 sm:p-8 sm:justify-center">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1.5">
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">{title}</h1>
+            <p className="truncate text-sm sm:text-base text-muted-foreground">
               {projectTitle ?? '项目'}
               {role === 'worker' && stats.workerLabel ? ` · ${stats.workerLabel}` : ''}
             </p>
-            <p className="text-xs text-muted-foreground">{mapped.message}</p>
+            <p className="text-sm sm:text-base text-muted-foreground">{mapped.message}</p>
           </div>
           <div className="shrink-0 text-right">
-            <div className="text-3xl font-semibold tabular-nums tracking-tight">
+            <div className="text-3xl sm:text-4xl font-semibold tabular-nums tracking-tight">
               {pct.toFixed(1)}
-              <span className="ml-0.5 text-sm font-medium text-muted-foreground">%</span>
+              <span className="ml-0.5 text-sm sm:text-base font-medium text-muted-foreground">
+                %
+              </span>
             </div>
+            {stats.status !== 'done' && stats.status !== 'error' && stats.fps > 0 ? (
+              <div className="mt-1 text-xs sm:text-sm text-muted-foreground">
+                FPS: {stats.fps.toFixed(2)}
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div
-          className="h-3 w-full overflow-hidden rounded-full border border-border bg-muted"
+          className="h-3 sm:h-4 w-full overflow-hidden rounded-full border border-border bg-muted my-4"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
@@ -162,16 +169,28 @@ export function ExportProgressDashboard({
           />
         </div>
 
-        <div className="text-xs text-muted-foreground">{remainingLabel}</div>
+        <div className="text-sm sm:text-base text-muted-foreground">{remainingLabel}</div>
 
-        <div className="mt-auto flex flex-wrap items-center gap-2">
+        <div className="mt-auto sm:mt-6 pt-4 flex flex-wrap items-center gap-3">
           {stats.canPause ? (
-            <Button type="button" variant="outline" size="sm" onClick={onTogglePause}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 px-4 sm:h-10"
+              onClick={onTogglePause}
+            >
               {stats.isPaused || stats.status === 'paused' ? '继续' : '暂停'}
             </Button>
           ) : null}
           {stats.canStop ? (
-            <Button type="button" variant="destructive" size="sm" onClick={onStop}>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="h-9 px-4 sm:h-10"
+              onClick={onStop}
+            >
               停止
             </Button>
           ) : null}
@@ -180,6 +199,7 @@ export function ExportProgressDashboard({
               type="button"
               variant="secondary"
               size="sm"
+              className="h-9 px-4 sm:h-10"
               onClick={() => {
                 const path = exportPath ?? stats.exportPath
                 if (!path) return
@@ -226,7 +246,7 @@ export function ExportProgressDashboard({
               type="button"
               variant="link"
               size="sm"
-              className="ml-auto h-auto px-0 text-xs text-muted-foreground"
+              className="ml-auto h-auto px-0 text-xs sm:text-sm text-muted-foreground"
               onClick={onOpenDetails}
             >
               详细信息
