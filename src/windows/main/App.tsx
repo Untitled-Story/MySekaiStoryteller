@@ -27,6 +27,11 @@ const MobilePlayerPage = lazy(async () => {
   return { default: module.MobilePlayerPage }
 })
 
+const MobileExportPage = lazy(async () => {
+  const module = await import('@/windows/shell/MobileExportPage')
+  return { default: module.MobileExportPage }
+})
+
 export default function App(): React.JSX.Element {
   return (
     <SettingsProvider>
@@ -45,7 +50,9 @@ function AppContent(): React.JSX.Element {
   const viewportMode: ViewportMode = useViewportMode()
   const inAppNavigation: boolean = prefersInAppNavigation()
   const isImmersiveRoute: boolean =
-    location.pathname.startsWith('/editor/') || location.pathname.startsWith('/player/')
+    location.pathname.startsWith('/editor/') ||
+    location.pathname.startsWith('/player/') ||
+    location.pathname.startsWith('/export/')
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -77,6 +84,7 @@ function AppContent(): React.JSX.Element {
         <Routes>
           <Route path="/editor/:projectName" element={<MobileEditorPage />} />
           <Route path="/player/:projectName" element={<MobilePlayerPage />} />
+          <Route path="/export/:projectName" element={<MobileExportPage />} />
         </Routes>
       </Suspense>
     )
@@ -119,6 +127,14 @@ function AppContent(): React.JSX.Element {
                 element={
                   <Suspense fallback={<RouteFallback label={t('mobile.player')} />}>
                     <MobilePlayerPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/export/:projectName"
+                element={
+                  <Suspense fallback={<RouteFallback label={t('home.renderVideo')} />}>
+                    <MobileExportPage />
                   </Suspense>
                 }
               />

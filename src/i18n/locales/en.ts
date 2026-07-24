@@ -107,6 +107,8 @@ export const en: LocaleShape = {
     exportFailed: 'Failed to export project: {{error}}'
   },
   home: {
+    render: 'Render',
+    renderVideo: 'Render video',
     welcome: 'Welcome back',
     recent: 'Last edited',
     continueEditing: 'Continue editing',

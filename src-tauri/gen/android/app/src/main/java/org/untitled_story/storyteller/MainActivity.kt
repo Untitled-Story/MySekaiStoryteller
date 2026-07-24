@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Bundle
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -14,9 +15,33 @@ import androidx.core.view.WindowInsetsControllerCompat
 class MainActivity : TauriActivity() {
   private var immersiveModeEnabled: Boolean = false
 
+  companion object {
+    private const val TAG = "MainActivity"
+    private const val NATIVE_LIB = "my_sekai_storyteller_lib"
+
+    init {
+      try {
+        System.loadLibrary(NATIVE_LIB)
+      } catch (error: Throwable) {
+        // Tauri may already have loaded the lib; ignore duplicate/already-loaded cases.
+        Log.w(TAG, "loadLibrary($NATIVE_LIB): $error")
+      }
+    }
+
+    @JvmStatic
+    private external fun mssInstallJavaVm()
+  }
+
   override fun onCreate(savedInstanceState: Bundle?): Unit {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Install JavaVM after native lib is ready so MediaCodec worker threads can attach.
+    try {
+      mssInstallJavaVm()
+      Log.i(TAG, "mssInstallJavaVm ok")
+    } catch (error: Throwable) {
+      Log.e(TAG, "mssInstallJavaVm failed: $error")
+    }
     applySystemBarVisibility()
   }
 
@@ -36,6 +61,12 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView): Unit {
     super.onWebViewCreate(webView)
     webView.addJavascriptInterface(OrientationBridge(this), "MssOrientation")
+    webView.addJavascriptInterface(ShareBridge(this), "MssShare")
+    // Second chance after WebView/native fully up.
+    try {
+      mssInstallJavaVm()
+    } catch (_: Throwable) {
+    }
   }
 
   private fun setImmersiveMode(enabled: Boolean): Unit {
@@ -76,6 +107,25 @@ class MainActivity : TauriActivity() {
     fun setImmersive(enabled: Boolean): Unit {
       activity.runOnUiThread {
         activity.setImmersiveMode(enabled)
+      }
+    }
+  }
+
+  private class ShareBridge(private val activity: MainActivity) {
+    @JavascriptInterface
+    fun shareFile(path: String, mimeType: String): String {
+      return try {
+        activity.runOnUiThread {
+          try {
+            ShareHelper.shareFile(activity, path, mimeType.ifBlank { "video/mp4" })
+          } catch (error: Throwable) {
+            Log.e(TAG, "ShareBridge UI share failed path=$path error=$error", error)
+          }
+        }
+        "ok"
+      } catch (error: Throwable) {
+        Log.e(TAG, "ShareBridge.shareFile failed path=$path error=$error", error)
+        "error:${error.message}"
       }
     }
   }
