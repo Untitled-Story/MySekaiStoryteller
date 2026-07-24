@@ -94,20 +94,27 @@ import { EditorPreview, type EditorPreviewInput } from './EditorPreview'
 import { EditorSidebar, type EditorSidebarTab } from './EditorSidebar'
 import {
   createDocumentHistory,
+  countSnippetSubtree,
   duplicateSnippetSubtree,
+  duplicateSnippetSubtrees,
   editorHistoryReducer,
   findAssetReferences,
   findEditorNode,
   findEditorNodePath,
   insertNewSnippet,
-  removeSnippetSubtree,
+  removeSnippetSubtrees,
   repairLegacyAssetDefaults,
   renameAssetReferences,
   storiesEqual,
   type AddableSnippetType,
   type EditorStory
 } from './editorDocument'
-import { moveSnippetSubtree, type SnippetDropPlacement } from './editorTree'
+import {
+  collectSnippetIdsInDocumentOrder,
+  moveSnippetSubtrees,
+  normalizeSnippetRoots,
+  type SnippetDropPlacement
+} from './editorTree'
 import { localizeAssetKind } from './editorLocalization'
 import { EditorProductTour } from '@/onboarding/EditorProductTour'
 import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
@@ -192,6 +199,8 @@ export default function App({
   const [loadedProject, setLoadedProject] = useState<LoadedEditorProject | null>(null)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedNodeIds, setSelectedNodeIds] = useState<readonly string[]>([])
+  const [multiSelectActive, setMultiSelectActive] = useState<boolean>(false)
   const [activePanel, setActivePanel] = useState<EditorSidebarTab>('story')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [expandedParallelIds, setExpandedParallelIds] = useState<ReadonlySet<string>>(
@@ -259,6 +268,11 @@ export default function App({
   const visibleError: string | null = storySaveError ?? actionError
   const loadedProjectName: string | null = loadedProject?.previewInput.projectName ?? null
   const selectedNode = findEditorNode(story, selectedNodeId)
+  const selectedNodes: readonly NonNullable<ReturnType<typeof findEditorNode>>[] =
+    selectedNodeIds.flatMap((id: string) => {
+      const node = findEditorNode(story, id)
+      return node ? [node] : []
+    })
   const previewTargetNode: ReturnType<typeof findEditorNode> = findEditorNode(
     story,
     previewTargetNodeId
@@ -305,6 +319,20 @@ export default function App({
     window.addEventListener('keydown', saveOnShortcut, true)
     return (): void => window.removeEventListener('keydown', saveOnShortcut, true)
   }, [saveShortcut])
+
+  useEffect((): (() => void) => {
+    function exitMultiSelectOnEscape(event: KeyboardEvent): void {
+      if (event.key !== 'Escape' || !multiSelectActive) return
+      event.preventDefault()
+      const keptId: string | null = selectedNodeId ?? selectedNodeIds[0] ?? null
+      setSelectedNodeId(keptId)
+      setSelectedNodeIds(keptId ? [keptId] : [])
+      setMultiSelectActive(false)
+    }
+
+    window.addEventListener('keydown', exitMultiSelectOnEscape, true)
+    return (): void => window.removeEventListener('keydown', exitMultiSelectOnEscape, true)
+  }, [multiSelectActive, selectedNodeId, selectedNodeIds])
 
   useEffect((): (() => void) | undefined => {
     if (embedInShell) return undefined
@@ -391,7 +419,10 @@ export default function App({
         beginStorySaveSessionRef.current(project.previewInput.projectName, nextHistory.present)
         dispatchHistory({ type: 'load', story: nextHistory.present })
         setLoadedProject(project)
-        setSelectedNodeId(nextHistory.present.snippets[0]?.id ?? null)
+        const initialNodeId: string | null = nextHistory.present.snippets[0]?.id ?? null
+        setSelectedNodeId(initialNodeId)
+        setSelectedNodeIds(initialNodeId ? [initialNodeId] : [])
+        setMultiSelectActive(false)
         setActiveSnippetIds(new Set())
         setPreviewTargetNodeId(null)
         setPauseAfterPreviewTarget(false)
@@ -429,10 +460,18 @@ export default function App({
   }, [activeProjectName, t])
 
   useEffect((): void => {
-    if (selectedNodeId && !selectedNode) {
-      setSelectedNodeId(story.snippets[0]?.id ?? null)
-    }
-  }, [selectedNode, selectedNodeId, story.snippets])
+    const validIds: readonly string[] = collectSnippetIdsInDocumentOrder(story)
+    const validIdSet: Set<string> = new Set(validIds)
+    const nextIds: readonly string[] = selectedNodeIds.filter((id: string): boolean =>
+      validIdSet.has(id)
+    )
+    if (nextIds.length !== selectedNodeIds.length) setSelectedNodeIds(nextIds)
+    if (selectedNodeId && validIdSet.has(selectedNodeId)) return
+    const fallbackId: string | null = nextIds[0] ?? validIds[0] ?? null
+    setSelectedNodeId(fallbackId)
+    if (nextIds.length === 0 && fallbackId) setSelectedNodeIds([fallbackId])
+    if (nextIds.length === 0) setMultiSelectActive(false)
+  }, [selectedNodeId, selectedNodeIds, story])
 
   useEffect((): void => {
     if (previewTargetNodeId && !previewTargetNode) {
@@ -822,6 +861,8 @@ export default function App({
       )
       commitStory(insertion.story)
       setSelectedNodeId(insertion.insertedId)
+      setSelectedNodeIds([insertion.insertedId])
+      setMultiSelectActive(false)
       setActivePanel('story')
       setAddDialogOpen(false)
     } catch (error: unknown) {
@@ -834,27 +875,48 @@ export default function App({
     if (!duplication) return
     commitStory(duplication.story)
     setSelectedNodeId(duplication.duplicatedId)
+    setSelectedNodeIds([duplication.duplicatedId])
+    setMultiSelectActive(false)
   }
 
   function duplicateSelectedSnippet(): void {
-    if (selectedNode) duplicateSnippet(selectedNode.id)
+    if (selectedNodeIds.length <= 1) {
+      if (selectedNode) duplicateSnippet(selectedNode.id)
+      return
+    }
+    const duplication = duplicateSnippetSubtrees(story, selectedNodeIds)
+    if (!duplication) return
+    commitStory(duplication.story)
+    setSelectedNodeIds(duplication.duplicatedIds)
+    setSelectedNodeId(duplication.duplicatedIds[0] ?? null)
   }
 
   function deleteSelectedSnippet(): void {
     if (!deleteSnippetNode) return
-    const nextStory = removeSnippetSubtree(story, deleteSnippetNode.id)
-    commitStory(nextStory)
-    setSelectedNodeId(nextStory.snippets[0]?.id ?? null)
+    const idsToDelete: readonly string[] =
+      selectedNodeIds.length > 1 && selectedNodeIds.includes(deleteSnippetNode.id)
+        ? selectedNodeIds
+        : [deleteSnippetNode.id]
+    const removal = removeSnippetSubtrees(story, idsToDelete)
+    commitStory(removal.story)
+    setSelectedNodeId(removal.nextSelectedId)
+    setSelectedNodeIds(removal.nextSelectedId ? [removal.nextSelectedId] : [])
+    setMultiSelectActive(false)
     setDeleteSnippetId(null)
   }
 
-  function moveSnippet(sourceId: string, targetId: string, placement: SnippetDropPlacement): void {
-    const nextStory: EditorStory | null = moveSnippetSubtree(story, sourceId, targetId, placement)
+  function moveSnippet(
+    sourceIds: readonly string[],
+    targetId: string,
+    placement: SnippetDropPlacement
+  ): void {
+    const nextStory: EditorStory | null = moveSnippetSubtrees(story, sourceIds, targetId, placement)
     if (!nextStory) return
 
     commitStory(nextStory)
-    setSelectedNodeId(sourceId)
-    requestPreview(sourceId, true)
+    setSelectedNodeIds(sourceIds)
+    setSelectedNodeId(sourceIds[0] ?? null)
+    if (sourceIds.length === 1) requestPreview(sourceIds[0], true)
     if (placement === 'inside') {
       setExpandedParallelIds((current: ReadonlySet<string>): ReadonlySet<string> => {
         const next: Set<string> = new Set(current)
@@ -862,6 +924,84 @@ export default function App({
         return next
       })
     }
+  }
+
+  function selectOnlySnippet(nodeId: string): void {
+    setSelectedNodeId(nodeId)
+    setSelectedNodeIds([nodeId])
+    setMultiSelectActive(false)
+  }
+
+  function selectSnippet(
+    nodeId: string,
+    mode: 'replace' | 'toggle' | 'range' | 'add' | 'start',
+    activateMultiSelect: boolean
+  ): void {
+    const visibleIds: readonly string[] = treeNodes.map(
+      (flatNode: FlatTreeNode): string => flatNode.node.id
+    )
+    if (mode === 'replace') {
+      selectOnlySnippet(nodeId)
+      requestPreview(nodeId, true)
+      return
+    }
+
+    // First left-swipe into multi-select: drop prior non-multi selection and highlight only this node.
+    if (mode === 'start') {
+      setSelectedNodeId(nodeId)
+      setSelectedNodeIds([nodeId])
+      setMultiSelectActive(true)
+      return
+    }
+
+    setMultiSelectActive(activateMultiSelect || multiSelectActive)
+    if (mode === 'range') {
+      const anchorId: string = selectedNodeId ?? nodeId
+      const anchorIndex: number = visibleIds.indexOf(anchorId)
+      const nodeIndex: number = visibleIds.indexOf(nodeId)
+      if (anchorIndex < 0 || nodeIndex < 0) {
+        setSelectedNodeIds((current: readonly string[]) =>
+          current.includes(nodeId) ? current : [...current, nodeId]
+        )
+        setSelectedNodeId(nodeId)
+        return
+      }
+      const start: number = Math.min(anchorIndex, nodeIndex)
+      const end: number = Math.max(anchorIndex, nodeIndex)
+      const rangeIds = visibleIds.slice(start, end + 1)
+      setSelectedNodeIds((current: readonly string[]) => {
+        const nextSet = new Set(current)
+        for (const id of rangeIds) nextSet.add(id)
+        return Array.from(nextSet)
+      })
+      return
+    }
+
+    if (mode === 'add') {
+      setSelectedNodeIds((current: readonly string[]): readonly string[] =>
+        current.includes(nodeId) ? current : [...current, nodeId]
+      )
+      setSelectedNodeId(nodeId)
+      return
+    }
+
+    setSelectedNodeIds((current: readonly string[]): readonly string[] => {
+      if (current.includes(nodeId)) {
+        const next: readonly string[] = current.filter((id: string): boolean => id !== nodeId)
+        if (selectedNodeId === nodeId) setSelectedNodeId(next[0] ?? null)
+        if (next.length === 0) setMultiSelectActive(false)
+        return next
+      }
+      setSelectedNodeId(nodeId)
+      return [...current, nodeId]
+    })
+  }
+
+  function exitMultiSelect(preferredNodeId?: string): void {
+    const keptId: string | null = preferredNodeId ?? selectedNodeId ?? selectedNodeIds[0] ?? null
+    setSelectedNodeId(keptId)
+    setSelectedNodeIds(keptId ? [keptId] : [])
+    setMultiSelectActive(false)
   }
 
   function toggleParallel(nodeId: string): void {
@@ -1128,6 +1268,7 @@ export default function App({
   const phoneLayout: boolean = viewportMode === 'phone' && !mobileLandscapeLayout
   const tabletLayout: boolean = viewportMode === 'tablet' && !mobileLandscapeLayout
   const compactChrome: boolean = phoneLayout || tabletLayout || mobileLandscapeLayout
+  const touchModeEnabled: boolean = settings?.interaction.touchMode ?? false
 
   const sidebarNode: JSX.Element = (
     <EditorSidebar
@@ -1135,6 +1276,9 @@ export default function App({
       searchQuery={searchQuery}
       treeNodes={treeNodes}
       selectedNodeId={selectedNode?.id ?? null}
+      selectedNodeIds={new Set(selectedNodeIds)}
+      multiSelectActive={multiSelectActive}
+      touchModeEnabled={touchModeEnabled}
       activeSnippetIds={activeSnippetIds}
       expandedParallelIds={expandedParallelIds}
       assets={previewInput.assets}
@@ -1142,27 +1286,37 @@ export default function App({
       addDialogOpen={addDialogOpen}
       onActivePanelChange={setActivePanel}
       onSearchQueryChange={setSearchQuery}
-      onSelectNode={(nodeId: string): void => {
-        setSelectedNodeId(nodeId)
+      onSelectNode={(
+        nodeId: string,
+        mode: 'replace' | 'toggle' | 'range' | 'add' | 'start',
+        activateMultiSelect: boolean
+      ): void => {
+        selectSnippet(nodeId, mode, activateMultiSelect)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
-        requestPreview(nodeId, true)
+        if (phoneLayout && mode === 'replace') setMobileBottomTab('properties')
       }}
       onContextSelectSnippet={(nodeId: string): void => {
-        setSelectedNodeId(nodeId)
+        if (!selectedNodeIds.includes(nodeId)) selectOnlySnippet(nodeId)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
+        if (phoneLayout && !multiSelectActive) setMobileBottomTab('properties')
       }}
       onPreviewSnippet={(nodeId: string): void => {
-        setSelectedNodeId(nodeId)
+        selectOnlySnippet(nodeId)
         setActivePanel('story')
         requestPreview(nodeId, false)
       }}
-      onDuplicateSnippet={duplicateSnippet}
+      onDuplicateSnippet={(nodeId: string): void => {
+        if (selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId)) {
+          duplicateSelectedSnippet()
+        } else {
+          duplicateSnippet(nodeId)
+        }
+      }}
       onDeleteSnippet={(nodeId: string): void => {
-        setSelectedNodeId(nodeId)
+        if (!selectedNodeIds.includes(nodeId)) selectOnlySnippet(nodeId)
         setDeleteSnippetId(nodeId)
       }}
+      onExitMultiSelect={exitMultiSelect}
       onToggleParallel={toggleParallel}
       onMoveSnippet={moveSnippet}
       onSelectAsset={(selection: EditorAssetSelection): void => {
@@ -1197,13 +1351,14 @@ export default function App({
       <EditorInspector
         story={story}
         selectedNode={selectedNode}
+        selectedNodes={selectedNodes}
         selectedNodePath={displayedNodePath}
         assets={previewInput.assets}
         modelRegistry={previewInput.modelRegistry}
         onStoryChange={commitStory}
         onInputBlur={flushInputMerge}
         onDuplicate={duplicateSelectedSnippet}
-        onDelete={(): void => setDeleteSnippetId(selectedNode?.id ?? null)}
+        onDelete={(): void => setDeleteSnippetId(selectedNode?.id ?? selectedNodeIds[0] ?? null)}
       />
     )
 
@@ -1476,16 +1631,34 @@ export default function App({
         <AlertDialogContent className="select-none">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t('editor.deleteSnippetTitle', {
-                type: deleteSnippetNode?.type ?? t('editor.unknownSnippet')
-              })}
+              {selectedNodeIds.length > 1 &&
+              deleteSnippetNode &&
+              selectedNodeIds.includes(deleteSnippetNode.id)
+                ? t('editor.deleteSnippetsTitle', { count: selectedNodes.length })
+                : t('editor.deleteSnippetTitle', {
+                    type: deleteSnippetNode?.type ?? t('editor.unknownSnippet')
+                  })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteSnippetNode && countDescendants(deleteSnippetNode) > 1
-                ? t('editor.deleteSnippetNested', {
-                    count: countDescendants(deleteSnippetNode)
-                  })
-                : t('editor.deleteSnippetSingle')}
+              {selectedNodeIds.length > 1 &&
+              deleteSnippetNode &&
+              selectedNodeIds.includes(deleteSnippetNode.id)
+                ? (() => {
+                    const selectedRoots = normalizeSnippetRoots(story, selectedNodeIds)
+                    const totalCount: number = selectedRoots.reduce(
+                      (count: number, node): number => count + countSnippetSubtree(node),
+                      0
+                    )
+                    const nestedCount: number = totalCount - selectedRoots.length
+                    return nestedCount > 0
+                      ? t('editor.deleteSnippetsNestedBody', { nested: nestedCount })
+                      : t('editor.deleteSnippetsBody')
+                  })()
+                : deleteSnippetNode && countDescendants(deleteSnippetNode) > 1
+                  ? t('editor.deleteSnippetNested', {
+                      count: countDescendants(deleteSnippetNode)
+                    })
+                  : t('editor.deleteSnippetSingle')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

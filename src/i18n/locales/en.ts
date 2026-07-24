@@ -261,11 +261,19 @@ export const en: LocaleShape = {
     emptyStory: 'No snippets in this scene',
     previewFromHere: 'Preview from here',
     copySnippet: 'Duplicate snippet',
+    copySnippets: 'Duplicate snippets',
     moveUp: 'Move up',
     moveDown: 'Move down',
     moveIntoParallel: 'Move into Parallel above',
     moveOutParallel: 'Move out of Parallel',
     deleteSnippet: 'Delete snippet',
+    deleteSnippets: 'Delete snippets',
+    exitMultiSelect: 'Exit multi-select',
+    snippetsSelected: '{{count}} snippets selected',
+    multiSelectHint:
+      'Non-touch: Shift range, Ctrl/⌘ toggle. Touch mode: first left-swipe enters multi-select; later left-swipes range from the anchor (or deselect if already selected); tap toggles; use Exit to leave.',
+    multiSelectInspectorDetail:
+      'Batch move, duplicate, or delete the selection. Open a single snippet to edit its fields.',
     dragHint: 'Drag to reorder or nest snippets',
     dragDisabledHint: 'Clear search to drag snippets',
     dragHandle: 'Drag snippet',
@@ -384,6 +392,10 @@ export const en: LocaleShape = {
     deleteSnippetTitle: 'Delete {{type}}?',
     deleteSnippetNested: 'This also deletes {{count}} nested snippets.',
     deleteSnippetSingle: 'This removes the snippet from the current story.',
+    deleteSnippetsTitle: 'Delete {{count}} snippets?',
+    deleteSnippetsBody: 'This removes the selected snippets from the current story.',
+    deleteSnippetsNestedBody:
+      'This removes the selected snippets and {{nested}} nested snippets from the current story.',
     autosaveFailed: 'Autosave failed',
     projectSwitchSaveFailed:
       'Changes could not be saved before switching to “{{name}}”. Retry, discard them, or cancel.',
