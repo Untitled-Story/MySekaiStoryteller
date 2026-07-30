@@ -101,6 +101,8 @@ export const zhHK: LocaleShape = {
     exportFailed: '專案匯出失敗：{{error}}'
   },
   home: {
+    render: '渲染',
+    renderVideo: '渲染視頻',
     welcome: '歡迎回來',
     recent: '上次編輯',
     continueEditing: '繼續編輯',
