@@ -49,7 +49,7 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps):
   const [openingEditor, setOpeningEditor] = useState(false)
   const [openingPlayer, setOpeningPlayer] = useState(false)
   const [contextMenuKey, setContextMenuKey] = useState(0)
-  const longPressHandlers = useLongPressContextMenu({
+  const { handlers: longPressHandlers } = useLongPressContextMenu({
     onOpen: (): void => {
       setContextMenuKey((key: number): number => key + 1)
     }

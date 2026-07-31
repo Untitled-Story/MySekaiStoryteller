@@ -257,11 +257,19 @@ export const ja: typeof en = {
     emptyStory: 'スニペットがありません',
     previewFromHere: 'ここからプレビュー',
     copySnippet: 'スニペットを複製',
+    copySnippets: 'スニペットをまとめて複製',
     moveUp: '上へ移動',
     moveDown: '下へ移動',
     moveIntoParallel: '上のParallelへ移動',
     moveOutParallel: 'Parallelの外へ移動',
     deleteSnippet: 'スニペットを削除',
+    deleteSnippets: 'スニペットをまとめて削除',
+    exitMultiSelect: '複数選択を終了',
+    snippetsSelected: '{{count}} 個のスニペットを選択中',
+    multiSelectHint:
+      '非タッチ: Shift で範囲、Ctrl/⌘ でトグル。タッチモード: 最初の左スワイプで複数選択開始。以降の左スワイプはアンカーから範囲選択（選択済みなら解除）。タップでトグル。終了で解除。',
+    multiSelectInspectorDetail:
+      '選択したスニペットをまとめて移動・複製・削除できます。プロパティを編集するには 1 つだけ選択してください。',
     dragHint: 'ドラッグしてスニペットの順序や階層を変更',
     dragDisabledHint: '検索を解除するとドラッグできます',
     dragHandle: 'ドラッグしてスニペットを移動',
@@ -380,6 +388,10 @@ export const ja: typeof en = {
     deleteSnippetTitle: '{{type}}を削除しますか？',
     deleteSnippetNested: '{{count}}個の子スニペットも削除されます。',
     deleteSnippetSingle: '現在のストーリーからこのスニペットを削除します。',
+    deleteSnippetsTitle: '{{count}} 個のスニペットを削除しますか？',
+    deleteSnippetsBody: '選択したスニペットを現在のストーリーから削除します。',
+    deleteSnippetsNestedBody:
+      '選択したスニペットと {{nested}} 個の入れ子スニペットを現在のストーリーから削除します。',
     autosaveFailed: '自動保存に失敗しました',
     projectSwitchSaveFailed:
       '「{{name}}」へ切り替える前に変更を保存できませんでした。再試行、破棄、またはキャンセルしてください。',

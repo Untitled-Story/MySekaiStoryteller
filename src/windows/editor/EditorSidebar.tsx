@@ -2,6 +2,7 @@ import type {
   ChangeEvent,
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -95,6 +96,9 @@ export function EditorSidebar({
   searchQuery,
   treeNodes,
   selectedNodeId,
+  selectedNodeIds,
+  multiSelectActive,
+  touchModeEnabled,
   activeSnippetIds,
   expandedParallelIds,
   assets,
@@ -107,6 +111,7 @@ export function EditorSidebar({
   onPreviewSnippet,
   onDuplicateSnippet,
   onDeleteSnippet,
+  onExitMultiSelect,
   onToggleParallel,
   onMoveSnippet,
   onSelectAsset,
@@ -119,6 +124,9 @@ export function EditorSidebar({
   searchQuery: string
   treeNodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
+  selectedNodeIds: ReadonlySet<string>
+  multiSelectActive: boolean
+  touchModeEnabled: boolean
   activeSnippetIds: ReadonlySet<string>
   expandedParallelIds: ReadonlySet<string>
   assets: ProjectAssets
@@ -126,13 +134,22 @@ export function EditorSidebar({
   addDialogOpen: boolean
   onActivePanelChange: (panel: EditorSidebarTab) => void
   onSearchQueryChange: (query: string) => void
-  onSelectNode: (nodeId: string) => void
+  onSelectNode: (
+    nodeId: string,
+    mode: 'replace' | 'toggle' | 'range' | 'add' | 'start',
+    activateMultiSelect: boolean
+  ) => void
   onContextSelectSnippet: (nodeId: string) => void
   onPreviewSnippet: (nodeId: string) => void
   onDuplicateSnippet: (nodeId: string) => void
   onDeleteSnippet: (nodeId: string) => void
+  onExitMultiSelect: (preferredNodeId?: string) => void
   onToggleParallel: (nodeId: string) => void
-  onMoveSnippet: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
+  onMoveSnippet: (
+    sourceIds: readonly string[],
+    targetId: string,
+    placement: SnippetDropPlacement
+  ) => void
   onSelectAsset: (selection: EditorAssetSelection) => void
   onAddDialogOpenChange: (open: boolean) => void
   onAddSnippet: (type: AddableSnippetType) => void
@@ -195,6 +212,9 @@ export function EditorSidebar({
         <StoryTree
           nodes={treeNodes}
           selectedNodeId={selectedNodeId}
+          selectedNodeIds={selectedNodeIds}
+          multiSelectActive={multiSelectActive}
+          touchModeEnabled={touchModeEnabled}
           activeSnippetIds={activeSnippetIds}
           expandedParallelIds={expandedParallelIds}
           onSelect={onSelectNode}
@@ -202,6 +222,7 @@ export function EditorSidebar({
           onPreview={onPreviewSnippet}
           onDuplicate={onDuplicateSnippet}
           onDelete={onDeleteSnippet}
+          onExitMultiSelect={onExitMultiSelect}
           onToggleParallel={onToggleParallel}
           onMove={onMoveSnippet}
           dragEnabled={!searchQuery.trim()}
@@ -256,6 +277,9 @@ function TabButton({
 function StoryTree({
   nodes,
   selectedNodeId,
+  selectedNodeIds,
+  multiSelectActive,
+  touchModeEnabled,
   activeSnippetIds,
   expandedParallelIds,
   onSelect,
@@ -263,6 +287,7 @@ function StoryTree({
   onPreview,
   onDuplicate,
   onDelete,
+  onExitMultiSelect,
   onToggleParallel,
   onMove,
   dragEnabled,
@@ -270,15 +295,23 @@ function StoryTree({
 }: {
   nodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
+  selectedNodeIds: ReadonlySet<string>
+  multiSelectActive: boolean
+  touchModeEnabled: boolean
   activeSnippetIds: ReadonlySet<string>
   expandedParallelIds: ReadonlySet<string>
-  onSelect: (nodeId: string) => void
+  onSelect: (
+    nodeId: string,
+    mode: 'replace' | 'toggle' | 'range' | 'add' | 'start',
+    activateMultiSelect: boolean
+  ) => void
   onContextSelect: (nodeId: string) => void
   onPreview: (nodeId: string) => void
   onDuplicate: (nodeId: string) => void
   onDelete: (nodeId: string) => void
+  onExitMultiSelect: (preferredNodeId?: string) => void
   onToggleParallel: (nodeId: string) => void
-  onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
+  onMove: (sourceIds: readonly string[], targetId: string, placement: SnippetDropPlacement) => void
   dragEnabled: boolean
   onAdd: () => void
 }): JSX.Element {
@@ -289,49 +322,153 @@ function StoryTree({
     sourceId: string
     startX: number
     startY: number
+    lastY: number
     active: boolean
+    longPressReady: boolean
+    scrollMode: boolean
   } | null>(null)
+  const longPressDragTimerRef = useRef<number | null>(null)
   const dropTargetRef = useRef<StoryDropTarget | null>(null)
+  const lastLeftSwipeRef = useRef<{ nodeId: string; at: number } | null>(null)
+  const suppressClickRef = useRef<{ nodeId: string; until: number } | null>(null)
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<StoryDropTarget | null>(null)
+
+  function clearLongPressDragTimer(): void {
+    if (longPressDragTimerRef.current !== null) {
+      window.clearTimeout(longPressDragTimerRef.current)
+      longPressDragTimerRef.current = null
+    }
+  }
+
+  function resetPointerDragState(): void {
+    clearLongPressDragTimer()
+    pointerRef.current = null
+    setDraggedNodeId(null)
+    updateDropTarget(null)
+  }
 
   function updateDropTarget(nextTarget: StoryDropTarget | null): void {
     dropTargetRef.current = nextTarget
     setDropTarget(nextTarget)
   }
 
+  // While a long-press drag is armed, block native touch scrolling (WebView).
+  useEffect((): (() => void) | void => {
+    const tree: HTMLDivElement | null = treeRef.current
+    if (!tree || draggedNodeId === null) return
+    function blockTouchScroll(event: TouchEvent): void {
+      const pointer = pointerRef.current
+      if (pointer?.longPressReady) {
+        event.preventDefault()
+      }
+    }
+    tree.addEventListener('touchmove', blockTouchScroll, { passive: false })
+    return (): void => {
+      tree.removeEventListener('touchmove', blockTouchScroll)
+    }
+  }, [draggedNodeId])
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!dragEnabled || event.button !== 0) return
     if (!(event.target instanceof Element)) return
-    if (!event.target.closest('[data-drag-handle]')) return
     if (event.target.closest('[data-no-drag]')) return
+
+    const isHandle: boolean = Boolean(event.target.closest('[data-drag-handle]'))
+    // Multi-select touch: long-press anywhere on the row to drag (not only the grip).
+    const wholeRowLongPress: boolean =
+      !isHandle && touchModeEnabled && multiSelectActive && event.pointerType !== 'mouse'
+    if (!isHandle && !wholeRowLongPress) return
 
     const row: HTMLElement | null = event.target.closest<HTMLElement>('[data-snippet-id]')
     const sourceId: string | undefined = row?.dataset.snippetId
     if (!sourceId) return
 
-    event.currentTarget.setPointerCapture(event.pointerId)
+    clearLongPressDragTimer()
+
+    if (isHandle) {
+      event.currentTarget.setPointerCapture(event.pointerId)
+      pointerRef.current = {
+        pointerId: event.pointerId,
+        sourceId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastY: event.clientY,
+        active: false,
+        longPressReady: true,
+        scrollMode: false
+      }
+      return
+    }
+
+    // Wait for a hold before arming drag so left-swipe selection still works.
     pointerRef.current = {
       pointerId: event.pointerId,
       sourceId,
       startX: event.clientX,
       startY: event.clientY,
-      active: false
+      lastY: event.clientY,
+      active: false,
+      longPressReady: false,
+      scrollMode: false
     }
+    const pointerId: number = event.pointerId
+    longPressDragTimerRef.current = window.setTimeout((): void => {
+      longPressDragTimerRef.current = null
+      const pointer = pointerRef.current
+      if (pointer === null) return
+      if (pointer.pointerId !== pointerId || pointer.longPressReady || pointer.scrollMode) return
+      pointer.longPressReady = true
+      // Prevent the pending release from toggling selection after a hold-to-drag.
+      suppressClickRef.current = { nodeId: pointer.sourceId, until: Date.now() + 800 }
+      setDraggedNodeId(pointer.sourceId)
+      treeRef.current?.setPointerCapture(pointerId)
+    }, 320)
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
     const pointer: typeof pointerRef.current = pointerRef.current
     if (!pointer || pointer.pointerId !== event.pointerId) return
 
-    const distance: number = Math.hypot(
-      event.clientX - pointer.startX,
-      event.clientY - pointer.startY
-    )
+    const dx: number = event.clientX - pointer.startX
+    const dy: number = event.clientY - pointer.startY
+    const distance: number = Math.hypot(dx, dy)
+
+    if (!pointer.longPressReady) {
+      if (pointer.scrollMode) {
+        const tree: HTMLDivElement | null = treeRef.current
+        if (tree) {
+          tree.scrollTop -= event.clientY - pointer.lastY
+          pointer.lastY = event.clientY
+          event.preventDefault()
+        }
+        return
+      }
+      // Finger moved before long-press: vertical → scroll list; horizontal → leave to swipe.
+      if (distance > 10) {
+        clearLongPressDragTimer()
+        if (Math.abs(dy) >= Math.abs(dx)) {
+          pointer.scrollMode = true
+          pointer.lastY = event.clientY
+          const tree: HTMLDivElement | null = treeRef.current
+          if (tree) {
+            tree.scrollTop -= dy
+            event.preventDefault()
+          }
+        } else {
+          pointerRef.current = null
+        }
+      }
+      return
+    }
+
     if (!pointer.active) {
       if (distance < 6) return
       pointer.active = true
       setDraggedNodeId(pointer.sourceId)
+      if (!treeRef.current?.hasPointerCapture(event.pointerId)) {
+        treeRef.current?.setPointerCapture(event.pointerId)
+      }
     }
 
     event.preventDefault()
@@ -367,13 +504,14 @@ function StoryTree({
         event.clientY,
         treeRef.current,
         source,
-        nodes
+        nodes,
+        selectedNodeIds
       )
       updateDropTarget(rootEndTarget)
       return
     }
 
-    if (target.node.id === pointer.sourceId || isPathDescendant(target.path, source.path)) {
+    if (isInvalidBatchDropTarget(target, nodes, selectedNodeIds, pointer.sourceId)) {
       updateDropTarget(null)
       return
     }
@@ -392,20 +530,44 @@ function StoryTree({
     })
   }
 
+  function cancelPointerInteraction(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (treeRef.current?.hasPointerCapture(event.pointerId)) {
+      treeRef.current.releasePointerCapture(event.pointerId)
+    }
+    resetPointerDragState()
+  }
+
+  function handleLeftSwipeSelect(nodeId: string): void {
+    suppressClickRef.current = { nodeId, until: Date.now() + 500 }
+    // Enter multi-select: clear prior single selection, highlight only this row.
+    if (!multiSelectActive) {
+      onSelect(nodeId, 'start', true)
+      lastLeftSwipeRef.current = { nodeId, at: Date.now() }
+      return
+    }
+
+    // No time window: swipe an unselected row ranges from the multi-select anchor;
+    // swipe a selected row toggles it off.
+    const mode: 'toggle' | 'range' = selectedNodeIds.has(nodeId) ? 'toggle' : 'range'
+    onSelect(nodeId, mode, true)
+    lastLeftSwipeRef.current = { nodeId, at: Date.now() }
+  }
+
   function finishPointerDrag(event?: ReactPointerEvent<HTMLDivElement>): void {
     const pointer: typeof pointerRef.current = pointerRef.current
     if (!pointer || (event && pointer.pointerId !== event.pointerId)) return
 
     if (pointer.active && dropTargetRef.current) {
-      onMove(pointer.sourceId, dropTargetRef.current.nodeId, dropTargetRef.current.placement)
+      const sourceIds: readonly string[] = selectedNodeIds.has(pointer.sourceId)
+        ? [...selectedNodeIds]
+        : [pointer.sourceId]
+      onMove(sourceIds, dropTargetRef.current.nodeId, dropTargetRef.current.placement)
       event?.preventDefault()
     }
     if (event && treeRef.current?.hasPointerCapture(event.pointerId)) {
       treeRef.current.releasePointerCapture(event.pointerId)
     }
-    pointerRef.current = null
-    setDraggedNodeId(null)
-    updateDropTarget(null)
+    resetPointerDragState()
   }
 
   return (
@@ -413,24 +575,53 @@ function StoryTree({
       ref={treeRef}
       data-tour="editor-story-tree"
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent"
+      style={{
+        // Lock browser pan while a multi-select long-press drag is active.
+        touchAction: draggedNodeId !== null ? 'none' : undefined
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={finishPointerDrag}
-      onPointerCancel={finishPointerDrag}
+      onPointerCancel={cancelPointerInteraction}
     >
+      {touchModeEnabled && multiSelectActive && (
+        <div className="sticky top-0 z-20 mb-2 flex items-center rounded-md border bg-background/95 px-2 py-1.5 shadow-sm backdrop-blur">
+          <span className="text-xs font-medium">
+            {t('editor.snippetsSelected', { count: selectedNodeIds.size })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-7 px-2 text-xs"
+            onClick={(): void => onExitMultiSelect()}
+          >
+            {t('editor.exitMultiSelect')}
+          </Button>
+        </div>
+      )}
       <div className="space-y-0.5">
         {nodes.map((flatNode: FlatTreeNode): JSX.Element => {
-          const contextMoves: StoryContextMoves = resolveContextMoves(nodes, flatNode)
+          const contextMoves: StoryContextMoves = resolveContextMoves(
+            nodes,
+            flatNode,
+            selectedNodeIds
+          )
           return (
             <StoryNodeRow
               key={flatNode.node.id}
               flatNode={flatNode}
-              selected={flatNode.node.id === selectedNodeId}
+              selected={selectedNodeIds.has(flatNode.node.id)}
+              primarySelected={flatNode.node.id === selectedNodeId}
               active={activeSnippetIds.has(flatNode.node.id)}
               hasActiveSnippets={activeSnippetIds.size > 0}
               expanded={expandedParallelIds.has(flatNode.node.id)}
               dragEnabled={dragEnabled}
-              dragging={draggedNodeId === flatNode.node.id}
+              dragging={
+                draggedNodeId !== null &&
+                (draggedNodeId === flatNode.node.id ||
+                  (selectedNodeIds.has(draggedNodeId) && selectedNodeIds.has(flatNode.node.id)))
+              }
               dropPlacement={
                 dropTarget?.indicatorNodeId === flatNode.node.id
                   ? dropTarget.indicatorPlacement
@@ -439,7 +630,19 @@ function StoryTree({
               dropIndicatorDepth={
                 dropTarget?.indicatorNodeId === flatNode.node.id ? dropTarget.indicatorDepth : null
               }
-              onSelect={onSelect}
+              onSelect={(
+                nodeId: string,
+                mode: 'replace' | 'toggle' | 'range' | 'add' | 'start',
+                activate: boolean
+              ): void => {
+                const suppressed = suppressClickRef.current
+                if (suppressed?.nodeId === nodeId && suppressed.until >= Date.now()) return
+                onSelect(nodeId, mode, activate)
+              }}
+              multiSelectActive={multiSelectActive}
+              touchModeEnabled={touchModeEnabled}
+              selectedNodeIds={selectedNodeIds}
+              onLeftSwipeSelect={handleLeftSwipeSelect}
               onContextSelect={onContextSelect}
               onPreview={onPreview}
               onDuplicate={onDuplicate}
@@ -471,6 +674,10 @@ function StoryTree({
 function StoryNodeRow({
   flatNode,
   selected,
+  primarySelected,
+  multiSelectActive,
+  selectedNodeIds,
+  touchModeEnabled,
   active,
   hasActiveSnippets,
   expanded,
@@ -479,6 +686,7 @@ function StoryNodeRow({
   dropPlacement,
   dropIndicatorDepth,
   onSelect,
+  onLeftSwipeSelect,
   onContextSelect,
   onPreview,
   onDuplicate,
@@ -489,6 +697,10 @@ function StoryNodeRow({
 }: {
   flatNode: FlatTreeNode
   selected: boolean
+  primarySelected: boolean
+  multiSelectActive: boolean
+  selectedNodeIds: ReadonlySet<string>
+  touchModeEnabled: boolean
   active: boolean
   hasActiveSnippets: boolean
   expanded: boolean
@@ -496,12 +708,17 @@ function StoryNodeRow({
   dragging: boolean
   dropPlacement: SnippetDropPlacement | null
   dropIndicatorDepth: number | null
-  onSelect: (nodeId: string) => void
+  onSelect: (
+    nodeId: string,
+    mode: 'replace' | 'toggle' | 'range' | 'add' | 'start',
+    activateMultiSelect: boolean
+  ) => void
+  onLeftSwipeSelect: (nodeId: string) => void
   onContextSelect: (nodeId: string) => void
   onPreview: (nodeId: string) => void
   onDuplicate: (nodeId: string) => void
   onDelete: (nodeId: string) => void
-  onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
+  onMove: (sourceIds: readonly string[], targetId: string, placement: SnippetDropPlacement) => void
   contextMoves: StoryContextMoves
   onToggleParallel: (nodeId: string) => void
 }): JSX.Element {
@@ -510,25 +727,175 @@ function StoryNodeRow({
   const presentation: NodePresentation = NODE_PRESENTATIONS[node.type]
   const Icon: LucideIcon = presentation.icon
   const isParallel: boolean = node.type === 'Parallel'
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const swipeGestureRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    active: boolean
+    cancelled: boolean
+  } | null>(null)
+  const [swipeOffsetX, setSwipeOffsetX] = useState<number>(0)
 
   function moveTo(target: StoryMoveTarget | null): void {
-    if (target) onMove(node.id, target.nodeId, target.placement)
+    if (!target) return
+    const sourceIds: readonly string[] = selectedNodeIds.has(node.id)
+      ? [...selectedNodeIds]
+      : [node.id]
+    onMove(sourceIds, target.nodeId, target.placement)
   }
 
-  const longPressHandlers = useLongPressContextMenu({
+  // Multi-select on touch uses long-press for drag; suppress the context menu entirely.
+  const suppressContextMenu: boolean = touchModeEnabled && multiSelectActive
+
+  const { handlers: longPressHandlers, cancel: cancelLongPress } = useLongPressContextMenu({
+    delayMs: 480,
     onOpen: (): void => {
+      if (suppressContextMenu) return
+      if (swipeGestureRef.current?.active) return
       onContextSelect(node.id)
     }
   })
 
+  function resetSwipeVisual(): void {
+    setSwipeOffsetX(0)
+  }
+
+  // Whole-row long-press drag captures the pointer on the tree; clear local swipe state.
+  useEffect((): void => {
+    if (!dragging) return
+    cancelLongPress()
+    swipeGestureRef.current = null
+    resetSwipeVisual()
+    // Only react to drag state; cancelLongPress is a stable reset for this gesture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [dragging])
+
+  function handleRowPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    const isDragHandle: boolean =
+      event.target instanceof Element && Boolean(event.target.closest('[data-drag-handle]'))
+    // Drag handle long-press should drag, not open the menu; multi-select also disables it.
+    if (!suppressContextMenu && !isDragHandle) {
+      longPressHandlers.onPointerDown(event)
+    }
+    if (!touchModeEnabled || event.pointerType === 'mouse' || event.button !== 0) return
+    if (!(event.target instanceof Element)) return
+    if (isDragHandle || event.target.closest('[data-no-drag]')) return
+
+    swipeGestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      cancelled: false
+    }
+  }
+
+  function handleRowPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    const gesture = swipeGestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      longPressHandlers.onPointerMove(event)
+      return
+    }
+
+    const dx: number = event.clientX - gesture.startX
+    const dy: number = event.clientY - gesture.startY
+    if (!gesture.active) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) >= Math.abs(dx)) {
+        gesture.cancelled = true
+        longPressHandlers.onPointerMove(event)
+        return
+      }
+      if (dx > -12) {
+        longPressHandlers.onPointerMove(event)
+        return
+      }
+      gesture.active = true
+      cancelLongPress()
+      rowRef.current?.setPointerCapture(event.pointerId)
+    }
+
+    if (gesture.cancelled || !gesture.active) {
+      longPressHandlers.onPointerMove(event)
+      return
+    }
+
+    event.preventDefault()
+    const nextOffset: number = Math.max(-120, Math.min(0, dx))
+    setSwipeOffsetX(nextOffset)
+  }
+
+  function finishRowSwipe(event: ReactPointerEvent<HTMLDivElement>): void {
+    const gesture = swipeGestureRef.current
+    longPressHandlers.onPointerUp(event)
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      swipeGestureRef.current = null
+      resetSwipeVisual()
+      return
+    }
+
+    const dx: number = event.clientX - gesture.startX
+    const dy: number = event.clientY - gesture.startY
+    if (gesture.active && !gesture.cancelled && dx <= -48 && Math.abs(dy) <= 36) {
+      onLeftSwipeSelect(node.id)
+      event.preventDefault()
+    }
+
+    if (rowRef.current?.hasPointerCapture(event.pointerId)) {
+      rowRef.current.releasePointerCapture(event.pointerId)
+    }
+    swipeGestureRef.current = null
+    resetSwipeVisual()
+  }
+
+  function cancelRowSwipe(event: ReactPointerEvent<HTMLDivElement>): void {
+    longPressHandlers.onPointerCancel(event)
+    if (rowRef.current?.hasPointerCapture(event.pointerId)) {
+      rowRef.current.releasePointerCapture(event.pointerId)
+    }
+    swipeGestureRef.current = null
+    resetSwipeVisual()
+  }
+
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild onContextMenu={(): void => onContextSelect(node.id)}>
+      <ContextMenuTrigger
+        asChild
+        disabled={suppressContextMenu}
+        onContextMenu={(event: ReactMouseEvent<HTMLDivElement>): void => {
+          if (suppressContextMenu) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          onContextSelect(node.id)
+        }}
+      >
         <div
-          className={cn('relative transition-opacity', dragging && 'opacity-35')}
-          style={{ paddingLeft: `${flatNode.depth * 18}px` }}
+          ref={rowRef}
+          className={cn(
+            'relative transition-opacity',
+            dragging && 'opacity-35',
+            swipeOffsetX !== 0 && 'z-10'
+          )}
+          style={{
+            paddingLeft: `${flatNode.depth * 18}px`,
+            transform: swipeOffsetX !== 0 ? `translateX(${swipeOffsetX}px)` : undefined,
+            transition: swipeOffsetX === 0 ? 'transform 160ms ease-out' : undefined,
+            // Multi-select: touch-none like the grip so long-press drag is not stolen by scroll.
+            // Outside multi-select: pan-y keeps list scrolling; swipe still uses JS thresholds.
+            touchAction: touchModeEnabled
+              ? multiSelectActive || dragging
+                ? 'none'
+                : 'pan-y'
+              : undefined
+          }}
           data-snippet-id={node.id}
-          {...longPressHandlers}
+          onPointerDown={handleRowPointerDown}
+          onPointerMove={handleRowPointerMove}
+          onPointerUp={finishRowSwipe}
+          onPointerCancel={cancelRowSwipe}
+          onPointerLeave={suppressContextMenu ? undefined : longPressHandlers.onPointerLeave}
         >
           {dropPlacement === 'before' && (
             <span
@@ -550,11 +917,21 @@ function StoryNodeRow({
             title={dragEnabled ? t('editor.dragHint') : t('editor.dragDisabledHint')}
             className={cn(
               'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
+              // Same as grip: disable browser pan so long-press row drag can take over.
+              touchModeEnabled && multiSelectActive && 'touch-none',
               selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
+              primarySelected && selected && 'ring-1 ring-inset ring-emerald-500/35',
               isParallel && !selected && 'bg-violet-500/[0.035]',
               dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60'
             )}
-            onClick={(): void => onSelect(node.id)}
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>): void => {
+              const mode: 'replace' | 'toggle' | 'range' = event.shiftKey
+                ? 'range'
+                : event.ctrlKey || event.metaKey || (touchModeEnabled && multiSelectActive)
+                  ? 'toggle'
+                  : 'replace'
+              onSelect(node.id, mode, multiSelectActive || mode !== 'replace')
+            }}
           >
             <span
               data-drag-handle
@@ -671,7 +1048,8 @@ function resolveDropPlacement(
 
 function resolveContextMoves(
   nodes: readonly FlatTreeNode[],
-  source: FlatTreeNode
+  source: FlatTreeNode,
+  selectedIds: ReadonlySet<string>
 ): StoryContextMoves {
   const siblingIndex: number | undefined = source.path.at(-1)
   const parentPath: readonly number[] = source.path.slice(0, -1)
@@ -679,14 +1057,20 @@ function resolveContextMoves(
     return { up: null, down: null, indent: null, outdent: null }
   }
 
-  const previousSibling: FlatTreeNode | undefined = findTreeNodeAtPath(nodes, [
-    ...parentPath,
-    siblingIndex - 1
-  ])
-  const nextSibling: FlatTreeNode | undefined = findTreeNodeAtPath(nodes, [
-    ...parentPath,
-    siblingIndex + 1
-  ])
+  const previousSibling: FlatTreeNode | undefined = findSiblingOutsideSelection(
+    nodes,
+    parentPath,
+    siblingIndex,
+    -1,
+    selectedIds
+  )
+  const nextSibling: FlatTreeNode | undefined = findSiblingOutsideSelection(
+    nodes,
+    parentPath,
+    siblingIndex,
+    1,
+    selectedIds
+  )
   const parent: FlatTreeNode | undefined =
     parentPath.length > 0 ? findTreeNodeAtPath(nodes, parentPath) : undefined
 
@@ -744,7 +1128,8 @@ function resolveRootEndTarget(
   clientY: number,
   tree: HTMLDivElement | null,
   source: FlatTreeNode,
-  nodes: readonly FlatTreeNode[]
+  nodes: readonly FlatTreeNode[],
+  selectedIds: ReadonlySet<string>
 ): StoryDropTarget | null {
   const rowElements: HTMLElement[] = tree
     ? Array.from(tree.querySelectorAll<HTMLElement>('[data-snippet-id]'))
@@ -754,7 +1139,8 @@ function resolveRootEndTarget(
 
   const lastRootNode: FlatTreeNode | undefined = findLastTreeNode(
     nodes,
-    (candidate: FlatTreeNode): boolean => candidate.depth === 0
+    (candidate: FlatTreeNode): boolean =>
+      candidate.depth === 0 && !selectedIds.has(candidate.node.id)
   )
   const lastVisibleNode: FlatTreeNode | undefined = nodes.at(-1)
   if (!lastRootNode || !lastVisibleNode || lastRootNode.node.id === source.node.id) return null
@@ -766,6 +1152,38 @@ function resolveRootEndTarget(
     indicatorPlacement: 'after',
     indicatorDepth: 0
   }
+}
+
+function isInvalidBatchDropTarget(
+  target: FlatTreeNode,
+  nodes: readonly FlatTreeNode[],
+  selectedIds: ReadonlySet<string>,
+  draggedId: string
+): boolean {
+  if (target.node.id === draggedId || selectedIds.has(target.node.id)) return true
+  const selectedPaths: readonly (readonly number[])[] = nodes
+    .filter((candidate: FlatTreeNode): boolean => selectedIds.has(candidate.node.id))
+    .map((candidate: FlatTreeNode): readonly number[] => candidate.path)
+  return selectedPaths.some((path: readonly number[]): boolean =>
+    isPathDescendant(target.path, path)
+  )
+}
+
+function findSiblingOutsideSelection(
+  nodes: readonly FlatTreeNode[],
+  parentPath: readonly number[],
+  startIndex: number,
+  direction: -1 | 1,
+  selectedIds: ReadonlySet<string>
+): FlatTreeNode | undefined {
+  let index: number = startIndex + direction
+  while (index >= 0) {
+    const candidate: FlatTreeNode | undefined = findTreeNodeAtPath(nodes, [...parentPath, index])
+    if (!candidate) return undefined
+    if (!selectedIds.has(candidate.node.id)) return candidate
+    index += direction
+  }
+  return undefined
 }
 
 function isPathDescendant(path: readonly number[], ancestorPath: readonly number[]): boolean {
