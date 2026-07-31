@@ -1,11 +1,14 @@
 export type InteractionSettings = {
   touchMode: boolean
   touchModePromptSeen: boolean
+  /** Android-only: force immersive system bars off to avoid occlusion. */
+  fullscreenMode: boolean
 }
 
 export const DEFAULT_INTERACTION: InteractionSettings = {
   touchMode: false,
-  touchModePromptSeen: false
+  touchModePromptSeen: false,
+  fullscreenMode: false
 }
 
 export function detectPreferTouchMode(): boolean {
@@ -36,6 +39,10 @@ export function normalizeInteractionSettings(
       : detectDefaultWhenMissing
         ? detectPreferTouchMode()
         : DEFAULT_INTERACTION.touchMode,
-    touchModePromptSeen: Boolean(value?.touchModePromptSeen)
+    touchModePromptSeen: Boolean(value?.touchModePromptSeen),
+    fullscreenMode:
+      typeof value?.fullscreenMode === 'boolean'
+        ? value.fullscreenMode
+        : DEFAULT_INTERACTION.fullscreenMode
   }
 }

@@ -56,6 +56,7 @@ export default function SettingsPage(): JSX.Element {
     setShortcuts,
     setOnboarding,
     setTouchMode,
+    setFullscreenMode,
     setWorkspaceDir
   } = useSettings()
   const navigate = useNavigate()
@@ -311,6 +312,18 @@ export default function SettingsPage(): JSX.Element {
             onCheckedChange={setTouchMode}
           />
         </SettingRow>
+        {androidRuntime ? (
+          <SettingRow
+            title={t('settings.fullscreenMode')}
+            description={t('settings.fullscreenModeDescription')}
+          >
+            <Switch
+              checked={interaction.fullscreenMode}
+              aria-label={t('settings.fullscreenModeAria')}
+              onCheckedChange={setFullscreenMode}
+            />
+          </SettingRow>
+        ) : null}
       </div>
 
       <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">

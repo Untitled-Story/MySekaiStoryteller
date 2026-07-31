@@ -201,7 +201,11 @@ export const en: LocaleShape = {
     touchMode: 'Touch mode',
     touchModeDescription:
       'Keep list actions visible instead of relying on mouse hover, making them easier to use by touch.',
-    touchModeAria: 'Toggle touch mode'
+    touchModeAria: 'Toggle touch mode',
+    fullscreenMode: 'Fullscreen mode',
+    fullscreenModeDescription:
+      'Force Android immersive fullscreen and hide the status and navigation bars. Use this if the system navigation bar covers the bottom of the app.',
+    fullscreenModeAria: 'Toggle fullscreen mode'
   },
   about: {
     specialThanks: 'Special Thanks',

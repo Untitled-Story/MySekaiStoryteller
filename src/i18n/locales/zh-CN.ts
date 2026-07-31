@@ -187,7 +187,11 @@ export const zhCN = {
     interactionDescription: '针对触控设备优化按钮与操作入口的显示方式。',
     touchMode: '触控模式',
     touchModeDescription: '开启后不依赖鼠标悬停，列表操作按钮会始终显示，更适合手指操作。',
-    touchModeAria: '切换触控模式'
+    touchModeAria: '切换触控模式',
+    fullscreenMode: '全屏模式',
+    fullscreenModeDescription:
+      '强制开启 Android 沉浸式全屏，隐藏状态栏与导航栏。若系统导航栏遮挡页面底部，可打开此选项。',
+    fullscreenModeAria: '切换全屏模式'
   },
   about: {
     specialThanks: '特别鸣谢',

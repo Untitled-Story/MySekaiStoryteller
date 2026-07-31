@@ -85,6 +85,9 @@ pub struct InteractionSettings {
     pub touch_mode: bool,
     #[serde(default)]
     pub touch_mode_prompt_seen: bool,
+    /// Android-only: force immersive system bars off to avoid occlusion.
+    #[serde(default)]
+    pub fullscreen_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,6 +314,7 @@ mod tests {
         assert_eq!(settings.language, "system");
         assert_eq!(settings.onboarding.main_tour_version, 0);
         assert_eq!(settings.onboarding.editor_tour_version, 0);
+        assert!(!settings.interaction.fullscreen_mode);
     }
 
     #[test]

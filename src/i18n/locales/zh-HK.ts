@@ -191,7 +191,11 @@ export const zhHK: LocaleShape = {
     interactionDescription: '針對觸控裝置最佳化按鈕與操作入口的顯示方式。',
     touchMode: '觸控模式',
     touchModeDescription: '開啟後不依賴滑鼠懸停，列表操作按鈕會保持顯示，更適合手指操作。',
-    touchModeAria: '切換觸控模式'
+    touchModeAria: '切換觸控模式',
+    fullscreenMode: '全螢幕模式',
+    fullscreenModeDescription:
+      '強制開啟 Android 沉浸式全螢幕，隱藏狀態列與導覽列。若系統導覽列遮擋頁面底部，可開啟此選項。',
+    fullscreenModeAria: '切換全螢幕模式'
   },
   about: {
     specialThanks: '特別鳴謝',
