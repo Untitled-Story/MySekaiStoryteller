@@ -286,6 +286,7 @@ export const ja: typeof en = {
     completed: 'プレビュー完了',
     stopped: 'プレビュー停止',
     replay: '最初から再生',
+    refreshPreview: 'プレビューを更新',
     resume: '再開',
     pause: '一時停止',
     stop: '停止',

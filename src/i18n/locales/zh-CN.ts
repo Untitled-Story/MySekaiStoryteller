@@ -274,6 +274,7 @@ export const zhCN = {
     completed: '预览完成',
     stopped: '预览已停止',
     replay: '从头重播',
+    refreshPreview: '刷新预览',
     resume: '继续预览',
     pause: '暂停预览',
     stop: '停止预览',

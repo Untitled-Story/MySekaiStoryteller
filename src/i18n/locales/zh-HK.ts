@@ -277,6 +277,7 @@ export const zhHK: LocaleShape = {
     completed: '預覽完成',
     stopped: '預覽已停止',
     replay: '從頭重播',
+    refreshPreview: '重新整理預覽',
     resume: '繼續預覽',
     pause: '暫停預覽',
     stop: '停止預覽',

@@ -290,6 +290,7 @@ export const en: LocaleShape = {
     completed: 'Preview complete',
     stopped: 'Preview stopped',
     replay: 'Replay from beginning',
+    refreshPreview: 'Refresh preview',
     resume: 'Resume preview',
     pause: 'Pause preview',
     stop: 'Stop preview',
