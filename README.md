@@ -89,6 +89,11 @@ Notes:
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
 - Everyone who tests, contributes, and creates stories with MySekaiStoryteller
 
+## Licenses
+
+- Source code: [GNU GPL v3.0](LICENSE)
+- Project-owned materials and project outputs: [POMOLA](POMOLA.md)
+
 ## Support
 
 If you'd like to support development, you can do so on [Afdian](https://afdian.com/a/devguangchen). Either way, thanks for being here.

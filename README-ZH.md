@@ -89,6 +89,11 @@ pnpm tauri android build --apk --target aarch64
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
 - 每一位参与测试、贡献代码，以及用它讲出自己故事的人
 
+## 许可
+
+- 源代码：[GNU GPL v3.0](LICENSE)
+- 项目自有材料与项目输出内容：[POMOLA](POMOLA-CN.md)
+
 ## 支持项目
 
 可以通过 [爱发电](https://afdian.com/a/devguangchen) 支持开发。当然，不打赏也没关系——感谢你用它，感谢你陪它一起变好。
