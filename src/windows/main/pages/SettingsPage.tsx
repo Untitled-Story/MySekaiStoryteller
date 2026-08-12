@@ -45,7 +45,6 @@ export default function SettingsPage(): JSX.Element {
     playback,
     shortcuts,
     onboarding,
-    interaction,
     workspaceDir,
     setLanguage,
     setFollowSystem,
@@ -55,7 +54,6 @@ export default function SettingsPage(): JSX.Element {
     setPlaybackFont,
     setShortcuts,
     setOnboarding,
-    setTouchMode,
     setWorkspaceDir
   } = useSettings()
   const navigate = useNavigate()
@@ -292,24 +290,6 @@ export default function SettingsPage(): JSX.Element {
               </p>
             ) : null}
           </div>
-        </SettingRow>
-      </div>
-
-      <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
-        <h2 className="text-2xl leading-tight font-semibold">{t('settings.interaction')}</h2>
-        <p className="text-sm text-muted-foreground">{t('settings.interactionDescription')}</p>
-      </div>
-
-      <div className="w-full max-w-2xl divide-y divide-border">
-        <SettingRow
-          title={t('settings.touchMode')}
-          description={t('settings.touchModeDescription')}
-        >
-          <Switch
-            checked={interaction.touchMode}
-            aria-label={t('settings.touchModeAria')}
-            onCheckedChange={setTouchMode}
-          />
         </SettingRow>
       </div>
 

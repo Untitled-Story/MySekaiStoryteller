@@ -102,14 +102,7 @@ export const zhCN = {
     continueEditing: '继续编辑',
     noRecent: '还没有编辑过项目。',
     quickActions: '快捷操作',
-    allProjects: '所有项目',
-    touchPromptTitle: '开启触控模式？',
-    touchPromptDescription:
-      '触控模式下会减少对鼠标悬停的依赖，例如项目列表的操作按钮会始终显示，更适合手指操作。',
-    touchMode: '触控模式',
-    touchModeHint: '可随时在设置里修改',
-    touchModeAria: '切换触控模式',
-    touchNotNow: '暂不开启'
+    allProjects: '所有项目'
   },
   projects: {
     title: '所有项目',
@@ -182,12 +175,7 @@ export const zhCN = {
     exitFullscreen: '退出全屏',
     exitFullscreenDescription: '返回窗口模式',
     closePlayer: '关闭播放器',
-    closePlayerDescription: '关闭当前播放器窗口',
-    interaction: '交互',
-    interactionDescription: '针对触控设备优化按钮与操作入口的显示方式。',
-    touchMode: '触控模式',
-    touchModeDescription: '开启后不依赖鼠标悬停，列表操作按钮会始终显示，更适合手指操作。',
-    touchModeAria: '切换触控模式'
+    closePlayerDescription: '关闭当前播放器窗口'
   },
   about: {
     specialThanks: '特别鸣谢',

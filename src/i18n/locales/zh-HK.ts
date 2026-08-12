@@ -106,14 +106,7 @@ export const zhHK: LocaleShape = {
     continueEditing: '繼續編輯',
     noRecent: '還沒有編輯過專案。',
     quickActions: '快速操作',
-    allProjects: '所有專案',
-    touchPromptTitle: '開啟觸控模式？',
-    touchPromptDescription:
-      '觸控模式會減少對滑鼠懸停的依賴，例如專案列表的操作按鈕會保持顯示，更適合手指操作。',
-    touchMode: '觸控模式',
-    touchModeHint: '之後可隨時在設定中修改',
-    touchModeAria: '切換觸控模式',
-    touchNotNow: '暫不開啟'
+    allProjects: '所有專案'
   },
   projects: {
     title: '所有專案',
@@ -186,12 +179,7 @@ export const zhHK: LocaleShape = {
     exitFullscreen: '退出全螢幕',
     exitFullscreenDescription: '返回視窗模式',
     closePlayer: '關閉播放器',
-    closePlayerDescription: '關閉目前播放器視窗',
-    interaction: '互動',
-    interactionDescription: '針對觸控裝置最佳化按鈕與操作入口的顯示方式。',
-    touchMode: '觸控模式',
-    touchModeDescription: '開啟後不依賴滑鼠懸停，列表操作按鈕會保持顯示，更適合手指操作。',
-    touchModeAria: '切換觸控模式'
+    closePlayerDescription: '關閉目前播放器視窗'
   },
   about: {
     specialThanks: '特別鳴謝',

@@ -2,6 +2,7 @@ import type {
   ChangeEvent,
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -93,6 +94,7 @@ type StoryContextMoves = {
 export function EditorSidebar({
   activePanel,
   searchQuery,
+  touchMode,
   treeNodes,
   selectedNodeId,
   activeSnippetIds,
@@ -117,6 +119,7 @@ export function EditorSidebar({
 }: {
   activePanel: EditorSidebarTab
   searchQuery: string
+  touchMode: boolean
   treeNodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
   activeSnippetIds: ReadonlySet<string>
@@ -142,6 +145,10 @@ export function EditorSidebar({
   const { t } = useTranslation()
   const searchLabel: string =
     activePanel === 'story' ? t('editor.searchSnippets') : t('editor.searchAssets')
+  const searching: boolean = searchQuery.trim().length > 0
+  const dragEnabled: boolean = !searching
+  const touchRowDrag: boolean = touchMode && !searching
+  const dragDisabledHint: string = t('editor.dragDisabledHint')
 
   return (
     <aside className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r bg-muted/20">
@@ -164,7 +171,7 @@ export function EditorSidebar({
             variant="ghost"
             size="icon"
             data-tour="editor-add-snippet"
-            className="ml-auto size-8"
+            className="ml-auto size-8 shrink-0"
             aria-label={t('editor.addSnippet')}
             title={t('editor.addSnippet')}
             onClick={(): void => onAddDialogOpenChange(true)}
@@ -172,7 +179,7 @@ export function EditorSidebar({
             <Plus className="size-4" />
           </Button>
         ) : (
-          <LibraryBig className="ml-auto size-4 text-muted-foreground" />
+          <LibraryBig className="ml-auto size-4 shrink-0 text-muted-foreground" />
         )}
       </div>
 
@@ -204,7 +211,9 @@ export function EditorSidebar({
           onDelete={onDeleteSnippet}
           onToggleParallel={onToggleParallel}
           onMove={onMoveSnippet}
-          dragEnabled={!searchQuery.trim()}
+          dragEnabled={dragEnabled}
+          touchRowDrag={touchRowDrag}
+          dragDisabledHint={dragDisabledHint}
           onAdd={(): void => onAddDialogOpenChange(true)}
         />
       ) : (
@@ -253,6 +262,12 @@ function TabButton({
   )
 }
 
+const TOUCH_ROW_DRAG_LONG_PRESS_MS: number = 380
+const TOUCH_ROW_DRAG_CANCEL_PX: number = 14
+const DRAG_ACTIVATE_PX: number = 6
+const DRAG_AUTO_SCROLL_EDGE_PX: number = 56
+const DRAG_AUTO_SCROLL_MAX_PX_PER_FRAME: number = 18
+
 function StoryTree({
   nodes,
   selectedNodeId,
@@ -266,6 +281,8 @@ function StoryTree({
   onToggleParallel,
   onMove,
   dragEnabled,
+  touchRowDrag,
+  dragDisabledHint,
   onAdd
 }: {
   nodes: readonly FlatTreeNode[]
@@ -280,44 +297,111 @@ function StoryTree({
   onToggleParallel: (nodeId: string) => void
   onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   dragEnabled: boolean
+  touchRowDrag: boolean
+  dragDisabledHint: string
   onAdd: () => void
 }): JSX.Element {
   const { t } = useTranslation()
   const treeRef = useRef<HTMLDivElement | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+  const autoScrollFrameRef = useRef<number | null>(null)
+  const dragPointerRef = useRef<{ x: number; y: number } | null>(null)
+  const suppressClickRef = useRef<boolean>(false)
   const pointerRef = useRef<{
     pointerId: number
     sourceId: string
     startX: number
     startY: number
+    lastY: number
     active: boolean
+    armed: boolean
+    requiresLongPress: boolean
+    moved: boolean
   } | null>(null)
   const dropTargetRef = useRef<StoryDropTarget | null>(null)
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<StoryDropTarget | null>(null)
+
+  useEffect((): (() => void) => {
+    return (): void => {
+      clearLongPressTimer()
+      clearAutoScroll()
+    }
+  }, [])
+
+  function clearLongPressTimer(): void {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  function clearAutoScroll(): void {
+    if (autoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoScrollFrameRef.current)
+      autoScrollFrameRef.current = null
+    }
+    dragPointerRef.current = null
+  }
 
   function updateDropTarget(nextTarget: StoryDropTarget | null): void {
     dropTargetRef.current = nextTarget
     setDropTarget(nextTarget)
   }
 
+  function resetPointerState(event?: ReactPointerEvent<HTMLDivElement>): void {
+    clearLongPressTimer()
+    clearAutoScroll()
+    if (event && treeRef.current?.hasPointerCapture(event.pointerId)) {
+      treeRef.current.releasePointerCapture(event.pointerId)
+    }
+    pointerRef.current = null
+    setDraggedNodeId(null)
+    updateDropTarget(null)
+  }
+
+  function armPointerDrag(pointerId: number): void {
+    const pointer: typeof pointerRef.current = pointerRef.current
+    if (!pointer || pointer.pointerId !== pointerId || pointer.armed) return
+    pointer.armed = true
+    treeRef.current?.setPointerCapture(pointerId)
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!dragEnabled || event.button !== 0) return
     if (!(event.target instanceof Element)) return
-    if (!event.target.closest('[data-drag-handle]')) return
     if (event.target.closest('[data-no-drag]')) return
 
     const row: HTMLElement | null = event.target.closest<HTMLElement>('[data-snippet-id]')
     const sourceId: string | undefined = row?.dataset.snippetId
     if (!sourceId) return
 
-    event.currentTarget.setPointerCapture(event.pointerId)
+    const fromHandle: boolean = Boolean(event.target.closest('[data-drag-handle]'))
+    // Desktop: grip-handle only. Touch drag mode: entire snippet row.
+    if (!touchRowDrag && !fromHandle) return
+
+    const requiresLongPress: boolean = touchRowDrag
+    clearLongPressTimer()
+    suppressClickRef.current = false
     pointerRef.current = {
       pointerId: event.pointerId,
       sourceId,
       startX: event.clientX,
       startY: event.clientY,
-      active: false
+      lastY: event.clientY,
+      active: false,
+      armed: !requiresLongPress,
+      requiresLongPress,
+      moved: false
     }
+
+    event.currentTarget.setPointerCapture(event.pointerId)
+    if (!requiresLongPress) return
+
+    longPressTimerRef.current = window.setTimeout((): void => {
+      longPressTimerRef.current = null
+      armPointerDrag(event.pointerId)
+    }, TOUCH_ROW_DRAG_LONG_PRESS_MS)
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -328,14 +412,36 @@ function StoryTree({
       event.clientX - pointer.startX,
       event.clientY - pointer.startY
     )
+
+    if (!pointer.armed) {
+      if (distance > TOUCH_ROW_DRAG_CANCEL_PX) {
+        clearLongPressTimer()
+        pointer.moved = true
+        const tree: HTMLDivElement | null = treeRef.current
+        if (tree) tree.scrollTop -= event.clientY - pointer.lastY
+      }
+      pointer.lastY = event.clientY
+      event.preventDefault()
+      return
+    }
+
     if (!pointer.active) {
-      if (distance < 6) return
+      if (distance < DRAG_ACTIVATE_PX) return
       pointer.active = true
+      suppressClickRef.current = true
       setDraggedNodeId(pointer.sourceId)
     }
 
     event.preventDefault()
-    const element: Element | null = document.elementFromPoint(event.clientX, event.clientY)
+    updateDragTarget(event.clientX, event.clientY)
+    scheduleAutoScroll(event.clientX, event.clientY)
+  }
+
+  function updateDragTarget(clientX: number, clientY: number): void {
+    const pointer: typeof pointerRef.current = pointerRef.current
+    if (!pointer) return
+
+    const element: Element | null = document.elementFromPoint(clientX, clientY)
     const row: HTMLElement | null = element?.closest<HTMLElement>('[data-snippet-id]') ?? null
     const targetId: string | undefined = row?.dataset.snippetId
     const source: FlatTreeNode | undefined = nodes.find(
@@ -351,7 +457,7 @@ function StoryTree({
 
     const treeBounds: DOMRect | undefined = treeRef.current?.getBoundingClientRect()
     const outdentTarget: StoryDropTarget | null = resolveOutdentTarget(
-      event.clientX,
+      clientX,
       treeBounds,
       source,
       target,
@@ -364,7 +470,7 @@ function StoryTree({
 
     if (!target) {
       const rootEndTarget: StoryDropTarget | null = resolveRootEndTarget(
-        event.clientY,
+        clientY,
         treeRef.current,
         source,
         nodes
@@ -379,7 +485,7 @@ function StoryTree({
     }
 
     const placement: SnippetDropPlacement = resolveDropPlacement(
-      event.clientY,
+      clientY,
       row?.getBoundingClientRect(),
       target
     )
@@ -392,6 +498,58 @@ function StoryTree({
     })
   }
 
+  function autoScrollDelta(clientY: number): number {
+    const tree: HTMLDivElement | null = treeRef.current
+    if (!tree) return 0
+
+    const bounds: DOMRect = tree.getBoundingClientRect()
+    const topDistance: number = clientY - bounds.top
+    if (topDistance < DRAG_AUTO_SCROLL_EDGE_PX) {
+      const intensity: number = 1 - Math.max(topDistance, 0) / DRAG_AUTO_SCROLL_EDGE_PX
+      return -Math.ceil(DRAG_AUTO_SCROLL_MAX_PX_PER_FRAME * intensity)
+    }
+
+    const bottomDistance: number = bounds.bottom - clientY
+    if (bottomDistance < DRAG_AUTO_SCROLL_EDGE_PX) {
+      const intensity: number = 1 - Math.max(bottomDistance, 0) / DRAG_AUTO_SCROLL_EDGE_PX
+      return Math.ceil(DRAG_AUTO_SCROLL_MAX_PX_PER_FRAME * intensity)
+    }
+
+    return 0
+  }
+
+  function scheduleAutoScroll(clientX: number, clientY: number): void {
+    dragPointerRef.current = { x: clientX, y: clientY }
+    if (autoScrollFrameRef.current !== null) return
+
+    function scrollFrame(): void {
+      const pointer: typeof pointerRef.current = pointerRef.current
+      const dragPointer: { x: number; y: number } | null = dragPointerRef.current
+      const tree: HTMLDivElement | null = treeRef.current
+      if (!pointer?.active || !dragPointer || !tree) {
+        autoScrollFrameRef.current = null
+        return
+      }
+
+      const delta: number = autoScrollDelta(dragPointer.y)
+      if (delta === 0) {
+        autoScrollFrameRef.current = null
+        return
+      }
+
+      const previousScrollTop: number = tree.scrollTop
+      tree.scrollBy({ top: delta })
+      updateDragTarget(dragPointer.x, dragPointer.y)
+      if (tree.scrollTop === previousScrollTop) {
+        autoScrollFrameRef.current = null
+        return
+      }
+      autoScrollFrameRef.current = window.requestAnimationFrame(scrollFrame)
+    }
+
+    autoScrollFrameRef.current = window.requestAnimationFrame(scrollFrame)
+  }
+
   function finishPointerDrag(event?: ReactPointerEvent<HTMLDivElement>): void {
     const pointer: typeof pointerRef.current = pointerRef.current
     if (!pointer || (event && pointer.pointerId !== event.pointerId)) return
@@ -400,12 +558,23 @@ function StoryTree({
       onMove(pointer.sourceId, dropTargetRef.current.nodeId, dropTargetRef.current.placement)
       event?.preventDefault()
     }
-    if (event && treeRef.current?.hasPointerCapture(event.pointerId)) {
-      treeRef.current.releasePointerCapture(event.pointerId)
+    if (
+      event?.type === 'pointerup' &&
+      pointer.requiresLongPress &&
+      !pointer.armed &&
+      !pointer.moved
+    ) {
+      onSelect(pointer.sourceId)
     }
-    pointerRef.current = null
-    setDraggedNodeId(null)
-    updateDropTarget(null)
+    resetPointerState(event)
+  }
+
+  function handleSelect(nodeId: string): void {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    onSelect(nodeId)
   }
 
   return (
@@ -430,6 +599,8 @@ function StoryTree({
               hasActiveSnippets={activeSnippetIds.size > 0}
               expanded={expandedParallelIds.has(flatNode.node.id)}
               dragEnabled={dragEnabled}
+              touchRowDrag={touchRowDrag}
+              dragDisabledHint={dragDisabledHint}
               dragging={draggedNodeId === flatNode.node.id}
               dropPlacement={
                 dropTarget?.indicatorNodeId === flatNode.node.id
@@ -439,7 +610,7 @@ function StoryTree({
               dropIndicatorDepth={
                 dropTarget?.indicatorNodeId === flatNode.node.id ? dropTarget.indicatorDepth : null
               }
-              onSelect={onSelect}
+              onSelect={handleSelect}
               onContextSelect={onContextSelect}
               onPreview={onPreview}
               onDuplicate={onDuplicate}
@@ -475,6 +646,8 @@ function StoryNodeRow({
   hasActiveSnippets,
   expanded,
   dragEnabled,
+  touchRowDrag,
+  dragDisabledHint,
   dragging,
   dropPlacement,
   dropIndicatorDepth,
@@ -493,6 +666,8 @@ function StoryNodeRow({
   hasActiveSnippets: boolean
   expanded: boolean
   dragEnabled: boolean
+  touchRowDrag: boolean
+  dragDisabledHint: string
   dragging: boolean
   dropPlacement: SnippetDropPlacement | null
   dropIndicatorDepth: number | null
@@ -521,91 +696,115 @@ function StoryNodeRow({
     }
   })
 
+  const row: JSX.Element = (
+    <div
+      className={cn(
+        'relative transition-opacity',
+        dragging && 'opacity-35',
+        touchRowDrag && dragEnabled && 'touch-none select-none'
+      )}
+      style={{ paddingLeft: `${flatNode.depth * 18}px` }}
+      data-snippet-id={node.id}
+      onContextMenu={
+        touchRowDrag
+          ? (event: ReactMouseEvent<HTMLDivElement>): void => {
+              event.preventDefault()
+            }
+          : undefined
+      }
+      {...(touchRowDrag ? {} : longPressHandlers)}
+    >
+      {dropPlacement === 'before' && (
+        <span
+          className="pointer-events-none absolute top-0 right-2 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary"
+          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+        />
+      )}
+      {dropPlacement === 'after' && (
+        <span
+          className="pointer-events-none absolute right-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary"
+          style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
+        />
+      )}
+      {flatNode.depth > 0 && (
+        <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
+      )}
+      <button
+        type="button"
+        title={dragEnabled ? t('editor.dragHint') : dragDisabledHint}
+        className={cn(
+          'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
+          selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
+          isParallel && !selected && 'bg-violet-500/[0.035]',
+          dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60',
+          touchRowDrag && dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+        )}
+        onClick={(): void => {
+          if (!touchRowDrag) onSelect(node.id)
+        }}
+      >
+        <span
+          data-drag-handle
+          className={cn(
+            'flex shrink-0',
+            dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+          )}
+          title={dragEnabled ? t('editor.dragHandle') : undefined}
+        >
+          <GripVertical
+            className={cn(
+              'size-3',
+              touchRowDrag && dragEnabled ? 'text-muted-foreground' : 'text-muted-foreground/45'
+            )}
+          />
+        </span>
+        <span
+          className={cn(
+            'flex size-6 shrink-0 items-center justify-center rounded-sm',
+            TONE_CLASS_NAMES[presentation.tone]
+          )}
+        >
+          <Icon className="size-3.5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-xs font-medium">{node.type}</span>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {formatNodeSummary(node)}
+          </span>
+        </span>
+        {(active || (!hasActiveSnippets && selected)) && (
+          <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+        )}
+      </button>
+      {isParallel && (
+        <button
+          type="button"
+          className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
+          title={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
+          data-no-drag={!touchRowDrag ? true : undefined}
+          onClick={(): void => {
+            if (!touchRowDrag) onToggleParallel(node.id)
+          }}
+        >
+          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        </button>
+      )}
+      {isParallel && flatNode.childCount > 0 && (
+        <span className="absolute right-9 bottom-1 font-mono text-[9px] text-violet-700/80">
+          {flatNode.childCount}
+        </span>
+      )}
+    </div>
+  )
+
+  // Drag mode is reorder-only: no context menu / long-press actions.
+  if (touchRowDrag) return row
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild onContextMenu={(): void => onContextSelect(node.id)}>
-        <div
-          className={cn('relative transition-opacity', dragging && 'opacity-35')}
-          style={{ paddingLeft: `${flatNode.depth * 18}px` }}
-          data-snippet-id={node.id}
-          {...longPressHandlers}
-        >
-          {dropPlacement === 'before' && (
-            <span
-              className="pointer-events-none absolute top-0 right-2 z-10 h-0.5 -translate-y-0.5 rounded-full bg-primary"
-              style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
-            />
-          )}
-          {dropPlacement === 'after' && (
-            <span
-              className="pointer-events-none absolute right-2 bottom-0 z-10 h-0.5 translate-y-0.5 rounded-full bg-primary"
-              style={{ left: `${(dropIndicatorDepth ?? flatNode.depth) * 18 + 8}px` }}
-            />
-          )}
-          {flatNode.depth > 0 && (
-            <span className="pointer-events-none absolute top-0 bottom-1/2 left-[9px] border-l border-border" />
-          )}
-          <button
-            type="button"
-            title={dragEnabled ? t('editor.dragHint') : t('editor.dragDisabledHint')}
-            className={cn(
-              'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
-              selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
-              isParallel && !selected && 'bg-violet-500/[0.035]',
-              dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60'
-            )}
-            onClick={(): void => onSelect(node.id)}
-          >
-            <span
-              data-drag-handle
-              className={cn(
-                'flex shrink-0',
-                dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
-              )}
-              title={dragEnabled ? t('editor.dragHandle') : undefined}
-            >
-              <GripVertical className="size-3 text-muted-foreground/45" />
-            </span>
-            <span
-              className={cn(
-                'flex size-6 shrink-0 items-center justify-center rounded-sm',
-                TONE_CLASS_NAMES[presentation.tone]
-              )}
-            >
-              <Icon className="size-3.5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-medium">{node.type}</span>
-              <span className="block truncate text-[11px] text-muted-foreground">
-                {formatNodeSummary(node)}
-              </span>
-            </span>
-            {(active || (!hasActiveSnippets && selected)) && (
-              <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-            )}
-          </button>
-          {isParallel && (
-            <button
-              type="button"
-              className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
-              title={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
-              data-no-drag
-              onClick={(): void => onToggleParallel(node.id)}
-            >
-              {expanded ? (
-                <ChevronDown className="size-3.5" />
-              ) : (
-                <ChevronRight className="size-3.5" />
-              )}
-            </button>
-          )}
-          {isParallel && flatNode.childCount > 0 && (
-            <span className="absolute right-9 bottom-1 font-mono text-[9px] text-violet-700/80">
-              {flatNode.childCount}
-            </span>
-          )}
-        </div>
+        {row}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52 font-medium select-none">
         <ContextMenuItem onClick={(): void => onPreview(node.id)}>
