@@ -112,14 +112,7 @@ export const en: LocaleShape = {
     continueEditing: 'Continue editing',
     noRecent: 'No projects have been edited yet.',
     quickActions: 'Quick actions',
-    allProjects: 'All projects',
-    touchPromptTitle: 'Enable touch mode?',
-    touchPromptDescription:
-      'Touch mode reduces reliance on mouse hover and keeps project actions visible for easier finger input.',
-    touchMode: 'Touch mode',
-    touchModeHint: 'You can change this later in Settings',
-    touchModeAria: 'Toggle touch mode',
-    touchNotNow: 'Not now'
+    allProjects: 'All projects'
   },
   projects: {
     title: 'All projects',
@@ -195,13 +188,7 @@ export const en: LocaleShape = {
     exitFullscreen: 'Exit fullscreen',
     exitFullscreenDescription: 'Return to windowed mode',
     closePlayer: 'Close player',
-    closePlayerDescription: 'Close the current player window',
-    interaction: 'Interaction',
-    interactionDescription: 'Optimize controls and action visibility for touch devices.',
-    touchMode: 'Touch mode',
-    touchModeDescription:
-      'Keep list actions visible instead of relying on mouse hover, making them easier to use by touch.',
-    touchModeAria: 'Toggle touch mode'
+    closePlayerDescription: 'Close the current player window'
   },
   about: {
     specialThanks: 'Special Thanks',

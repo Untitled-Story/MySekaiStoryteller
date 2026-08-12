@@ -19,7 +19,6 @@ import {
   Upload
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
-import { useSettings } from '@/settings/useSettings'
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
 import { isMobileRuntime } from '@/lib/platform'
 
@@ -68,11 +67,10 @@ export default function ProjectsPage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
-  const { interaction } = useSettings()
   const viewportMode: ViewportMode = useViewportMode()
   const phoneLayout: boolean = viewportMode === 'phone'
   const mobileRuntime: boolean = isMobileRuntime()
-  const alwaysShowRowActions: boolean = phoneLayout || interaction.touchMode
+  const alwaysShowRowActions: boolean = mobileRuntime
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [search, setSearch] = useState('')

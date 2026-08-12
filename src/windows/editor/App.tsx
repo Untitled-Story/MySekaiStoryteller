@@ -1129,7 +1129,7 @@ export default function App({
   const tabletLayout: boolean = viewportMode === 'tablet' && !mobileLandscapeLayout
   const compactChrome: boolean = phoneLayout || tabletLayout || mobileLandscapeLayout
 
-  const touchMode: boolean = settings?.interaction.touchMode ?? false
+  const touchMode: boolean = isMobileRuntime()
   const sidebarNode: JSX.Element = (
     <EditorSidebar
       activePanel={activePanel}

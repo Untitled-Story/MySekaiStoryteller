@@ -13,49 +13,21 @@ import { MainProductTour } from '@/onboarding/MainProductTour'
 import { useTranslation } from 'react-i18next'
 import { useViewportMode } from '@/hooks/useViewportMode'
 import { cn } from '@/lib/style'
-import { detectPreferTouchMode } from '@/lib/touchMode'
 import { isMobileRuntime } from '@/lib/platform'
-import { Button } from '@/components/ui/Button'
-import { Switch } from '@/components/ui/Switch'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/Dialog'
 
 export default function HomePage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [touchPromptOpen, setTouchPromptOpen] = useState(false)
-  const [touchPromptValue, setTouchPromptValue] = useState(false)
   const navigate = useNavigate()
-  const { onboarding, interaction, setOnboarding, setInteraction } = useSettings()
+  const { onboarding, setOnboarding } = useSettings()
   const viewportMode = useViewportMode()
   const stackSections: boolean = viewportMode === 'phone'
   const mobileRuntime: boolean = isMobileRuntime()
 
   const completeMainTour = useCallback((): void => {
     setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
-    if (!interaction.touchModePromptSeen) {
-      setTouchPromptValue(detectPreferTouchMode())
-      setTouchPromptOpen(true)
-    }
-  }, [interaction.touchModePromptSeen, onboarding, setOnboarding])
-
-  const finishTouchPrompt = useCallback(
-    (enabled: boolean): void => {
-      setInteraction({
-        touchMode: enabled,
-        touchModePromptSeen: true
-      })
-      setTouchPromptOpen(false)
-    },
-    [setInteraction]
-  )
+  }, [onboarding, setOnboarding])
 
   const latest: ProjectMetadata | null =
     projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
@@ -198,39 +170,6 @@ export default function HomePage(): JSX.Element {
         active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}
         onComplete={completeMainTour}
       />
-
-      <Dialog
-        open={touchPromptOpen}
-        onOpenChange={(open: boolean): void => {
-          if (!open) finishTouchPrompt(touchPromptValue)
-        }}
-      >
-        <DialogContent className="max-w-md select-none">
-          <DialogHeader>
-            <DialogTitle>{t('home.touchPromptTitle')}</DialogTitle>
-            <DialogDescription>{t('home.touchPromptDescription')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-between rounded-lg border px-3 py-3">
-            <div className="pr-4">
-              <p className="text-sm font-medium">{t('home.touchMode')}</p>
-              <p className="text-xs text-muted-foreground">{t('home.touchModeHint')}</p>
-            </div>
-            <Switch
-              checked={touchPromptValue}
-              aria-label={t('home.touchModeAria')}
-              onCheckedChange={setTouchPromptValue}
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={(): void => finishTouchPrompt(false)}>
-              {t('home.touchNotNow')}
-            </Button>
-            <Button type="button" onClick={(): void => finishTouchPrompt(touchPromptValue)}>
-              {t('common.confirm')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -108,14 +108,7 @@ export const ja: typeof en = {
     continueEditing: '編集を続ける',
     noRecent: '編集したプロジェクトはまだありません。',
     quickActions: 'クイック操作',
-    allProjects: 'すべてのプロジェクト',
-    touchPromptTitle: 'タッチモードを有効にしますか？',
-    touchPromptDescription:
-      'マウスホバーへの依存を減らし、プロジェクト操作を常に表示して指で操作しやすくします。',
-    touchMode: 'タッチモード',
-    touchModeHint: '設定からいつでも変更できます',
-    touchModeAria: 'タッチモードを切り替え',
-    touchNotNow: '今はしない'
+    allProjects: 'すべてのプロジェクト'
   },
   projects: {
     title: 'すべてのプロジェクト',
@@ -191,13 +184,7 @@ export const ja: typeof en = {
     exitFullscreen: 'フルスクリーンを終了',
     exitFullscreenDescription: 'ウィンドウ表示に戻します',
     closePlayer: 'プレイヤーを閉じる',
-    closePlayerDescription: '現在のプレイヤーウィンドウを閉じます',
-    interaction: '操作',
-    interactionDescription: 'タッチ端末向けにボタンと操作項目の表示を最適化します。',
-    touchMode: 'タッチモード',
-    touchModeDescription:
-      'マウスホバーを使わず、一覧の操作ボタンを常に表示して指で操作しやすくします。',
-    touchModeAria: 'タッチモードを切り替え'
+    closePlayerDescription: '現在のプレイヤーウィンドウを閉じます'
   },
   about: {
     specialThanks: 'スペシャルサンクス',
