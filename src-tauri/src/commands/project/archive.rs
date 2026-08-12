@@ -10,7 +10,10 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::assets::validate_assets;
-use super::model_registry::{find_model_entry_file, is_model_entry_json};
+use super::model_registry::{
+    find_unique_model_entry_file, get_model_registry, is_model_entry_json, is_model_entry_name,
+    write_model_registry,
+};
 use super::{
     data_dir, materialize_picked_file, now_millis, project_path, projects_dir, read_json_file,
     read_metadata, validate_project_name, write_metadata, AssetsSummary, ProjectMetadata,
@@ -41,6 +44,8 @@ struct ArchiveProject {
 #[serde(rename_all = "camelCase")]
 struct ArchiveModel {
     id: String,
+    #[serde(default)]
+    entry: String,
     path: String,
     sha256: String,
 }
@@ -143,14 +148,17 @@ pub fn export_project_archive(
     validate_assets(&assets)?;
     let model_ids = project_model_ids(&assets)?;
     let models_root = data_dir(&app)?.join("models");
+    let registry = get_model_registry(app.clone())?;
     let mut models: Vec<ArchiveModel> = Vec::with_capacity(model_ids.len());
     for model_id in model_ids {
         let model_path = models_root.join(&model_id);
         if !model_path.is_dir() {
             return Err(format!("项目引用的模型不存在: {model_id}"));
         }
+        let entry = selected_model_entry(&registry, &model_id, &model_path)?;
         models.push(ArchiveModel {
             id: model_id.clone(),
+            entry,
             path: format!("models/{model_id}"),
             sha256: directory_digest(&model_path)?,
         });
@@ -269,6 +277,7 @@ fn import_from_archive(
     fs::create_dir_all(&models_root).map_err(|error| format!("创建模型目录失败: {error}"))?;
     let mut model_rewrites: BTreeMap<String, String> = BTreeMap::new();
     let mut model_moves: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut imported_model_entries: BTreeMap<String, String> = BTreeMap::new();
     for model in &manifest.models {
         validate_model_id(&model.id)?;
         let staged_model = staging.join(&model.path);
@@ -279,18 +288,27 @@ fn import_from_archive(
         if staged_digest != model.sha256 {
             return Err(format!("模型文件校验失败: {}", model.id));
         }
-        validate_model_directory(&staged_model, &model.id)?;
+        let entry = if model.entry.is_empty() {
+            find_unique_model_entry_file(&staged_model)?
+        } else {
+            validate_model_entry(&model.entry, &model.id)?;
+            model.entry.clone()
+        };
+        validate_model_directory(&staged_model, &model.id, &entry)?;
 
         let existing = models_root.join(&model.id);
         if !existing.exists() {
+            imported_model_entries.insert(model.id.clone(), entry);
             model_moves.push((staged_model, existing));
             continue;
         }
         if directory_digest(&existing)? == staged_digest {
+            imported_model_entries.insert(model.id.clone(), entry);
             continue;
         }
         let replacement_id = next_model_id(&models_root, &model.id);
         model_rewrites.insert(model.id.clone(), replacement_id.clone());
+        imported_model_entries.insert(replacement_id.clone(), entry);
         model_moves.push((staged_model, models_root.join(replacement_id)));
     }
     rewrite_model_ids(&mut assets, &model_rewrites)?;
@@ -355,6 +373,17 @@ fn import_from_archive(
             let _ = fs::rename(&backup, &target_project);
         }
         return Err(format!("安装项目失败: {error}"));
+    }
+
+    if let Err(error) = update_imported_model_registry(app, &models_root, &imported_model_entries) {
+        let _ = fs::remove_dir_all(&target_project);
+        for installed in installed_models.iter().rev() {
+            let _ = fs::remove_dir_all(installed);
+        }
+        if backup.exists() {
+            let _ = fs::rename(&backup, &target_project);
+        }
+        return Err(error);
     }
     if backup.exists() {
         let _ = fs::remove_dir_all(&backup);
@@ -599,6 +628,9 @@ fn validate_manifest(manifest: &ProjectArchiveManifest) -> Result<(), String> {
         if model.path != format!("models/{}", model.id) {
             return Err(format!("模型归档路径无效: {}", model.id));
         }
+        if !model.entry.is_empty() {
+            validate_model_entry(&model.entry, &model.id)?;
+        }
         if model.sha256.len() != 64 || !model.sha256.chars().all(|value| value.is_ascii_hexdigit())
         {
             return Err(format!("模型摘要无效: {}", model.id));
@@ -738,14 +770,83 @@ fn validate_model_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_model_directory(directory: &Path, model_id: &str) -> Result<(), String> {
-    let entry = find_model_entry_file(directory)?
-        .ok_or_else(|| format!("模型缺少 model3.json 或 model.json 入口: {model_id}"))?;
-    let entry_json = read_json_file(&directory.join(entry))?;
+fn validate_model_directory(
+    directory: &Path,
+    model_id: &str,
+    expected_entry: &str,
+) -> Result<(), String> {
+    validate_model_entry(expected_entry, model_id)?;
+    let entry_json = read_json_file(&directory.join(expected_entry))?;
     if !is_model_entry_json(&entry_json) {
         return Err(format!("模型入口无法识别: {model_id}"));
     }
     Ok(())
+}
+
+fn validate_model_entry(entry: &str, model_id: &str) -> Result<(), String> {
+    if entry.is_empty() || Path::new(entry).components().count() != 1 || !is_model_entry_name(entry)
+    {
+        return Err(format!("模型入口无效: {model_id}"));
+    }
+    Ok(())
+}
+
+fn selected_model_entry(
+    registry: &Value,
+    model_id: &str,
+    model_path: &Path,
+) -> Result<String, String> {
+    let indexed_entry = registry
+        .get("models")
+        .and_then(Value::as_object)
+        .and_then(|models| models.get(model_id))
+        .and_then(|model| model.get("entry"))
+        .and_then(Value::as_str);
+    if let Some(entry) = indexed_entry {
+        validate_model_entry(entry, model_id)?;
+        if model_path.join(entry).is_file() {
+            return Ok(entry.to_string());
+        }
+    }
+    find_unique_model_entry_file(model_path)
+}
+
+fn update_imported_model_registry(
+    app: &AppHandle,
+    models_root: &Path,
+    imported_entries: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    if imported_entries.is_empty() {
+        return Ok(());
+    }
+    let mut registry = get_model_registry(app.clone())?;
+    let models = registry
+        .get_mut("models")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "全局模型注册表格式无效".to_string())?;
+    for (model_id, entry) in imported_entries {
+        let entry_json = read_json_file(&models_root.join(model_id).join(entry))?;
+        let motions_and_facials = super::model_registry::motion_catalog_from_json(&entry_json);
+        let existing_name: Option<Value> = models
+            .get(model_id)
+            .and_then(|existing: &Value| existing.get("name"))
+            .cloned();
+        let mut registry_entry = Map::new();
+        registry_entry.insert("entry".to_string(), Value::String(entry.clone()));
+        registry_entry.insert(
+            "motions".to_string(),
+            serde_json::json!(motions_and_facials.0),
+        );
+        registry_entry.insert(
+            "facials".to_string(),
+            serde_json::json!(motions_and_facials.1),
+        );
+        if let Some(name) = existing_name {
+            registry_entry.insert("name".to_string(), name);
+        }
+        models.insert(model_id.clone(), Value::Object(registry_entry));
+    }
+    write_model_registry(models_root, &registry)
 }
 
 fn rewrite_model_ids(
@@ -1163,6 +1264,7 @@ mod tests {
             },
             models: vec![ArchiveModel {
                 id: "test-model".into(),
+                entry: "test.model3.json".into(),
                 path: "models/test-model".into(),
                 sha256: directory_digest(&model).unwrap(),
             }],
