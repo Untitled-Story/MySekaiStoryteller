@@ -282,6 +282,8 @@ function TabButton({
 const TOUCH_ROW_DRAG_LONG_PRESS_MS: number = 380
 const TOUCH_ROW_DRAG_CANCEL_PX: number = 14
 const DRAG_ACTIVATE_PX: number = 6
+const DRAG_AUTO_SCROLL_EDGE_PX: number = 56
+const DRAG_AUTO_SCROLL_MAX_PX_PER_FRAME: number = 18
 
 function StoryTree({
   nodes,
@@ -319,12 +321,15 @@ function StoryTree({
   const { t } = useTranslation()
   const treeRef = useRef<HTMLDivElement | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
+  const autoScrollFrameRef = useRef<number | null>(null)
+  const dragPointerRef = useRef<{ x: number; y: number } | null>(null)
   const suppressClickRef = useRef<boolean>(false)
   const pointerRef = useRef<{
     pointerId: number
     sourceId: string
     startX: number
     startY: number
+    lastY: number
     active: boolean
     armed: boolean
     requiresLongPress: boolean
@@ -333,11 +338,26 @@ function StoryTree({
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<StoryDropTarget | null>(null)
 
+  useEffect((): (() => void) => {
+    return (): void => {
+      clearLongPressTimer()
+      clearAutoScroll()
+    }
+  }, [])
+
   function clearLongPressTimer(): void {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
     }
+  }
+
+  function clearAutoScroll(): void {
+    if (autoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoScrollFrameRef.current)
+      autoScrollFrameRef.current = null
+    }
+    dragPointerRef.current = null
   }
 
   function updateDropTarget(nextTarget: StoryDropTarget | null): void {
@@ -347,6 +367,7 @@ function StoryTree({
 
   function resetPointerState(event?: ReactPointerEvent<HTMLDivElement>): void {
     clearLongPressTimer()
+    clearAutoScroll()
     if (event && treeRef.current?.hasPointerCapture(event.pointerId)) {
       treeRef.current.releasePointerCapture(event.pointerId)
     }
@@ -377,23 +398,21 @@ function StoryTree({
 
     const requiresLongPress: boolean = touchRowDrag
     clearLongPressTimer()
+    suppressClickRef.current = false
     pointerRef.current = {
       pointerId: event.pointerId,
       sourceId,
       startX: event.clientX,
       startY: event.clientY,
+      lastY: event.clientY,
       active: false,
       armed: !requiresLongPress,
       requiresLongPress
     }
 
-    if (!requiresLongPress) {
-      event.currentTarget.setPointerCapture(event.pointerId)
-      return
-    }
-
-    // Keep the row gesture under our control for the full long-press window.
     event.currentTarget.setPointerCapture(event.pointerId)
+    if (!requiresLongPress) return
+
     longPressTimerRef.current = window.setTimeout((): void => {
       longPressTimerRef.current = null
       armPointerDrag(event.pointerId)
@@ -411,8 +430,12 @@ function StoryTree({
 
     if (!pointer.armed) {
       if (distance > TOUCH_ROW_DRAG_CANCEL_PX) {
-        resetPointerState()
+        clearLongPressTimer()
+        const tree: HTMLDivElement | null = treeRef.current
+        if (tree) tree.scrollTop -= event.clientY - pointer.lastY
       }
+      pointer.lastY = event.clientY
+      event.preventDefault()
       return
     }
 
@@ -424,7 +447,15 @@ function StoryTree({
     }
 
     event.preventDefault()
-    const element: Element | null = document.elementFromPoint(event.clientX, event.clientY)
+    updateDragTarget(event.clientX, event.clientY)
+    scheduleAutoScroll(event.clientX, event.clientY)
+  }
+
+  function updateDragTarget(clientX: number, clientY: number): void {
+    const pointer: typeof pointerRef.current = pointerRef.current
+    if (!pointer) return
+
+    const element: Element | null = document.elementFromPoint(clientX, clientY)
     const row: HTMLElement | null = element?.closest<HTMLElement>('[data-snippet-id]') ?? null
     const targetId: string | undefined = row?.dataset.snippetId
     const source: FlatTreeNode | undefined = nodes.find(
@@ -440,7 +471,7 @@ function StoryTree({
 
     const treeBounds: DOMRect | undefined = treeRef.current?.getBoundingClientRect()
     const outdentTarget: StoryDropTarget | null = resolveOutdentTarget(
-      event.clientX,
+      clientX,
       treeBounds,
       source,
       target,
@@ -453,7 +484,7 @@ function StoryTree({
 
     if (!target) {
       const rootEndTarget: StoryDropTarget | null = resolveRootEndTarget(
-        event.clientY,
+        clientY,
         treeRef.current,
         source,
         nodes
@@ -468,7 +499,7 @@ function StoryTree({
     }
 
     const placement: SnippetDropPlacement = resolveDropPlacement(
-      event.clientY,
+      clientY,
       row?.getBoundingClientRect(),
       target
     )
@@ -479,6 +510,58 @@ function StoryTree({
       indicatorPlacement: placement,
       indicatorDepth: placement === 'inside' ? target.depth + 1 : target.depth
     })
+  }
+
+  function autoScrollDelta(clientY: number): number {
+    const tree: HTMLDivElement | null = treeRef.current
+    if (!tree) return 0
+
+    const bounds: DOMRect = tree.getBoundingClientRect()
+    const topDistance: number = clientY - bounds.top
+    if (topDistance < DRAG_AUTO_SCROLL_EDGE_PX) {
+      const intensity: number = 1 - Math.max(topDistance, 0) / DRAG_AUTO_SCROLL_EDGE_PX
+      return -Math.ceil(DRAG_AUTO_SCROLL_MAX_PX_PER_FRAME * intensity)
+    }
+
+    const bottomDistance: number = bounds.bottom - clientY
+    if (bottomDistance < DRAG_AUTO_SCROLL_EDGE_PX) {
+      const intensity: number = 1 - Math.max(bottomDistance, 0) / DRAG_AUTO_SCROLL_EDGE_PX
+      return Math.ceil(DRAG_AUTO_SCROLL_MAX_PX_PER_FRAME * intensity)
+    }
+
+    return 0
+  }
+
+  function scheduleAutoScroll(clientX: number, clientY: number): void {
+    dragPointerRef.current = { x: clientX, y: clientY }
+    if (autoScrollFrameRef.current !== null) return
+
+    function scrollFrame(): void {
+      const pointer: typeof pointerRef.current = pointerRef.current
+      const dragPointer: { x: number; y: number } | null = dragPointerRef.current
+      const tree: HTMLDivElement | null = treeRef.current
+      if (!pointer?.active || !dragPointer || !tree) {
+        autoScrollFrameRef.current = null
+        return
+      }
+
+      const delta: number = autoScrollDelta(dragPointer.y)
+      if (delta === 0) {
+        autoScrollFrameRef.current = null
+        return
+      }
+
+      const previousScrollTop: number = tree.scrollTop
+      tree.scrollBy({ top: delta })
+      updateDragTarget(dragPointer.x, dragPointer.y)
+      if (tree.scrollTop === previousScrollTop) {
+        autoScrollFrameRef.current = null
+        return
+      }
+      autoScrollFrameRef.current = window.requestAnimationFrame(scrollFrame)
+    }
+
+    autoScrollFrameRef.current = window.requestAnimationFrame(scrollFrame)
   }
 
   function finishPointerDrag(event?: ReactPointerEvent<HTMLDivElement>): void {
@@ -624,8 +707,6 @@ function StoryNodeRow({
       className={cn(
         'relative transition-opacity',
         dragging && 'opacity-35',
-        // Whole-row long-press drag needs touch-none; handle-only touch-none
-        // leaves the rest of the row to browser scroll and cancels the press.
         touchRowDrag && dragEnabled && 'touch-none select-none'
       )}
       style={{ paddingLeft: `${flatNode.depth * 18}px` }}
