@@ -1054,6 +1054,7 @@ function createDialogueText(screenWidth: number, screenHeight: number, fontFamil
       fontSize: screenHeight / 26,
       lineHeight: screenHeight / 19,
       stroke: { color: '#4A49688D', width: screenHeight / 120, join: 'round' },
+      breakWords: true,
       wordWrap: true,
       wordWrapWidth: screenWidth - x * 2
     }
