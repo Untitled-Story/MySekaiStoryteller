@@ -825,22 +825,12 @@ fn update_imported_model_registry(
         .and_then(Value::as_object_mut)
         .ok_or_else(|| "全局模型注册表格式无效".to_string())?;
     for (model_id, entry) in imported_entries {
-        let entry_json = read_json_file(&models_root.join(model_id).join(entry))?;
-        let motions_and_facials = super::model_registry::motion_catalog_from_json(&entry_json);
         let existing_name: Option<Value> = models
             .get(model_id)
             .and_then(|existing: &Value| existing.get("name"))
             .cloned();
         let mut registry_entry = Map::new();
         registry_entry.insert("entry".to_string(), Value::String(entry.clone()));
-        registry_entry.insert(
-            "motions".to_string(),
-            serde_json::json!(motions_and_facials.0),
-        );
-        registry_entry.insert(
-            "facials".to_string(),
-            serde_json::json!(motions_and_facials.1),
-        );
         if let Some(name) = existing_name {
             registry_entry.insert("name".to_string(), name);
         }

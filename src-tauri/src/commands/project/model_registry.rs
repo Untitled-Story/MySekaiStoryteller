@@ -36,16 +36,16 @@ fn model_registry_from_dirs(models_dir: &Path) -> Result<Value, String> {
         let Some(model_entry) = find_model_entry_file(&entry.path())? else {
             continue;
         };
-        let (motions, facials) = read_json_file(&entry.path().join(&model_entry))
-            .map(|entry_json| motion_catalog_from_json(&entry_json))
-            .unwrap_or_default();
-
+        let (motions, facials): (Vec<String>, Vec<String>) =
+            read_json_file(&entry.path().join(&model_entry))
+                .map(|entry_json: Value| motion_catalog_from_json(&entry_json))
+                .unwrap_or_default();
         models.insert(
             model_id,
             serde_json::json!({
                 "entry": model_entry,
                 "motions": motions,
-                "facials": facials
+                "facials": facials,
             }),
         );
     }
@@ -237,8 +237,7 @@ pub fn import_global_model(
         .map_err(|error| format!("读取全局模型目录失败: {error}"))?;
 
     let is_archive = is_zip_archive(&source_entry)?;
-    let (entry_name, entry_json, directory_name, source_dir, selected_archive_entry) = if is_archive
-    {
+    let (entry_name, directory_name, source_dir, selected_archive_entry) = if is_archive {
         let inspection = inspect_archive(&source_entry)?;
         let selected = select_archive_entry(&inspection, archive_entry.as_deref())?;
         let selected_entry_name = selected
@@ -263,7 +262,7 @@ pub fn import_global_model(
             .or_else(|| source_entry.file_stem().and_then(|value| value.to_str()))
             .unwrap_or("model")
             .to_string();
-        (entry_name, entry_json, directory_name, None, Some(selected))
+        (entry_name, directory_name, None, Some(selected))
     } else {
         if materialized.copied {
             return Err(
@@ -299,13 +298,7 @@ pub fn import_global_model(
             .and_then(|value| value.to_str())
             .unwrap_or("model")
             .to_string();
-        (
-            entry_name,
-            entry_json,
-            directory_name,
-            Some(source_dir),
-            None,
-        )
+        (entry_name, directory_name, Some(source_dir), None)
     };
 
     let model_id = next_model_id(&models_dir, &normalize_model_id(&directory_name));
@@ -318,9 +311,6 @@ pub fn import_global_model(
         .ok_or_else(|| "全局模型注册表格式无效".to_string())?;
     let mut registry_entry =
         serde_json::Map::from_iter([("entry".to_string(), Value::String(entry_name.clone()))]);
-    let (motions, facials) = motion_catalog_from_json(&entry_json);
-    registry_entry.insert("motions".to_string(), serde_json::json!(motions));
-    registry_entry.insert("facials".to_string(), serde_json::json!(facials));
     if let Some(display_name) = name.filter(|value| !value.trim().is_empty()) {
         registry_entry.insert("name".to_string(), Value::String(display_name));
     }
@@ -608,7 +598,7 @@ pub(crate) fn is_model_entry_json(entry: &Value) -> bool {
         || entry.get("moc").and_then(Value::as_str).is_some()
 }
 
-pub(crate) fn motion_catalog_from_json(entry: &Value) -> (Vec<String>, Vec<String>) {
+fn motion_catalog_from_json(entry: &Value) -> (Vec<String>, Vec<String>) {
     let groups = entry
         .get("FileReferences")
         .and_then(|references| references.get("Motions"))
