@@ -36,7 +36,6 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
-import { Switch } from '@/components/ui/Switch'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -96,8 +95,6 @@ export function EditorSidebar({
   activePanel,
   searchQuery,
   touchMode,
-  dragMode,
-  onDragModeChange,
   treeNodes,
   selectedNodeId,
   activeSnippetIds,
@@ -123,8 +120,6 @@ export function EditorSidebar({
   activePanel: EditorSidebarTab
   searchQuery: string
   touchMode: boolean
-  dragMode: boolean
-  onDragModeChange: (enabled: boolean) => void
   treeNodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
   activeSnippetIds: ReadonlySet<string>
@@ -151,15 +146,13 @@ export function EditorSidebar({
   const searchLabel: string =
     activePanel === 'story' ? t('editor.searchSnippets') : t('editor.searchAssets')
   const searching: boolean = searchQuery.trim().length > 0
-  const dragEnabled: boolean = !searching && (!touchMode || dragMode)
-  const touchRowDrag: boolean = touchMode && dragMode
-  const dragDisabledHint: string = searching
-    ? t('editor.dragDisabledHint')
-    : t('editor.dragModeDisabledHint')
+  const dragEnabled: boolean = !searching
+  const touchRowDrag: boolean = touchMode && !searching
+  const dragDisabledHint: string = t('editor.dragDisabledHint')
 
   return (
     <aside className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r bg-muted/20">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+      <div className="flex h-12 shrink-0 items-center border-b px-3">
         <div className="flex h-8 items-center rounded-md bg-muted p-0.5">
           <TabButton
             active={activePanel === 'story'}
@@ -172,16 +165,6 @@ export function EditorSidebar({
             onClick={(): void => onActivePanelChange('assets')}
           />
         </div>
-        {touchMode ? (
-          <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="truncate">{t('editor.dragMode')}</span>
-            <Switch
-              checked={dragMode}
-              aria-label={t('editor.dragModeAria')}
-              onCheckedChange={onDragModeChange}
-            />
-          </label>
-        ) : null}
         {activePanel === 'story' ? (
           <Button
             type="button"
@@ -333,6 +316,7 @@ function StoryTree({
     active: boolean
     armed: boolean
     requiresLongPress: boolean
+    moved: boolean
   } | null>(null)
   const dropTargetRef = useRef<StoryDropTarget | null>(null)
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
@@ -407,7 +391,8 @@ function StoryTree({
       lastY: event.clientY,
       active: false,
       armed: !requiresLongPress,
-      requiresLongPress
+      requiresLongPress,
+      moved: false
     }
 
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -431,6 +416,7 @@ function StoryTree({
     if (!pointer.armed) {
       if (distance > TOUCH_ROW_DRAG_CANCEL_PX) {
         clearLongPressTimer()
+        pointer.moved = true
         const tree: HTMLDivElement | null = treeRef.current
         if (tree) tree.scrollTop -= event.clientY - pointer.lastY
       }
@@ -571,6 +557,14 @@ function StoryTree({
     if (pointer.active && dropTargetRef.current) {
       onMove(pointer.sourceId, dropTargetRef.current.nodeId, dropTargetRef.current.placement)
       event?.preventDefault()
+    }
+    if (
+      event?.type === 'pointerup' &&
+      pointer.requiresLongPress &&
+      !pointer.armed &&
+      !pointer.moved
+    ) {
+      onSelect(pointer.sourceId)
     }
     resetPointerState(event)
   }
@@ -737,13 +731,7 @@ function StoryNodeRow({
       )}
       <button
         type="button"
-        title={
-          dragEnabled
-            ? touchRowDrag
-              ? t('editor.dragModeLongPressHint')
-              : t('editor.dragHint')
-            : dragDisabledHint
-        }
+        title={dragEnabled ? t('editor.dragHint') : dragDisabledHint}
         className={cn(
           'group flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-8 text-left transition-colors',
           selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
