@@ -240,10 +240,10 @@ export function createStoryScene({
     fastForwarding ? Promise.resolve() : clock.delay(timeMs)
   const waitUntil = (whenFinish: () => boolean): Promise<void> => clock.waitUntil(whenFinish)
 
-  const resizeObserver = new ResizeObserver((): void => {
+  const handleRendererResize = (): void => {
     relayoutScene()
-  })
-  resizeObserver.observe(app.canvas)
+  }
+  app.renderer.on('resize', handleRendererResize)
 
   const pixi: StoryPixiAccessApi = {
     app,
@@ -819,7 +819,7 @@ export function createStoryScene({
   function destroy(): void {
     if (destroyed) return
     destroyed = true
-    resizeObserver.disconnect()
+    app.renderer.off('resize', handleRendererResize)
 
     for (const dispose of disposers) {
       dispose()
