@@ -17,8 +17,6 @@
 
 MySekaiStoryteller lets you build fan stories using Live2D models, backgrounds, voices, transitions, and visual effects — then preview them in real time. Available on desktop and Android.
 
-> This project is in beta. Back up your project data before upgrading.
-
 ## Features
 
 - Compose stories from snippets: dialogue, scene changes, motions, effects, and more
