@@ -304,7 +304,7 @@ pub fn import_global_model(
     let model_id = next_model_id(&models_dir, &normalize_model_id(&directory_name));
     let destination = models_dir.join(&model_id);
     let temporary = models_dir.join(format!(".import-{}", unique_suffix()));
-    let mut registry = get_model_registry(app)?;
+    let mut registry = get_model_registry(app.clone())?;
     let models = registry
         .get_mut("models")
         .and_then(Value::as_object_mut)
@@ -337,6 +337,10 @@ pub fn import_global_model(
         let _ = fs::remove_dir_all(&destination);
         return Err(error);
     }
+
+    // Re-read after extraction so the response includes the selected entry's
+    // live motion and facial catalog instead of the temporary index entry.
+    let registry = get_model_registry(app)?;
 
     log::info!(
         target: "backend::model",
