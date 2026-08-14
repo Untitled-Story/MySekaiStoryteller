@@ -110,7 +110,7 @@ import {
 import { moveSnippetSubtree, type SnippetDropPlacement } from './editorTree'
 import { localizeAssetKind } from './editorLocalization'
 import { EditorProductTour } from '@/onboarding/EditorProductTour'
-import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
+import { normalizeOnboardingSettings } from '@/onboarding/types'
 import { useTranslation } from 'react-i18next'
 import { i18n } from '@/i18n'
 
@@ -1468,8 +1468,7 @@ export default function App({
 
       <EditorProductTour
         active={
-          settings !== null &&
-          normalizeOnboardingSettings(settings.onboarding).editorTourVersion < EDITOR_TOUR_VERSION
+          settings !== null && !normalizeOnboardingSettings(settings.onboarding).editorTourCompleted
         }
         onComplete={onCompleteEditorTour}
       />

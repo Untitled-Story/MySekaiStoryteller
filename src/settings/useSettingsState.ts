@@ -134,8 +134,8 @@ export function useSettingsState(): SettingsHook {
       setLanguage(normalizeAppLanguage(event.payload.language))
       setOnboarding((current: OnboardingSettings): OnboardingSettings => {
         if (
-          current.mainTourVersion === nextOnboarding.mainTourVersion &&
-          current.editorTourVersion === nextOnboarding.editorTourVersion
+          current.mainTourCompleted === nextOnboarding.mainTourCompleted &&
+          current.editorTourCompleted === nextOnboarding.editorTourCompleted
         ) {
           return current
         }

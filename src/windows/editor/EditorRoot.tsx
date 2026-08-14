@@ -8,7 +8,7 @@ import { getSettings, saveSettings } from '@/settings/api'
 import type { AppSettings, SystemTheme } from '@/settings/types'
 import { useSystemTheme } from '@/settings/useSystemTheme'
 import App from './App'
-import { EDITOR_TOUR_VERSION, normalizeOnboardingSettings } from '@/onboarding/types'
+import { normalizeOnboardingSettings } from '@/onboarding/types'
 import { applyAppLanguage } from '@/i18n'
 
 export function EditorRoot({
@@ -71,7 +71,7 @@ export function EditorRoot({
           ...stored,
           onboarding: {
             ...normalizeOnboardingSettings(stored.onboarding),
-            editorTourVersion: EDITOR_TOUR_VERSION
+            editorTourCompleted: true
           }
         }
         setSettings(nextSettings)

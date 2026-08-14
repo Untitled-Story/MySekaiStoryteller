@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Plus, Edit3, Play, Clock, Folder, Settings } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
@@ -8,7 +8,6 @@ import { timeAgo } from '@/windows/main/utils/time'
 import { useNavigate } from 'react-router'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { useSettings } from '@/settings/useSettings'
-import { MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { MainProductTour } from '@/onboarding/MainProductTour'
 import { useTranslation } from 'react-i18next'
 import { useViewportMode } from '@/hooks/useViewportMode'
@@ -25,9 +24,9 @@ export default function HomePage(): JSX.Element {
   const stackSections: boolean = viewportMode === 'phone'
   const mobileRuntime: boolean = isMobileRuntime()
 
-  const completeMainTour = useCallback((): void => {
-    setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
-  }, [onboarding, setOnboarding])
+  function completeMainTour(): void {
+    setOnboarding({ ...onboarding, mainTourCompleted: true })
+  }
 
   const latest: ProjectMetadata | null =
     projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
@@ -166,10 +165,7 @@ export default function HomePage(): JSX.Element {
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleProjectCreated}
       />
-      <MainProductTour
-        active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}
-        onComplete={completeMainTour}
-      />
+      <MainProductTour active={!onboarding.mainTourCompleted} onComplete={completeMainTour} />
     </div>
   )
 }
