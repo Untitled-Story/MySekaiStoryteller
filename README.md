@@ -11,7 +11,7 @@
   </p>
 </div>
 
-**English** | [简体中文](README-ZH.md)
+**English** | [简体中文](README-ZH.md) | [日本語](README-JA.md)
 
 ---
 
