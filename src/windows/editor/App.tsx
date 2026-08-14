@@ -1,5 +1,5 @@
 import type { ChangeEvent, JSX } from 'react'
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog'
 import {
   getCurrentWindow,
@@ -211,6 +211,7 @@ export default function App({
   )
   const [savingStory, setSavingStory] = useState<boolean>(false)
   const [savingAssets, setSavingAssets] = useState<boolean>(false)
+  const [assetWritePending, setAssetWritePending] = useState<boolean>(false)
   const [storySaveStatus, setStorySaveStatus] = useState<StorySaveStatus>('saved')
   const [storySaveError, setStorySaveError] = useState<string | null>(null)
   const [projectMutationInProgress, setProjectMutationInProgress] = useState<boolean>(false)
@@ -243,17 +244,20 @@ export default function App({
   const flushEditorWritesRef = useRef<() => Promise<boolean>>(
     (): Promise<boolean> => Promise.resolve(true)
   )
+  const canManualSaveRef = useRef<boolean>(false)
 
   const story: EditorStory = history.present
   storyRef.current = story
   loadedProjectRef.current = loadedProject
   const isDirty: boolean = !storiesEqual(history.present, history.saved)
   const editorSaving: boolean = savingStory || savingAssets || projectMutationInProgress
+  const canManualSave: boolean =
+    !editorSaving && (isDirty || storySaveStatus === 'error' || assetWritePending)
   const saveButtonTitle: string = editorSaving
     ? t('editor.saving')
     : storySaveStatus === 'error'
       ? t('editor.saveFailedRetry')
-      : isDirty
+      : isDirty || assetWritePending
         ? t('editor.saveNow')
         : t('editor.saved')
   const visibleError: string | null = storySaveError ?? actionError
@@ -284,6 +288,10 @@ export default function App({
     assetsRef.current = loadedProject?.previewInput.assets ?? EMPTY_ASSETS
   }, [loadedProject])
 
+  useLayoutEffect((): void => {
+    canManualSaveRef.current = canManualSave
+  }, [canManualSave])
+
   useEffect((): (() => void) => {
     return (): void => {
       if (inputMergeTimerRef.current !== null) {
@@ -299,6 +307,7 @@ export default function App({
     function saveOnShortcut(event: KeyboardEvent): void {
       if (!matchesShortcut(event, saveShortcut)) return
       event.preventDefault()
+      if (!canManualSaveRef.current) return
       void flushEditorWritesRef.current()
     }
 
@@ -503,6 +512,7 @@ export default function App({
     lastPersistedStoryRef.current = { projectName, story: savedStory }
     setSavingStory(false)
     setSavingAssets(false)
+    setAssetWritePending(false)
     setStorySaveStatus('saved')
   }
 
@@ -515,6 +525,7 @@ export default function App({
     pendingAssetWriteRef.current = null
     setSavingStory(false)
     setSavingAssets(false)
+    setAssetWritePending(false)
   }
 
   function enqueueStorySave(projectName: string, snapshot: EditorStory): Promise<boolean> {
@@ -605,6 +616,7 @@ export default function App({
 
   function scheduleAssetWrite(projectName: string, assets: ProjectAssets): void {
     pendingAssetWriteRef.current = { projectName, assets }
+    setAssetWritePending(true)
     clearAssetWriteTimer()
     assetWriteTimerRef.current = window.setTimeout((): void => {
       assetWriteTimerRef.current = null
@@ -622,10 +634,12 @@ export default function App({
         await saveAssetsWithRetry(write.projectName, write.assets)
         if (session !== saveSessionRef.current) return false
         setActionError(null)
+        if (!pendingAssetWriteRef.current) setAssetWritePending(false)
         return true
       } catch (error: unknown) {
         if (session !== saveSessionRef.current) return false
         if (!pendingAssetWriteRef.current) pendingAssetWriteRef.current = write
+        setAssetWritePending(true)
         setActionError(describeError(error, t('editor.saveAssetsFailed')))
         logger.error('editor.assets_save_failed', {
           projectName: write.projectName,
@@ -1316,6 +1330,7 @@ export default function App({
             className={cn('size-9', storySaveStatus === 'error' && 'text-destructive')}
             aria-label={saveButtonTitle}
             title={saveButtonTitle}
+            disabled={!canManualSave}
             onClick={(): void => {
               void flushEditorWrites()
             }}
