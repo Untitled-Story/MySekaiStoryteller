@@ -172,6 +172,7 @@ type Live2DInternalModelLike = {
   readonly width: number
   readonly height: number
   readonly originalHeight: number
+  getIdSafe?: (id: string) => unknown
   readonly parallelMotionManager?: ParallelMotionManagerLike[]
   readonly coreModel?: Live2DCoreModelLike
   readonly settings?: Live2DSettingsLike
@@ -1470,11 +1471,13 @@ function getCurveRunner(
 }
 
 function setModelParameter(model: SekaiLive2DModel, paramId: string, value: number): void {
-  const coreModel: Live2DCoreModelLike | undefined = getInternalModel(model).coreModel
+  const internalModel: Live2DInternalModelLike = getInternalModel(model)
+  const coreModel: Live2DCoreModelLike | undefined = internalModel.coreModel
   if (!coreModel) return
 
   if (coreModel.setParameterValueById) {
-    coreModel.setParameterValueById(paramId, value)
+    const id: unknown = internalModel.getIdSafe?.(paramId) ?? paramId
+    coreModel.setParameterValueById(id, value)
     return
   }
 
