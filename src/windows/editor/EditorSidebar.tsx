@@ -782,10 +782,8 @@ function StoryNodeRow({
           className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
           title={expanded ? t('editor.collapseParallel') : t('editor.expandParallel')}
-          data-no-drag={!touchRowDrag ? true : undefined}
-          onClick={(): void => {
-            if (!touchRowDrag) onToggleParallel(node.id)
-          }}
+          data-no-drag
+          onClick={(): void => onToggleParallel(node.id)}
         >
           {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         </button>
