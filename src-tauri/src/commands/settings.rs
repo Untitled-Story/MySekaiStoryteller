@@ -45,6 +45,10 @@ pub struct ShortcutBinding {
 pub struct EditorShortcutSettings {
     #[serde(default = "default_editor_save_shortcut")]
     pub save: ShortcutBinding,
+    #[serde(default = "default_editor_undo_shortcut")]
+    pub undo: ShortcutBinding,
+    #[serde(default = "default_editor_redo_shortcut")]
+    pub redo: ShortcutBinding,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,6 +164,8 @@ impl Default for EditorShortcutSettings {
     fn default() -> Self {
         Self {
             save: default_editor_save_shortcut(),
+            undo: default_editor_undo_shortcut(),
+            redo: default_editor_redo_shortcut(),
         }
     }
 }
@@ -216,6 +222,17 @@ fn shortcut(key: &str, primary: bool) -> ShortcutBinding {
 
 fn default_editor_save_shortcut() -> ShortcutBinding {
     shortcut("s", true)
+}
+
+fn default_editor_undo_shortcut() -> ShortcutBinding {
+    shortcut("z", true)
+}
+
+fn default_editor_redo_shortcut() -> ShortcutBinding {
+    ShortcutBinding {
+        shift: true,
+        ..shortcut("z", true)
+    }
 }
 
 fn default_player_reload_shortcut() -> ShortcutBinding {
@@ -316,6 +333,12 @@ mod tests {
 
         assert_eq!(settings.shortcuts.editor.save.key, "s");
         assert!(settings.shortcuts.editor.save.primary);
+        assert_eq!(settings.shortcuts.editor.undo.key, "z");
+        assert!(settings.shortcuts.editor.undo.primary);
+        assert!(!settings.shortcuts.editor.undo.shift);
+        assert_eq!(settings.shortcuts.editor.redo.key, "z");
+        assert!(settings.shortcuts.editor.redo.primary);
+        assert!(settings.shortcuts.editor.redo.shift);
         assert_eq!(settings.shortcuts.player.reload.key, "r");
         assert_eq!(settings.shortcuts.player.enter_fullscreen.key, "F11");
         assert_eq!(settings.shortcuts.player.exit_fullscreen.key, "Escape");

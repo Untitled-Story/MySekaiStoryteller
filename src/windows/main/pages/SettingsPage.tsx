@@ -432,6 +432,8 @@ export default function SettingsPage(): JSX.Element {
 
 type ShortcutCommandId =
   | 'editor.save'
+  | 'editor.undo'
+  | 'editor.redo'
   | 'player.reload'
   | 'player.enterFullscreen'
   | 'player.exitFullscreen'
@@ -457,6 +459,18 @@ const EDITOR_SHORTCUT_COMMANDS: readonly ShortcutCommandDefinition[] = [
     scope: 'editor',
     titleKey: 'settings.saveProject',
     descriptionKey: 'settings.saveProjectDescription'
+  },
+  {
+    id: 'editor.undo',
+    scope: 'editor',
+    titleKey: 'settings.undoEdit',
+    descriptionKey: 'settings.undoEditDescription'
+  },
+  {
+    id: 'editor.redo',
+    scope: 'editor',
+    titleKey: 'settings.redoEdit',
+    descriptionKey: 'settings.redoEditDescription'
   }
 ]
 
@@ -624,6 +638,10 @@ function getShortcutBinding(settings: ShortcutSettings, id: ShortcutCommandId): 
   switch (id) {
     case 'editor.save':
       return settings.editor.save
+    case 'editor.undo':
+      return settings.editor.undo
+    case 'editor.redo':
+      return settings.editor.redo
     case 'player.reload':
       return settings.player.reload
     case 'player.enterFullscreen':
@@ -643,6 +661,10 @@ function updateShortcutBinding(
   switch (id) {
     case 'editor.save':
       return { ...settings, editor: { ...settings.editor, save: binding } }
+    case 'editor.undo':
+      return { ...settings, editor: { ...settings.editor, undo: binding } }
+    case 'editor.redo':
+      return { ...settings, editor: { ...settings.editor, redo: binding } }
     case 'player.reload':
       return { ...settings, player: { ...settings.player, reload: binding } }
     case 'player.enterFullscreen':

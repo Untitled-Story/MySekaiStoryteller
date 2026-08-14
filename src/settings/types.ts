@@ -38,6 +38,8 @@ export type ShortcutBinding = {
 export type ShortcutSettings = {
   editor: {
     save: ShortcutBinding
+    undo: ShortcutBinding
+    redo: ShortcutBinding
   }
   player: {
     reload: ShortcutBinding

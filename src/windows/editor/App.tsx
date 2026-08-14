@@ -76,7 +76,7 @@ import type { ProjectMetadata } from '@/project/metadata'
 import { exportProjectArchive } from '@/project/archive'
 import { getSettings } from '@/settings/api'
 import { matchesShortcut, normalizeShortcutSettings } from '@/settings/shortcuts'
-import type { AppSettings, ShortcutBinding } from '@/settings/types'
+import type { AppSettings, ShortcutSettings } from '@/settings/types'
 import { getProjectStory, setProjectStory } from '@/story/api'
 import type { StoryData } from '@/story'
 import { getDataPath } from '@/workspace/api'
@@ -279,8 +279,8 @@ export default function App({
     (): EditorPreviewInput | null => loadedProject?.previewInput ?? null,
     [loadedProject?.previewInput]
   )
-  const saveShortcut: ShortcutBinding = useMemo(
-    (): ShortcutBinding => normalizeShortcutSettings(settings?.shortcuts).editor.save,
+  const editorShortcuts: ShortcutSettings['editor'] = useMemo(
+    (): ShortcutSettings['editor'] => normalizeShortcutSettings(settings?.shortcuts).editor,
     [settings?.shortcuts]
   )
 
@@ -304,16 +304,26 @@ export default function App({
   }, [])
 
   useEffect((): (() => void) => {
-    function saveOnShortcut(event: KeyboardEvent): void {
-      if (!matchesShortcut(event, saveShortcut)) return
-      event.preventDefault()
-      if (!canManualSaveRef.current) return
-      void flushEditorWritesRef.current()
+    function runEditorShortcut(event: KeyboardEvent): void {
+      if (matchesShortcut(event, editorShortcuts.save)) {
+        event.preventDefault()
+        if (canManualSaveRef.current) void flushEditorWritesRef.current()
+        return
+      }
+      if (matchesShortcut(event, editorShortcuts.undo)) {
+        event.preventDefault()
+        dispatchHistory({ type: 'undo' })
+        return
+      }
+      if (matchesShortcut(event, editorShortcuts.redo)) {
+        event.preventDefault()
+        dispatchHistory({ type: 'redo' })
+      }
     }
 
-    window.addEventListener('keydown', saveOnShortcut, true)
-    return (): void => window.removeEventListener('keydown', saveOnShortcut, true)
-  }, [saveShortcut])
+    window.addEventListener('keydown', runEditorShortcut, true)
+    return (): void => window.removeEventListener('keydown', runEditorShortcut, true)
+  }, [editorShortcuts])
 
   useEffect((): (() => void) | undefined => {
     if (embedInShell) return undefined
