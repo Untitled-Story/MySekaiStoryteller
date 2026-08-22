@@ -20,6 +20,7 @@
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "typecheck": "tsc --noEmit",
+    "test:live2d-eye-motion": "node scripts/test-live2d-eye-motion.mjs",
     "test:story-reducer": "node scripts/test-story-reducer.mjs",
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
