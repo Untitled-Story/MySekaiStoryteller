@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/Button'
 import { prefersInAppNavigation } from '@/lib/platform'
 import {
   applyFullscreenModePreference,
-  enterImmersiveMode,
   lockLandscapeOrientation,
   unlockOrientation
 } from '@/lib/orientation'
@@ -118,9 +117,11 @@ export default function App({
     let unlisten: (() => void) | null = null
 
     void listen<AppSettings>('settings-changed', (event: TauriEvent<AppSettings>): void => {
-      if (!disposed) setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
-      fullscreenModeRef.current = Boolean(event.payload.interaction?.fullscreenMode)
-      applyAppLanguage(event.payload.language)
+      if (!disposed) {
+        setShortcutOverride(normalizeShortcutSettings(event.payload.shortcuts))
+        fullscreenModeRef.current = Boolean(event.payload.interaction?.fullscreenMode)
+        applyAppLanguage(event.payload.language)
+      }
     }).then((dispose: () => void): void => {
       if (disposed) dispose()
       else unlisten = dispose
@@ -133,7 +134,7 @@ export default function App({
   }, [])
 
   useEffect((): (() => void) | undefined => {
-    if (!inAppNavigation) return undefined
+    if (!inAppNavigation || !storyInput) return undefined
 
     let cancelled: boolean = false
     const currentWindow: TauriWindow = getCurrentWindow()
@@ -151,7 +152,9 @@ export default function App({
         return
       }
 
-      const immersive: boolean = enterImmersiveMode()
+      const immersive: boolean = applyFullscreenModePreference(
+        Boolean(storyInput.settings?.interaction?.fullscreenMode)
+      )
       if (immersive) logger.info('player.immersive_mode_entered')
 
       const locked: boolean = await lockLandscapeOrientation()
@@ -176,7 +179,7 @@ export default function App({
         .finally((): void => restoreImmersivePreference())
       logger.info('player.orientation_unlocked')
     }
-  }, [clearControlsHideTimer, inAppNavigation, restoreImmersivePreference])
+  }, [clearControlsHideTimer, inAppNavigation, restoreImmersivePreference, storyInput])
 
   useEffect((): (() => void) => {
     const currentWindow: TauriWindow = getCurrentWindow()
