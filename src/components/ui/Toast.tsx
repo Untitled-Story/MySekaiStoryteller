@@ -7,6 +7,7 @@ type ToastVariant = 'success' | 'error'
 
 type ToastProps = {
   message: string
+  details?: readonly string[]
   variant: ToastVariant
   onDismiss: () => void
   closeLabel: string
@@ -15,6 +16,7 @@ type ToastProps = {
 
 export function Toast({
   message,
+  details,
   variant,
   onDismiss,
   closeLabel,
@@ -50,7 +52,20 @@ export function Toast({
           variant === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'
         )}
       />
-      <p className="min-w-0 flex-1 text-sm leading-5 break-words">{message}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm leading-5 break-words">{message}</p>
+        {details && details.length > 0 && (
+          <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto border-t pt-2 text-xs leading-5 text-muted-foreground">
+            {details.map(
+              (detail: string, index: number): JSX.Element => (
+                <li key={`${index}-${detail}`} className="break-words">
+                  {detail}
+                </li>
+              )
+            )}
+          </ul>
+        )}
+      </div>
       <button
         type="button"
         aria-label={closeLabel}
