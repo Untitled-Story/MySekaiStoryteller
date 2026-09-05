@@ -42,6 +42,7 @@ export type EditorAssetSelection = {
 export type EditorAssetItem = EditorAssetSelection & {
   name: string
   detail: string
+  path?: string
 }
 
 export const NODE_PRESENTATIONS: Record<EditorNode['type'], NodePresentation> = {
@@ -137,7 +138,8 @@ export function getAssetItems(assets: ProjectAssets, kind: ProjectAssetKind): Ed
           (kind === 'backgrounds'
             ? i18n.t('editor.unnamedBackground')
             : i18n.t('editor.unnamedVoice')),
-        detail: asset.path
+        detail: asset.path,
+        path: asset.path
       }
     })
     .sort((left: EditorAssetItem, right: EditorAssetItem): number =>

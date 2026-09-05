@@ -5,10 +5,20 @@ import type {
   MouseEvent as ReactMouseEvent
 } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Copy, Layers3, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
+import {
+  ChevronRight,
+  Copy,
+  Image as ImageIcon,
+  Layers3,
+  Save,
+  SlidersHorizontal,
+  Trash2,
+  ZoomIn
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
+import { projectAssetUrl } from '@/lib/projectAssetUrl'
 import {
   createBuiltinVisualEffectRegistry,
   defaultParameterAnimation,
@@ -1285,13 +1295,16 @@ function EmptyInspector(): JSX.Element {
 export function EditorAssetInspector({
   assets,
   selectedAsset,
+  projectPath,
   onModelChange,
   onFileAssetChange,
   onRename,
-  onDelete
+  onDelete,
+  onOpenPreview
 }: {
   assets: ProjectAssets
   selectedAsset: EditorAssetSelection | null
+  projectPath: string
   onModelChange: (key: string, asset: ModelAsset) => void
   onFileAssetChange: (
     kind: Exclude<ProjectAssetKind, 'models'>,
@@ -1300,6 +1313,7 @@ export function EditorAssetInspector({
   ) => void
   onRename: (selection: EditorAssetSelection, newKey: string) => void
   onDelete: (selection: EditorAssetSelection) => void
+  onOpenPreview?: (selection: EditorAssetSelection) => void
 }): JSX.Element {
   const { t } = useTranslation()
   if (!selectedAsset) {
@@ -1359,20 +1373,94 @@ export function EditorAssetInspector({
               }
             />
           ) : (
-            <FileAssetFields
-              asset={asset as BackgroundAsset | VoiceAsset}
-              onChange={(nextAsset: BackgroundAsset | VoiceAsset): void =>
-                onFileAssetChange(
-                  selectedAsset.kind as Exclude<ProjectAssetKind, 'models'>,
-                  selectedAsset.key,
-                  nextAsset
-                )
-              }
-            />
+            <>
+              <FileAssetFields
+                asset={asset as BackgroundAsset | VoiceAsset}
+                onChange={(nextAsset: BackgroundAsset | VoiceAsset): void =>
+                  onFileAssetChange(
+                    selectedAsset.kind as Exclude<ProjectAssetKind, 'models'>,
+                    selectedAsset.key,
+                    nextAsset
+                  )
+                }
+              />
+              {selectedAsset.kind === 'backgrounds' ? (
+                <BackgroundAssetPreview
+                  key={selectedAsset.key}
+                  projectPath={projectPath}
+                  asset={asset as BackgroundAsset}
+                  assetKey={selectedAsset.key}
+                  onOpenPreview={(): void => onOpenPreview?.(selectedAsset)}
+                />
+              ) : null}
+            </>
           )}
         </div>
       </div>
     </aside>
+  )
+}
+
+function BackgroundAssetPreview({
+  projectPath,
+  asset,
+  assetKey,
+  onOpenPreview
+}: {
+  projectPath: string
+  asset: BackgroundAsset
+  assetKey: string
+  onOpenPreview?: () => void
+}): JSX.Element {
+  const { t } = useTranslation()
+  const [loadError, setLoadError] = useState<boolean>(false)
+  const url: string = projectAssetUrl(projectPath, asset.path)
+  const displayName: string = asset.name || assetKey
+
+  return (
+    <FieldGroup label={t('editor.imagePreview')}>
+      <div className="space-y-2">
+        <button
+          type="button"
+          className="group relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-md border bg-muted/40 transition-colors hover:border-amber-500/50"
+          onClick={(): void => onOpenPreview?.()}
+          title={t('editor.clickToExpand')}
+        >
+          <span
+            className="pointer-events-none absolute inset-0 opacity-20"
+            style={{
+              backgroundImage: `linear-gradient(45deg, #888 25%, transparent 25%),
+                linear-gradient(-45deg, #888 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #888 75%),
+                linear-gradient(-45deg, transparent 75%, #888 75%)`,
+              backgroundSize: '16px 16px',
+              backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0'
+            }}
+          />
+          {loadError ? (
+            <span className="relative z-10 flex flex-col items-center gap-1.5 text-muted-foreground">
+              <ImageIcon className="size-6 stroke-[1.5]" />
+              <span className="text-xs">{t('editor.failedToLoadImage')}</span>
+            </span>
+          ) : (
+            <>
+              <img
+                src={url}
+                alt={displayName}
+                className="relative z-10 size-full object-contain p-1 transition-transform duration-200 group-hover:scale-[1.02]"
+                onError={(): void => setLoadError(true)}
+              />
+              <span className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 opacity-0 backdrop-blur-[1px] transition-opacity group-hover:opacity-100">
+                <span className="inline-flex items-center gap-1.5 rounded bg-background/90 px-2 py-1 text-xs font-medium text-foreground shadow">
+                  <ZoomIn className="size-3.5" />
+                  {t('editor.clickToExpand')}
+                </span>
+              </span>
+            </>
+          )}
+        </button>
+      </div>
+    </FieldGroup>
   )
 }
 
