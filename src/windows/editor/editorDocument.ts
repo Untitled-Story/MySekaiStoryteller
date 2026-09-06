@@ -222,11 +222,124 @@ export function duplicateSnippetSubtree(
   }
 }
 
+export type DuplicateSnippetsResult = {
+  story: EditorStory
+  duplicatedIds: readonly string[]
+}
+
+export function duplicateSnippetSubtrees(
+  story: EditorStory,
+  selectedIds: readonly string[]
+): DuplicateSnippetsResult | null {
+  const roots: readonly EditorNode[] = collectSelectedRoots(story, selectedIds)
+  if (roots.length === 0) return null
+
+  let nextStory: EditorStory = story
+  const duplicatedIds: string[] = []
+  for (const root of [...roots].reverse()) {
+    const duplication: DuplicateSnippetResult | null = duplicateSnippetSubtree(nextStory, root.id)
+    if (!duplication) continue
+    nextStory = duplication.story
+    duplicatedIds.unshift(duplication.duplicatedId)
+  }
+
+  if (duplicatedIds.length === 0) return null
+  return { story: nextStory, duplicatedIds }
+}
+
 export function removeSnippetSubtree(story: EditorStory, selectedId: string): EditorStory {
   return {
     ...story,
     snippets: removeFromList(story.snippets, selectedId)
   }
+}
+
+export type RemoveSnippetsResult = {
+  story: EditorStory
+  nextSelectedId: string | null
+}
+
+export function removeSnippetSubtrees(
+  story: EditorStory,
+  selectedIds: readonly string[]
+): RemoveSnippetsResult {
+  const roots: readonly EditorNode[] = collectSelectedRoots(story, selectedIds)
+  if (roots.length === 0) {
+    return { story, nextSelectedId: selectedIds[0] ?? null }
+  }
+
+  const rootIds: Set<string> = new Set(roots.map((root: EditorNode): string => root.id))
+  const nextSelectedId: string | null = findSelectionAfterRemoval(story, roots)
+  return {
+    story: {
+      ...story,
+      snippets: removeManyFromList(story.snippets, rootIds)
+    },
+    nextSelectedId
+  }
+}
+
+function collectSelectedRoots(story: EditorStory, selectedIds: readonly string[]): EditorNode[] {
+  const selected: Set<string> = new Set(selectedIds)
+  const roots: EditorNode[] = []
+
+  function visit(nodes: readonly EditorNode[], ancestorSelected: boolean): void {
+    for (const node of nodes) {
+      const isSelected: boolean = selected.has(node.id)
+      if (isSelected && !ancestorSelected) roots.push(node)
+      if (node.type === 'Parallel') visit(node.snippets, ancestorSelected || isSelected)
+    }
+  }
+
+  visit(story.snippets, false)
+  return roots
+}
+
+function findSelectionAfterRemoval(
+  story: EditorStory,
+  roots: readonly EditorNode[]
+): string | null {
+  const firstRoot: EditorNode | undefined = roots[0]
+  if (!firstRoot) return story.snippets[0]?.id ?? null
+
+  const firstParentId: string | null = findParentId(story.snippets, firstRoot.id)
+  const parentNode: EditorNode | null = firstParentId ? findEditorNode(story, firstParentId) : null
+  const siblings: readonly EditorNode[] =
+    parentNode?.type === 'Parallel' ? parentNode.snippets : story.snippets
+
+  const rootIds: Set<string> = new Set(roots.map((root: EditorNode): string => root.id))
+  const firstIndex: number = siblings.findIndex(
+    (node: EditorNode): boolean => node.id === firstRoot.id
+  )
+  if (firstIndex >= 0) {
+    for (let index: number = firstIndex - 1; index >= 0; index -= 1) {
+      if (!rootIds.has(siblings[index].id)) return siblings[index].id
+    }
+    for (let index: number = firstIndex + 1; index < siblings.length; index += 1) {
+      if (!rootIds.has(siblings[index].id)) return siblings[index].id
+    }
+  }
+
+  if (firstParentId) return firstParentId
+  return null
+}
+
+function removeManyFromList(
+  nodes: readonly EditorNode[],
+  selectedIds: ReadonlySet<string>
+): EditorNode[] {
+  return nodes.reduce((next: EditorNode[], node: EditorNode): EditorNode[] => {
+    if (selectedIds.has(node.id)) return next
+    if (node.type === 'Parallel') {
+      next.push({
+        ...node,
+        snippets: removeManyFromList(node.snippets, selectedIds)
+      })
+      return next
+    }
+    next.push(node)
+    return next
+  }, [])
 }
 
 export function updateSnippet(

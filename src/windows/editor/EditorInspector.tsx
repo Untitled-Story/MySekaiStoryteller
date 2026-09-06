@@ -61,6 +61,7 @@ const EDITOR_VISUAL_EFFECT_REGISTRY = createBuiltinVisualEffectRegistry()
 export function EditorInspector({
   story,
   selectedNode,
+  selectedNodes,
   selectedNodePath,
   assets,
   modelRegistry,
@@ -71,6 +72,7 @@ export function EditorInspector({
 }: {
   story: EditorStory
   selectedNode: EditorNode | null
+  selectedNodes: readonly EditorNode[]
   selectedNodePath: string
   assets: ProjectAssets
   modelRegistry: ModelRegistry
@@ -80,6 +82,9 @@ export function EditorInspector({
   onDelete: () => void
 }): JSX.Element {
   const { t } = useTranslation()
+  const multiSelected: boolean = selectedNodes.length > 1
+  const copyLabel: string = multiSelected ? t('editor.copySnippets') : t('editor.copySnippet')
+  const deleteLabel: string = multiSelected ? t('editor.deleteSnippets') : t('editor.deleteSnippet')
   return (
     <aside
       data-tour="editor-inspector"
@@ -94,9 +99,9 @@ export function EditorInspector({
             variant="ghost"
             size="icon"
             className="size-8"
-            aria-label={t('editor.copySnippet')}
-            title={t('editor.copySnippet')}
-            disabled={!selectedNode}
+            aria-label={copyLabel}
+            title={copyLabel}
+            disabled={selectedNodes.length === 0}
             onClick={onDuplicate}
           >
             <Copy className="size-3.5" />
@@ -106,9 +111,9 @@ export function EditorInspector({
             variant="ghost"
             size="icon"
             className="size-8 text-destructive hover:text-destructive"
-            aria-label={t('editor.deleteSnippet')}
-            title={t('editor.deleteSnippet')}
-            disabled={!selectedNode}
+            aria-label={deleteLabel}
+            title={deleteLabel}
+            disabled={selectedNodes.length === 0}
             onClick={onDelete}
           >
             <Trash2 className="size-3.5" />
@@ -117,7 +122,9 @@ export function EditorInspector({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
-        {selectedNode ? (
+        {multiSelected ? (
+          <MultiSelectInspectorContent nodes={selectedNodes} />
+        ) : selectedNode ? (
           <SnippetInspectorContent
             story={story}
             node={selectedNode}
@@ -132,6 +139,32 @@ export function EditorInspector({
         )}
       </div>
     </aside>
+  )
+}
+
+function MultiSelectInspectorContent({ nodes }: { nodes: readonly EditorNode[] }): JSX.Element {
+  const { t } = useTranslation()
+  const typeCounts: Map<string, number> = new Map()
+  for (const node of nodes) {
+    typeCounts.set(node.type, (typeCounts.get(node.type) ?? 0) + 1)
+  }
+  const typeSummary: string = [...typeCounts.entries()]
+    .map(([type, count]: [string, number]): string => `${type} ×${count}`)
+    .join(' · ')
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+      <Layers3 className="size-8 text-muted-foreground" />
+      <div>
+        <p className="text-sm font-medium">
+          {t('editor.snippetsSelected', { count: nodes.length })}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{typeSummary}</p>
+      </div>
+      <p className="max-w-xs text-xs leading-5 text-muted-foreground">
+        {t('editor.multiSelectInspectorDetail')}
+      </p>
+    </div>
   )
 }
 
