@@ -56,6 +56,18 @@ pub fn set_project_metadata(
 }
 
 #[tauri::command]
+pub fn set_project_pinned(
+    app: AppHandle,
+    project_name: String,
+    pinned: bool,
+) -> Result<(), String> {
+    let project_path = project_path(&app, &project_name)?;
+    let mut metadata = read_metadata(&project_path).ok_or("项目不存在")?;
+    metadata.pinned = pinned;
+    write_metadata(&project_path, &metadata)
+}
+
+#[tauri::command]
 pub fn create_project(app: AppHandle, project_name: String) -> Result<(), String> {
     let started_at = Instant::now();
     log::info!(
@@ -76,6 +88,7 @@ pub fn create_project(app: AppHandle, project_name: String) -> Result<(), String
     let metadata = ProjectMetadata {
         title: project_name.clone(),
         last_modified: now_millis(),
+        pinned: false,
         assets_summary: Some(AssetsSummary {
             models: 0,
             backgrounds: 0,

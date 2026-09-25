@@ -131,6 +131,7 @@ pub fn run() {
             project::metadata::create_project,
             project::metadata::delete_project,
             project::metadata::rename_project,
+            project::metadata::set_project_pinned,
             project::archive::inspect_project_archive,
             project::archive::export_project_archive,
             project::archive::import_project_archive,
