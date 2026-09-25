@@ -157,6 +157,7 @@ export const en: LocaleShape = {
     precision: 'Render precision',
     precisionDescription:
       'Higher values improve clarity and use more resources. Recommended: 0.5–2.0.',
+    precisionAuto: 'Auto',
     font: 'Font',
     fontDescription:
       'Font used for playback text. Put custom fonts in the data folder’s fonts directory.',
@@ -274,6 +275,13 @@ export const en: LocaleShape = {
     addRequiredAssets: 'Add {{kinds}} assets first',
     requiresAssets: 'Requires {{kinds}} assets',
     previewPanel: 'Stage preview',
+    previewStatusIdle: 'Idle',
+    previewStatusLoading: 'Loading',
+    previewStatusRunning: 'Running',
+    previewStatusPaused: 'Paused',
+    previewStatusCompleted: 'Completed',
+    previewStatusStopped: 'Stopped',
+    previewStatusError: 'Error',
     waitingPreview: 'Waiting to preview',
     initializingPreview: 'Initializing Pixi preview',
     loadingResources: 'Loading fonts and models',
