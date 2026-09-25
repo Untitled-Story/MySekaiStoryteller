@@ -29,7 +29,7 @@ const SPECIAL_THANKS: readonly Acknowledgement[] = [
   },
   {
     nickname: '_熱風_',
-    description: '',
+    description: '头发组赛高',
     avatar: hotwindAvatar
   },
   {

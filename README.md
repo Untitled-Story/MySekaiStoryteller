@@ -11,13 +11,11 @@
   </p>
 </div>
 
-**English** | [简体中文](README-ZH.md)
+**English** | [简体中文](README-ZH.md) | [日本語](README-JA.md)
 
 ---
 
 MySekaiStoryteller lets you build fan stories using Live2D models, backgrounds, voices, transitions, and visual effects — then preview them in real time. Available on desktop and Android.
-
-> This project is in beta. Back up your project data before upgrading.
 
 ## Features
 
@@ -88,6 +86,11 @@ Notes:
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
 - Everyone who tests, contributes, and creates stories with MySekaiStoryteller
+
+## Licenses
+
+- Source code: [GNU GPL v3.0](LICENSE)
+- Project-owned materials and project outputs: [POMOLA](POMOLA.md)
 
 ## Support
 

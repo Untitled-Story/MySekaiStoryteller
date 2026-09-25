@@ -2,7 +2,9 @@ import type { ShortcutBinding, ShortcutSettings } from './types'
 
 export const DEFAULT_SHORTCUTS: ShortcutSettings = {
   editor: {
-    save: createShortcutBinding('s', true)
+    save: createShortcutBinding('s', true),
+    undo: createShortcutBinding('z', true),
+    redo: createShortcutBinding('z', true, true)
   },
   player: {
     reload: createShortcutBinding('r', true),
@@ -15,7 +17,9 @@ export const DEFAULT_SHORTCUTS: ShortcutSettings = {
 export function defaultShortcutSettings(): ShortcutSettings {
   return {
     editor: {
-      save: { ...DEFAULT_SHORTCUTS.editor.save }
+      save: { ...DEFAULT_SHORTCUTS.editor.save },
+      undo: { ...DEFAULT_SHORTCUTS.editor.undo },
+      redo: { ...DEFAULT_SHORTCUTS.editor.redo }
     },
     player: {
       reload: { ...DEFAULT_SHORTCUTS.player.reload },
@@ -29,7 +33,9 @@ export function defaultShortcutSettings(): ShortcutSettings {
 export function normalizeShortcutSettings(value?: ShortcutSettings): ShortcutSettings {
   return {
     editor: {
-      save: normalizeShortcutBinding(value?.editor?.save, DEFAULT_SHORTCUTS.editor.save)
+      save: normalizeShortcutBinding(value?.editor?.save, DEFAULT_SHORTCUTS.editor.save),
+      undo: normalizeShortcutBinding(value?.editor?.undo, DEFAULT_SHORTCUTS.editor.undo),
+      redo: normalizeShortcutBinding(value?.editor?.redo, DEFAULT_SHORTCUTS.editor.redo)
     },
     player: {
       reload: normalizeShortcutBinding(value?.player?.reload, DEFAULT_SHORTCUTS.player.reload),
@@ -110,8 +116,12 @@ export function shortcutBindingLabels(binding: ShortcutBinding): readonly string
   return labels
 }
 
-function createShortcutBinding(key: string, primary: boolean = false): ShortcutBinding {
-  return { key, primary, control: false, meta: false, alt: false, shift: false }
+function createShortcutBinding(
+  key: string,
+  primary: boolean = false,
+  shift: boolean = false
+): ShortcutBinding {
+  return { key, primary, control: false, meta: false, alt: false, shift }
 }
 
 function normalizeShortcutBinding(
