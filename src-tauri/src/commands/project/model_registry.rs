@@ -36,16 +36,16 @@ fn model_registry_from_dirs(models_dir: &Path) -> Result<Value, String> {
         let Some(model_entry) = find_model_entry_file(&entry.path())? else {
             continue;
         };
-        let (motions, facials) = read_json_file(&entry.path().join(&model_entry))
-            .map(|entry_json| motion_catalog_from_json(&entry_json))
-            .unwrap_or_default();
-
+        let (motions, facials): (Vec<String>, Vec<String>) =
+            read_json_file(&entry.path().join(&model_entry))
+                .map(|entry_json: Value| motion_catalog_from_json(&entry_json))
+                .unwrap_or_default();
         models.insert(
             model_id,
             serde_json::json!({
                 "entry": model_entry,
                 "motions": motions,
-                "facials": facials
+                "facials": facials,
             }),
         );
     }
@@ -54,6 +54,36 @@ fn model_registry_from_dirs(models_dir: &Path) -> Result<Value, String> {
         ("version".to_string(), serde_json::json!(1)),
         ("models".to_string(), Value::Object(models)),
     ])))
+}
+
+pub(crate) fn find_unique_model_entry_file(model_dir: &Path) -> Result<String, String> {
+    let entries = fs::read_dir(model_dir).map_err(|error| error.to_string())?;
+    let mut model_entries: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .file_type()
+                .map(|file_type| file_type.is_file())
+                .unwrap_or(false)
+        })
+        .filter_map(|entry| {
+            let file_name: String = entry.file_name().to_string_lossy().to_string();
+            is_model_entry_name(&file_name).then_some(file_name)
+        })
+        .collect();
+
+    model_entries.sort();
+    match model_entries.len() {
+        1 => Ok(model_entries.remove(0)),
+        0 => Err(format!(
+            "模型目录缺少 Live2D 模型入口: {}",
+            model_dir.display()
+        )),
+        _ => Err(format!(
+            "模型目录包含多个 Live2D 模型入口，无法确定要使用的模型: {}",
+            model_dir.display()
+        )),
+    }
 }
 
 pub(crate) fn find_model_entry_file(model_dir: &Path) -> Result<Option<String>, String> {
@@ -115,12 +145,29 @@ pub fn get_model_registry(app: AppHandle) -> Result<Value, String> {
         .and_then(Value::as_object_mut)
         .ok_or_else(|| "全局模型注册表格式无效".to_string())?;
     for (model_id, scanned_entry) in scanned_models.iter_mut() {
-        let stored_name = stored_models
-            .and_then(|models| models.get(model_id))
-            .and_then(|entry| entry.get("name"))
-            .and_then(Value::as_str);
-        if let (Some(name), Some(entry)) = (stored_name, scanned_entry.as_object_mut()) {
+        let Some(stored_entry) = stored_models.and_then(|models| models.get(model_id)) else {
+            continue;
+        };
+        let Some(entry) = scanned_entry.as_object_mut() else {
+            continue;
+        };
+        if let Some(name) = stored_entry.get("name").and_then(Value::as_str) {
             entry.insert("name".to_string(), Value::String(name.to_string()));
+        }
+        if let Some(selected_entry) = stored_entry.get("entry").and_then(Value::as_str) {
+            let selected_path = models_dir.join(model_id).join(selected_entry);
+            if is_model_entry_name(selected_entry) && selected_path.is_file() {
+                let selected_json = read_json_file(&selected_path)?;
+                if is_model_entry_json(&selected_json) {
+                    let (motions, facials) = motion_catalog_from_json(&selected_json);
+                    entry.insert(
+                        "entry".to_string(),
+                        Value::String(selected_entry.to_string()),
+                    );
+                    entry.insert("motions".to_string(), serde_json::json!(motions));
+                    entry.insert("facials".to_string(), serde_json::json!(facials));
+                }
+            }
         }
     }
     Ok(scanned)
@@ -190,27 +237,24 @@ pub fn import_global_model(
         .map_err(|error| format!("读取全局模型目录失败: {error}"))?;
 
     let is_archive = is_zip_archive(&source_entry)?;
-    let (entry_name, entry_json, directory_name, source_dir, selected_archive_entry) = if is_archive
-    {
+    let (entry_name, directory_name, source_dir, selected_archive_entry) = if is_archive {
         let inspection = inspect_archive(&source_entry)?;
         let selected = select_archive_entry(&inspection, archive_entry.as_deref())?;
+        let selected_entry_name = selected
+            .rsplit('/')
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "ZIP 模型入口路径无效".to_string())?;
+        if !is_model_entry_name(selected_entry_name) {
+            return Err("ZIP 中请选择有效的 Live2D 模型入口".into());
+        }
         let entry_json = read_archive_json(&source_entry, &selected)?;
         if !is_model_entry_json(&entry_json) {
             return Err(format!(
                 "所选 JSON 不是可识别的 Live2D 模型入口: {selected}"
             ));
         }
-        let selected_entry_name = selected
-            .rsplit('/')
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "ZIP 模型入口路径无效".to_string())?
-            .to_string();
-        let entry_name = if is_model_entry_name(&selected_entry_name) {
-            selected_entry_name
-        } else {
-            "model.json".to_string()
-        };
+        let entry_name = selected_entry_name.to_string();
         let directory_name = selected
             .rsplit_once('/')
             .and_then(|(parent, _)| parent.rsplit('/').next())
@@ -218,7 +262,7 @@ pub fn import_global_model(
             .or_else(|| source_entry.file_stem().and_then(|value| value.to_str()))
             .unwrap_or("model")
             .to_string();
-        (entry_name, entry_json, directory_name, None, Some(selected))
+        (entry_name, directory_name, None, Some(selected))
     } else {
         if materialized.copied {
             return Err(
@@ -254,28 +298,19 @@ pub fn import_global_model(
             .and_then(|value| value.to_str())
             .unwrap_or("model")
             .to_string();
-        (
-            entry_name,
-            entry_json,
-            directory_name,
-            Some(source_dir),
-            None,
-        )
+        (entry_name, directory_name, Some(source_dir), None)
     };
 
     let model_id = next_model_id(&models_dir, &normalize_model_id(&directory_name));
     let destination = models_dir.join(&model_id);
     let temporary = models_dir.join(format!(".import-{}", unique_suffix()));
-    let mut registry = get_model_registry(app)?;
+    let mut registry = get_model_registry(app.clone())?;
     let models = registry
         .get_mut("models")
         .and_then(Value::as_object_mut)
         .ok_or_else(|| "全局模型注册表格式无效".to_string())?;
     let mut registry_entry =
         serde_json::Map::from_iter([("entry".to_string(), Value::String(entry_name.clone()))]);
-    let (motions, facials) = motion_catalog_from_json(&entry_json);
-    registry_entry.insert("motions".to_string(), serde_json::json!(motions));
-    registry_entry.insert("facials".to_string(), serde_json::json!(facials));
     if let Some(display_name) = name.filter(|value| !value.trim().is_empty()) {
         registry_entry.insert("name".to_string(), Value::String(display_name));
     }
@@ -302,6 +337,10 @@ pub fn import_global_model(
         let _ = fs::remove_dir_all(&destination);
         return Err(error);
     }
+
+    // Re-read after extraction so the response includes the selected entry's
+    // live motion and facial catalog instead of the temporary index entry.
+    let registry = get_model_registry(app)?;
 
     log::info!(
         target: "backend::model",
@@ -546,7 +585,7 @@ fn validate_archive_name(value: &str) -> Result<String, String> {
     Ok(path.to_string())
 }
 
-fn is_model_entry_name(file_name: &str) -> bool {
+pub(crate) fn is_model_entry_name(file_name: &str) -> bool {
     let normalized = file_name.to_ascii_lowercase();
     normalized.ends_with(".model3.json")
         || normalized == "model.json"
@@ -658,7 +697,7 @@ fn copy_model_directory(source: &Path, destination: &Path) -> Result<(), String>
     result
 }
 
-fn write_model_registry(models_dir: &Path, registry: &Value) -> Result<(), String> {
+pub(crate) fn write_model_registry(models_dir: &Path, registry: &Value) -> Result<(), String> {
     let index_path = models_dir.join("index.json");
     let suffix = unique_suffix();
     let temporary_path = models_dir.join(format!(".index-{suffix}.json"));
@@ -727,17 +766,33 @@ mod tests {
 
     #[test]
     fn indexes_motion_and_facial_groups() {
+        let mut groups = serde_json::Map::new();
+        for index in 1..=100 {
+            groups.insert(
+                format!("motion_test_{index:03}"),
+                json!([{ "File": format!("motions/motion_test_{index:03}.motion3.json") }]),
+            );
+            groups.insert(
+                format!("face_test_{index:03}"),
+                json!([{ "File": format!("motions/face_test_{index:03}.motion3.json") }]),
+            );
+        }
+
         let entry = json!({
             "FileReferences": {
-                "Motions": {
-                    "w-adult-think01": [{ "File": "motions/body.motion3.json" }],
-                    "face_smile_01": [{ "File": "motions/face.motion3.json" }]
-                }
+                "Motions": groups
             }
         });
         let (motions, facials) = motion_catalog_from_json(&entry);
-        assert_eq!(motions, vec!["w-adult-think01"]);
-        assert_eq!(facials, vec!["face_smile_01"]);
+        let expected_motions: Vec<String> = (1..=100)
+            .map(|index| format!("motion_test_{index:03}"))
+            .collect();
+        let expected_facials: Vec<String> = (1..=100)
+            .map(|index| format!("face_test_{index:03}"))
+            .collect();
+
+        assert_eq!(motions, expected_motions);
+        assert_eq!(facials, expected_facials);
     }
 
     #[test]

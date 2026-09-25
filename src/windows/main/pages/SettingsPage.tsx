@@ -30,8 +30,6 @@ import { FileArchive, FolderOpen, RotateCcw } from 'lucide-react'
 import { describeError, logger } from '@/lib/logger'
 import { exportPreparedDiagnosticBundle, type DiagnosticExportResult } from '@/lib/diagnostics'
 import { getRuntimePlatform, isMobileRuntime } from '@/lib/platform'
-import { EDITOR_TOUR_VERSION, MAIN_TOUR_VERSION } from '@/onboarding/types'
-import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/style'
 
@@ -44,7 +42,6 @@ export default function SettingsPage(): JSX.Element {
     appearance,
     playback,
     shortcuts,
-    onboarding,
     interaction,
     workspaceDir,
     setLanguage,
@@ -54,12 +51,10 @@ export default function SettingsPage(): JSX.Element {
     setRenderPrecision,
     setPlaybackFont,
     setShortcuts,
-    setOnboarding,
     setTouchMode,
     setFullscreenMode,
     setWorkspaceDir
   } = useSettings()
-  const navigate = useNavigate()
   const [renderPrecisionText, setRenderPrecisionText] = useState<string>(() =>
     renderPrecisionToText(playback.renderPrecision)
   )
@@ -154,15 +149,6 @@ export default function SettingsPage(): JSX.Element {
       })
       setDiagnosticExportStatus('error')
     }
-  }
-
-  const handleRestartMainTour = (): void => {
-    setOnboarding({ ...onboarding, mainTourVersion: 0 })
-    navigate('/')
-  }
-
-  const handleRestartEditorTour = (): void => {
-    setOnboarding({ ...onboarding, editorTourVersion: 0 })
   }
 
   const fontValue: string = playbackFontToSelectValue(playback.font)
@@ -297,36 +283,6 @@ export default function SettingsPage(): JSX.Element {
       </div>
 
       <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
-        <h2 className="text-2xl leading-tight font-semibold">{t('settings.interaction')}</h2>
-        <p className="text-sm text-muted-foreground">{t('settings.interactionDescription')}</p>
-      </div>
-
-      <div className="w-full max-w-2xl divide-y divide-border">
-        <SettingRow
-          title={t('settings.touchMode')}
-          description={t('settings.touchModeDescription')}
-        >
-          <Switch
-            checked={interaction.touchMode}
-            aria-label={t('settings.touchModeAria')}
-            onCheckedChange={setTouchMode}
-          />
-        </SettingRow>
-        {androidRuntime ? (
-          <SettingRow
-            title={t('settings.fullscreenMode')}
-            description={t('settings.fullscreenModeDescription')}
-          >
-            <Switch
-              checked={interaction.fullscreenMode}
-              aria-label={t('settings.fullscreenModeAria')}
-              onCheckedChange={setFullscreenMode}
-            />
-          </SettingRow>
-        ) : null}
-      </div>
-
-      <div className="mt-8 mb-2 w-full max-w-2xl space-y-1">
         <h2 className="text-2xl font-semibold leading-tight">{t('settings.appearance')}</h2>
         <p className="text-sm text-muted-foreground">{t('settings.appearanceDescription')}</p>
       </div>
@@ -446,6 +402,40 @@ export default function SettingsPage(): JSX.Element {
         </SettingRow>
       </div>
 
+      {mobileRuntime ? (
+        <>
+          <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+            <h2 className="text-2xl font-semibold leading-tight">{t('settings.interaction')}</h2>
+            <p className="text-sm text-muted-foreground">{t('settings.interactionDescription')}</p>
+          </div>
+
+          <div className="w-full max-w-2xl space-y-6">
+            <SettingRow
+              title={t('settings.touchMode')}
+              description={t('settings.touchModeDescription')}
+            >
+              <Switch
+                checked={interaction.touchMode}
+                aria-label={t('settings.touchModeAria')}
+                onCheckedChange={setTouchMode}
+              />
+            </SettingRow>
+            {androidRuntime ? (
+              <SettingRow
+                title={t('settings.fullscreenMode')}
+                description={t('settings.fullscreenModeDescription')}
+              >
+                <Switch
+                  checked={interaction.fullscreenMode}
+                  aria-label={t('settings.fullscreenModeAria')}
+                  onCheckedChange={setFullscreenMode}
+                />
+              </SettingRow>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+
       {!mobileRuntime ? (
         <>
           <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
@@ -473,46 +463,14 @@ export default function SettingsPage(): JSX.Element {
           />
         </>
       ) : null}
-
-      <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
-        <h2 className="text-2xl font-semibold leading-tight">{t('settings.onboarding')}</h2>
-        <p className="text-sm text-muted-foreground">{t('settings.onboardingDescription')}</p>
-      </div>
-
-      <div className="w-full max-w-2xl divide-y divide-border pb-4">
-        <SettingRow
-          title={t('settings.mainTour')}
-          description={
-            onboarding.mainTourVersion >= MAIN_TOUR_VERSION
-              ? t('settings.completed')
-              : t('settings.mainTourPending')
-          }
-        >
-          <Button variant="outline" size="sm" onClick={handleRestartMainTour}>
-            <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-            {t('settings.restart')}
-          </Button>
-        </SettingRow>
-        <SettingRow
-          title={t('settings.editorTour')}
-          description={
-            onboarding.editorTourVersion >= EDITOR_TOUR_VERSION
-              ? t('settings.editorTourComplete')
-              : t('settings.editorTourPending')
-          }
-        >
-          <Button variant="outline" size="sm" onClick={handleRestartEditorTour}>
-            <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-            {t('settings.restart')}
-          </Button>
-        </SettingRow>
-      </div>
     </div>
   )
 }
 
 type ShortcutCommandId =
   | 'editor.save'
+  | 'editor.undo'
+  | 'editor.redo'
   | 'player.reload'
   | 'player.enterFullscreen'
   | 'player.exitFullscreen'
@@ -538,6 +496,18 @@ const EDITOR_SHORTCUT_COMMANDS: readonly ShortcutCommandDefinition[] = [
     scope: 'editor',
     titleKey: 'settings.saveProject',
     descriptionKey: 'settings.saveProjectDescription'
+  },
+  {
+    id: 'editor.undo',
+    scope: 'editor',
+    titleKey: 'settings.undoEdit',
+    descriptionKey: 'settings.undoEditDescription'
+  },
+  {
+    id: 'editor.redo',
+    scope: 'editor',
+    titleKey: 'settings.redoEdit',
+    descriptionKey: 'settings.redoEditDescription'
   }
 ]
 
@@ -705,6 +675,10 @@ function getShortcutBinding(settings: ShortcutSettings, id: ShortcutCommandId): 
   switch (id) {
     case 'editor.save':
       return settings.editor.save
+    case 'editor.undo':
+      return settings.editor.undo
+    case 'editor.redo':
+      return settings.editor.redo
     case 'player.reload':
       return settings.player.reload
     case 'player.enterFullscreen':
@@ -724,6 +698,10 @@ function updateShortcutBinding(
   switch (id) {
     case 'editor.save':
       return { ...settings, editor: { ...settings.editor, save: binding } }
+    case 'editor.undo':
+      return { ...settings, editor: { ...settings.editor, undo: binding } }
+    case 'editor.redo':
+      return { ...settings, editor: { ...settings.editor, redo: binding } }
     case 'player.reload':
       return { ...settings, player: { ...settings.player, reload: binding } }
     case 'player.enterFullscreen':

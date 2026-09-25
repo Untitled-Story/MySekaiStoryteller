@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Plus, Edit3, Play, Clock, Folder, Settings } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
@@ -8,55 +8,25 @@ import { timeAgo } from '@/windows/main/utils/time'
 import { useNavigate } from 'react-router'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { useSettings } from '@/settings/useSettings'
-import { MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { MainProductTour } from '@/onboarding/MainProductTour'
 import { useTranslation } from 'react-i18next'
 import { useViewportMode } from '@/hooks/useViewportMode'
 import { cn } from '@/lib/style'
-import { detectPreferTouchMode } from '@/lib/touchMode'
 import { isMobileRuntime } from '@/lib/platform'
-import { Button } from '@/components/ui/Button'
-import { Switch } from '@/components/ui/Switch'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/Dialog'
 
 export default function HomePage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [touchPromptOpen, setTouchPromptOpen] = useState(false)
-  const [touchPromptValue, setTouchPromptValue] = useState(false)
   const navigate = useNavigate()
-  const { onboarding, interaction, setOnboarding, setInteraction } = useSettings()
+  const { onboarding, setOnboarding } = useSettings()
   const viewportMode = useViewportMode()
   const stackSections: boolean = viewportMode === 'phone'
   const mobileRuntime: boolean = isMobileRuntime()
 
-  const completeMainTour = useCallback((): void => {
-    setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
-    if (!interaction.touchModePromptSeen) {
-      setTouchPromptValue(detectPreferTouchMode())
-      setTouchPromptOpen(true)
-    }
-  }, [interaction.touchModePromptSeen, onboarding, setOnboarding])
-
-  const finishTouchPrompt = useCallback(
-    (enabled: boolean): void => {
-      setInteraction({
-        ...interaction,
-        touchMode: enabled,
-        touchModePromptSeen: true
-      })
-      setTouchPromptOpen(false)
-    },
-    [interaction, setInteraction]
-  )
+  function completeMainTour(): void {
+    setOnboarding({ ...onboarding, mainTourCompleted: true })
+  }
 
   const latest: ProjectMetadata | null =
     projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
@@ -195,43 +165,7 @@ export default function HomePage(): JSX.Element {
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleProjectCreated}
       />
-      <MainProductTour
-        active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}
-        onComplete={completeMainTour}
-      />
-
-      <Dialog
-        open={touchPromptOpen}
-        onOpenChange={(open: boolean): void => {
-          if (!open) finishTouchPrompt(touchPromptValue)
-        }}
-      >
-        <DialogContent className="max-w-md select-none">
-          <DialogHeader>
-            <DialogTitle>{t('home.touchPromptTitle')}</DialogTitle>
-            <DialogDescription>{t('home.touchPromptDescription')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-between rounded-lg border px-3 py-3">
-            <div className="pr-4">
-              <p className="text-sm font-medium">{t('home.touchMode')}</p>
-              <p className="text-xs text-muted-foreground">{t('home.touchModeHint')}</p>
-            </div>
-            <Switch
-              checked={touchPromptValue}
-              aria-label={t('home.touchModeAria')}
-              onCheckedChange={setTouchPromptValue}
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={(): void => finishTouchPrompt(false)}>
-              {t('home.touchNotNow')}
-            </Button>
-            <Button type="button" onClick={(): void => finishTouchPrompt(touchPromptValue)}>
-              {t('common.confirm')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <MainProductTour active={!onboarding.mainTourCompleted} onComplete={completeMainTour} />
     </div>
   )
 }

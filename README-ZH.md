@@ -11,13 +11,11 @@
   </p>
 </div>
 
-[English](README.md) | **简体中文**
+[English](README.md) | **简体中文** | [日本語](README-JA.md)
 
 ---
 
 用 Live2D 模型、背景、语音、转场和视觉特效，拼出你想讲的故事，并实时预览效果。支持桌面端和 Android。
-
-> 项目目前仍处于 Beta 阶段，升级前记得先备份重要的项目数据。
 
 ## 功能
 
@@ -88,6 +86,11 @@ pnpm tauri android build --apk --target aarch64
 - [Sekai-World/sekai-viewer](https://github.com/Sekai-World/sekai-viewer)
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
 - 每一位参与测试、贡献代码，以及用它讲出自己故事的人
+
+## 许可
+
+- 源代码：[GNU GPL v3.0](LICENSE)
+- 项目自有材料与项目输出内容：[POMOLA](POMOLA-CN.md)
 
 ## 支持项目
 
