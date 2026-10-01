@@ -377,7 +377,7 @@ export default function App({
         })
       if (lockLandscapeForSession) logger.info('player.orientation_unlocked')
     }
-  }, [inAppNavigation, isRenderMode])
+  }, [inAppNavigation, isRenderMode, restoreImmersivePreference, storyInput])
 
   useEffect((): (() => void) => {
     const currentWindow: TauriWindow = getCurrentWindow()
