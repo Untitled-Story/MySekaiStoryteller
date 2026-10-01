@@ -2192,6 +2192,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tiny_http",
+ "tokio",
  "zip",
 ]
 
