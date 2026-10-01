@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import org.untitled_story.storyteller.encode.HwH264Encoder
 
 class MainActivity : TauriActivity() {
   private var immersiveModeEnabled: Boolean = false
@@ -48,6 +49,14 @@ class MainActivity : TauriActivity() {
   override fun onConfigurationChanged(newConfig: Configuration): Unit {
     super.onConfigurationChanged(newConfig)
     applySystemBarVisibility()
+  }
+
+  override fun onDestroy(): Unit {
+    // A render interrupted by real activity teardown must not leak MediaCodec sessions /
+    // ~3MB NV12 arrays (the encode thread may outlive the WebView). configChanges in the
+    // manifest means onDestroy only fires on genuine teardown, never on rotation.
+    HwH264Encoder.releaseAll()
+    super.onDestroy()
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean): Unit {

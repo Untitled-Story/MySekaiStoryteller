@@ -215,6 +215,24 @@ object HwH264Encoder {
     }
   }
 
+  /**
+   * Release every live session. Called from MainActivity.onDestroy so a render
+   * interrupted by activity teardown cannot leak MediaCodec + ~3MB NV12 arrays.
+   * Config changes do not recreate the activity (AndroidManifest configChanges),
+   * so onDestroy means the activity really goes away.
+   */
+  @JvmStatic
+  fun releaseAll(): Unit {
+    val leaked = sessions.keys.toList()
+    for (id in leaked) {
+      val session = sessions.remove(id) ?: continue
+      synchronized(session.lock) {
+        releaseSession(session)
+      }
+      Log.w(TAG, "releaseAll destroyed abandoned session id=$id frames=${session.frameCount}")
+    }
+  }
+
   private fun releaseSession(session: Session) {
     if (session.finished) return
     session.finished = true
@@ -267,6 +285,11 @@ object HwH264Encoder {
       spins += 1
       if (!endOfStream && spins > 500) {
         throw IllegalStateException("MediaCodec input buffer starvation")
+      }
+      // EOS finish drains with 50ms timeouts — cap those too: a stalled codec must not
+      // hang the encode thread forever (finish() releases the session in its finally).
+      if (endOfStream && spins > 200) {
+        throw IllegalStateException("MediaCodec EOS drain stalled")
       }
     }
   }

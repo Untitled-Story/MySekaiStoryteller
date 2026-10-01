@@ -113,9 +113,12 @@ pub fn hw_encoder_create(
         return Err("JavaVM/HwH264Encoder class not ready".into());
     }
     let mut env = attach()?;
-    let path_j = env
-        .new_string(path)
-        .map_err(|e| format!("new_string path: {e}"))?;
+    let path_j = env.new_string(path).map_err(|e| {
+        // new_string can throw OOM — clear so it cannot poison the attached thread.
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+        format!("new_string path: {e}")
+    })?;
     let class = encoder_class(&mut env)?;
     let result = env.call_static_method(
         class,
