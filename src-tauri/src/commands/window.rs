@@ -168,7 +168,8 @@ async fn open_player_desktop(
                 log::error!(target: "backend::window", "open_player close timeout label={label}");
                 return Err("Failed to close existing player window".to_string());
             }
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            // Async command: must not block a runtime worker thread while polling.
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
         }
     }
 
