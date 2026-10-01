@@ -2944,6 +2944,9 @@ async function runCoordinatorExport(options: {
 
   function claimJob(slotId: number): ExportJob | null {
     const slot = slots.get(slotId)
+    // Double-claim guard: never hand out a second job to a slot that still holds one
+    // (a dispatch chain may have claimed but not finished launching it).
+    if (slot?.job) return null
     const lastEnd = slot?.lastEndFrame ?? null
     const free = freeJobsBySlot.get(slotId) ?? []
 
@@ -3494,7 +3497,11 @@ async function runCoordinatorExport(options: {
     } satisfies JobAssignEvent)
   }
 
-  async function assignNext(slotId: number): Promise<void> {
+  // Serialize job dispatch: concurrent worker-done chains (and requeue/heartbeat paths)
+  // must not interleave claim/launch for the same slot or a job can be claimed twice.
+  let dispatchTail: Promise<void> = Promise.resolve()
+
+  async function runAssignNext(slotId: number): Promise<void> {
     if (isCancelled() || controlRef.stopped) return
     while (controlRef.paused && !controlRef.stopped && !isCancelled()) {
       await new Promise<void>((r) => setTimeout(r, 100))
@@ -3559,6 +3566,13 @@ async function runCoordinatorExport(options: {
     // Forward catch-up keeps the same window; never closeExportWorker.
     const mode = openedSlots.has(slotId) ? 'assign' : 'open'
     await launchSlot(slotId, job, mode)
+  }
+
+  async function assignNext(slotId: number): Promise<void> {
+    // Queue behind the previous dispatch so claims stay atomic with their launch.
+    const run: Promise<void> = dispatchTail.then(() => runAssignNext(slotId))
+    dispatchTail = run.catch((): void => undefined)
+    await run
   }
 
   async function requeueStalled(slotId: number, reason: string): Promise<void> {
