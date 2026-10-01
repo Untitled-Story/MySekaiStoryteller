@@ -1429,6 +1429,9 @@ async function runExportPipeline({
   const batchWaiters: Array<() => void> = []
   const pendingUploads: Promise<void>[] = []
   let uploadError: Error | null = null
+  // True when the previous job's tail flush finished inside its 6s window.
+  // Only then may a transient upload failure be cleared at the next job boundary.
+  let uploadFlushSettled = false
 
   function acquireBatchBuffer(): Promise<Uint8Array> {
     if (isMobileRuntime()) {
@@ -2418,8 +2421,11 @@ async function runExportPipeline({
     if (workerHeartbeatTimer) window.clearInterval(workerHeartbeatTimer)
     publishCaptureStats('finalizing')
     ensureCaptureBudget(globalFrameIndex)
+    uploadFlushSettled = false
     await Promise.race([
-      flushCaptureTail(),
+      flushCaptureTail().then((): void => {
+        uploadFlushSettled = true
+      }),
       new Promise<void>((resolve) => window.setTimeout(resolve, 6000))
     ])
     if (shouldAbort()) {
@@ -2603,6 +2609,13 @@ async function runExportPipeline({
         })
       ).uploadUrl
 
+      // Job boundary: a transient upload failure of the previous job must not
+      // cascade into this fresh session (new upload channel). Only clear it when
+      // the previous tail flush settled; otherwise keep failing fast.
+      if (uploadFlushSettled) {
+        uploadError = null
+      }
+
       // Capture range; overshoot flush discards excess (no clock advance past end in flush).
       while (!shouldAbort()) {
         await waitIfPaused()
@@ -2628,8 +2641,11 @@ async function runExportPipeline({
       if (workerHeartbeatTimer) window.clearInterval(workerHeartbeatTimer)
       publishCaptureStats('finalizing')
       ensureCaptureBudget(globalFrameIndex)
+      uploadFlushSettled = false
       await Promise.race([
-        flushCaptureTail(),
+        flushCaptureTail().then((): void => {
+          uploadFlushSettled = true
+        }),
         new Promise<void>((resolve) => window.setTimeout(resolve, 6000))
       ])
       if (shouldAbort()) {
