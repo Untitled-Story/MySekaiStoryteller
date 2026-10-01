@@ -366,7 +366,16 @@ pub fn start_render_session(
         .session_id
         .clone()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or(project_name);
+        .unwrap_or(project_name.clone());
+    // Sessions are keyed by the IPC project_name argument (stream_frame / stop_render_session
+    // all look up by it). A divergent config.session_id is display/log-only — warn so a
+    // future caller cannot silently stream to a session key that no longer matches.
+    if session_id != project_name {
+        log::warn!(
+            target: "backend::render",
+            "start_render_session session_id diverges from project_name (keying by project_name) session_id={session_id} project={project_name}"
+        );
+    }
 
     // Bounded queue for backpressure. Keep modest: each frame is width*height*4 bytes.
     // HTTP path uses send_timeout so a full queue returns 503 instead of hanging forever.
@@ -502,7 +511,7 @@ pub fn start_render_session(
 
     {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-        if let Some(mut existing) = sessions.remove(&session_id) {
+        if let Some(mut existing) = sessions.remove(&project_name) {
             existing.stop_flag.store(true, Ordering::Relaxed);
             let _ = existing.tx.send(RenderMessage::Stop);
             let _ = kick_stop(existing.stop_addr);
@@ -522,7 +531,7 @@ pub fn start_render_session(
             .saturating_mul(config.height as usize)
             .saturating_mul(4);
         sessions.insert(
-            session_id.clone(),
+            project_name.clone(),
             RenderSession {
                 tx,
                 worker_handle: Some(worker_handle),
