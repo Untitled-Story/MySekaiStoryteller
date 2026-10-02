@@ -435,3 +435,54 @@ fn nals_to_avcc(nals: &[Vec<u8>]) -> Vec<u8> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::render::RenderConfig;
+
+    fn config(width: u32, height: u32, fps: u32) -> RenderConfig {
+        RenderConfig {
+            export_path: "/tmp/clamp-test.mp4".to_string(),
+            width,
+            height,
+            fps,
+            session_id: None,
+        }
+    }
+
+    #[test]
+    fn clamps_to_absolute_minimums() {
+        let c = clamp_export_config(&config(10, 10, 1));
+        assert_eq!((c.width, c.height), (160, 90));
+    }
+
+    #[test]
+    fn clamps_to_absolute_maximums() {
+        // The UI used to offer up to 7680x4320; the encoder silently clamps.
+        let c = clamp_export_config(&config(7680, 4320, 120));
+        assert_eq!((c.width, c.height), (ABS_MAX_W, ABS_MAX_H));
+    }
+
+    #[test]
+    fn makes_dimensions_even() {
+        let c = clamp_export_config(&config(1921, 1081, 30));
+        assert_eq!((c.width, c.height), (1920, 1080));
+        // Odd values under the evenized floor snap back up to the floor.
+        let c = clamp_export_config(&config(161, 91, 30));
+        assert_eq!((c.width, c.height), (160, 90));
+    }
+
+    #[test]
+    fn clamps_fps_to_encoder_bounds() {
+        assert_eq!(clamp_export_config(&config(1280, 720, 0)).fps, 1);
+        assert_eq!(clamp_export_config(&config(1280, 720, 240)).fps, ABS_MAX_FPS);
+        assert_eq!(clamp_export_config(&config(1280, 720, 60)).fps, 60);
+    }
+
+    #[test]
+    fn keeps_sane_values_untouched() {
+        let c = clamp_export_config(&config(1920, 1080, 60));
+        assert_eq!((c.width, c.height, c.fps), (1920, 1080, 60));
+    }
+}
