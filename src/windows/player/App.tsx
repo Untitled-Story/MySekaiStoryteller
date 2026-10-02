@@ -56,7 +56,7 @@ import {
   publishRenderOutput,
   validateRenderSegment,
   closePlayerWindow,
-  type FfmpegProgressEvent
+  type ExportMergeProgressEvent
 } from '@/windows/api'
 import {
   clearPendingRenderConfig,
@@ -75,12 +75,9 @@ import { emit } from '@tauri-apps/api/event'
 import {
   EXPORT_DEBUG_REQUEST_EVENT,
   EXPORT_DEBUG_STATS_EVENT,
-  EXPORT_UI_PROGRESS_EVENT,
-  mapRenderStatusToUi,
   type ExportDebugRequestEvent,
   type ExportDebugStats,
-  type ExportDebugStatsEvent,
-  type ExportUiProgress
+  type ExportDebugStatsEvent
 } from '@/export/exportUi'
 import { ExportDebugDashboard } from '@/windows/player/ExportDebugDashboard'
 import { ExportProgressDashboard } from '@/windows/player/ExportProgressDashboard'
@@ -162,7 +159,7 @@ function scaleCaptureProgress(capture01: number): number {
 }
 
 /** Map encode/remux ratio (0–1) into the merge band 90%–99%. */
-function scaleMergeProgressFromFfmpeg(ratio: number): number {
+function scaleMergeProgress(ratio: number): number {
   const t = Math.min(1, Math.max(0, ratio))
   return EXPORT_MERGE_PROGRESS_START + (EXPORT_MERGE_PROGRESS_END - EXPORT_MERGE_PROGRESS_START) * t
 }
@@ -476,35 +473,6 @@ export default function App({
     renderStatsRef.current = renderStats
   }, [renderStats])
 
-  const publishExportUi = useCallback(
-    (stats: RenderStats): void => {
-      if (!isRenderMode || exportRole === 'worker' || exportRole === 'debug') return
-      const groupId =
-        exportControlRef.current.groupId ??
-        renderConfig?.exportGroupId ??
-        renderConfig?.sessionId ??
-        projectName ??
-        'export'
-      const mapped = mapRenderStatusToUi({
-        status: stats.status,
-        isPaused: stats.isPaused,
-        message: stats.message,
-        progress: stats.progress,
-        wallElapsedSec: stats.wallElapsedSec,
-        exportPath: renderConfig?.exportPath
-      })
-      const payload: ExportUiProgress = {
-        sessionId: groupId,
-        projectTitle: projectName ?? undefined,
-        ...mapped,
-        exportPath: renderConfig?.exportPath,
-        error: stats.status === 'error' ? stats.message : undefined
-      }
-      void emit(EXPORT_UI_PROGRESS_EVENT, payload)
-    },
-    [isRenderMode, exportRole, renderConfig, projectName]
-  )
-
   const publishDebugStats = useCallback(
     (stats: RenderStats, force = false): void => {
       if (!isRenderMode || exportRole === 'worker' || exportRole === 'debug') return
@@ -585,9 +553,8 @@ export default function App({
 
   useEffect(() => {
     if (!isRenderMode || exportRole === 'worker' || exportRole === 'debug') return
-    publishExportUi(renderStats)
     publishDebugStats(renderStats)
-  }, [isRenderMode, exportRole, renderStats, publishExportUi, publishDebugStats])
+  }, [isRenderMode, exportRole, renderStats, publishDebugStats])
 
   // Progress host re-emits latest snapshot when debug window asks.
   useEffect(() => {
@@ -1152,7 +1119,9 @@ export default function App({
             exportPath={renderConfig?.publishPath ?? renderConfig?.exportPath}
             onTogglePause={handleExportPause}
             onStop={handleExportStop}
-            onOpenDetails={handleOpenExportDetails}
+            // The debug dashboard is a development aid — hide the entry in production
+            // builds; the role='debug' window plumbing stays available for dev tooling.
+            onOpenDetails={import.meta.env.DEV ? handleOpenExportDetails : undefined}
           />
         </div>
       ) : null}
@@ -1216,6 +1185,12 @@ type JobAssignEvent = {
   segmentPath: string
   sessionKey: string
   continueFrom: number | null
+}
+
+/** No-op liveness ping: coordinator re-arms a waiting worker's idle timer. */
+type JobKeepaliveEvent = {
+  sessionId: string
+  workerIndex: number
 }
 
 async function runExportPipeline({
@@ -2486,21 +2461,34 @@ async function runExportPipeline({
         nextResolve = resolve
       })
       let settled = false
-      const unlistenRef: { current: (() => void) | null } = { current: null }
+      const unlistenRefs: Array<() => void> = []
       const finishWait = (job: JobAssignEvent | null): void => {
         if (settled) return
         settled = true
         window.clearTimeout(timer)
-        unlistenRef.current?.()
-        unlistenRef.current = null
+        for (const unlisten of unlistenRefs) unlisten()
+        unlistenRefs.length = 0
         nextResolve?.(job)
       }
-      const timer = window.setTimeout(() => finishWait(null), 120_000)
-      unlistenRef.current = await listen<JobAssignEvent>('export-job-assign', (event) => {
-        const p = event.payload
-        if (p.sessionId !== groupIdForJobs || p.workerIndex !== workerIndex) return
-        finishWait(p)
-      })
+      // Safety valve: if the coordinator dies, this resolves null and the worker
+      // exits the sticky loop instead of waiting forever.
+      let timer = window.setTimeout(() => finishWait(null), 120_000)
+      unlistenRefs.push(
+        await listen<JobAssignEvent>('export-job-assign', (event) => {
+          const p = event.payload
+          if (p.sessionId !== groupIdForJobs || p.workerIndex !== workerIndex) return
+          finishWait(p)
+        })
+      )
+      // A keepalive from the living coordinator re-arms the idle timer.
+      unlistenRefs.push(
+        await listen<JobKeepaliveEvent>('export-job-keepalive', (event) => {
+          const p = event.payload
+          if (settled || p.sessionId !== groupIdForJobs || p.workerIndex !== workerIndex) return
+          window.clearTimeout(timer)
+          timer = window.setTimeout(() => finishWait(null), 120_000)
+        })
+      )
       return { wait: nextJobPromise }
     }
 
@@ -3765,6 +3753,19 @@ async function runCoordinatorExport(options: {
     if (!controlRef.paused && rebalanceTick % 5 === 0) {
       void rebalanceIfWarmLagging()
     }
+    // Every ~30s (75 ticks x 400ms) ping opened idle slots so their 120s
+    // "coordinator dead" safety valve re-arms while the coordinator lives.
+    if (!controlRef.paused && rebalanceTick % 75 === 0) {
+      void (async (): Promise<void> => {
+        for (const slotId of openedSlots) {
+          if (slots.get(slotId)?.job) continue
+          await emit('export-job-keepalive', {
+            sessionId: prepared.sessionId,
+            workerIndex: slotId
+          } satisfies JobKeepaliveEvent)
+        }
+      })()
+    }
     publishCoordinatorStatus()
   }, 400)
 
@@ -3861,11 +3862,11 @@ async function runCoordinatorExport(options: {
     // Stop render-phase timers so they cannot flip status back to "rendering".
     window.clearInterval(heartbeat)
     window.clearInterval(watchdog)
-    let ffmpegMergeRatio = 0
+    let mergeProgressRatio = 0
     const publishMergeStats = (wall: number, message: string): void => {
       const mergeElapsed = Math.max(0, wall - preConcatWall)
       onStats({
-        progress: scaleMergeProgressFromFfmpeg(ffmpegMergeRatio),
+        progress: scaleMergeProgress(mergeProgressRatio),
         frameCount: totalFrames,
         totalFrames,
         currentTime: totalDuration,
@@ -3884,7 +3885,7 @@ async function runCoordinatorExport(options: {
           `任务块 ${ordered.length}`,
           `渲染墙钟 ${formatTime(preConcatWall)}`,
           `合并已进行 ${formatTime(mergeElapsed)}`,
-          `Remux ${(ffmpegMergeRatio * 100).toFixed(1)}%`,
+          `Remux ${(mergeProgressRatio * 100).toFixed(1)}%`,
           '最终合并：无损 remux（无二次转码）'
         ],
         canPause: false,
@@ -3898,13 +3899,16 @@ async function runCoordinatorExport(options: {
       window.setTimeout(resolve, 0)
     })
 
-    const unlistenFfmpeg = await listen<FfmpegProgressEvent>('export-ffmpeg-progress', (event) => {
-      const ratio = Number(event.payload?.ratio)
-      if (!Number.isFinite(ratio)) return
-      // Monotonic: never go backwards if a late/out-of-order event arrives.
-      ffmpegMergeRatio = Math.max(ffmpegMergeRatio, Math.min(1, Math.max(0, ratio)))
-      publishMergeStats(wallElapsedSecNow(), '正在合成视频…')
-    })
+    const unlistenMergeProgress = await listen<ExportMergeProgressEvent>(
+      'export-merge-progress',
+      (event) => {
+        const ratio = Number(event.payload?.ratio)
+        if (!Number.isFinite(ratio)) return
+        // Monotonic: never go backwards if a late/out-of-order event arrives.
+        mergeProgressRatio = Math.max(mergeProgressRatio, Math.min(1, Math.max(0, ratio)))
+        publishMergeStats(wallElapsedSecNow(), '正在合成视频…')
+      }
+    )
 
     const mergeHeartbeat = window.setInterval(() => {
       // Keep wall clock / remaining estimate fresh even if remux is quiet at start.
@@ -3923,7 +3927,7 @@ async function runCoordinatorExport(options: {
         renderConfig.exportPath,
         totalDuration
       )
-      ffmpegMergeRatio = 1
+      mergeProgressRatio = 1
       logger.info('export.merge_done', {
         projectName,
         exportPath: renderConfig.exportPath,
@@ -3931,7 +3935,7 @@ async function runCoordinatorExport(options: {
       })
     } finally {
       window.clearInterval(mergeHeartbeat)
-      unlistenFfmpeg()
+      unlistenMergeProgress()
     }
 
     // Publish completed UI immediately — cleanup must not leave the dashboard on 98.9%.

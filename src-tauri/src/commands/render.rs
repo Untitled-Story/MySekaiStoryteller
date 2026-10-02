@@ -73,7 +73,7 @@ pub struct ConcatSegmentsArgs {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FfmpegProgressPayload {
+struct ExportMergeProgressPayload {
     /// 0–1 based on out_time / total_duration_sec
     ratio: f64,
     out_time_sec: f64,
@@ -204,12 +204,12 @@ fn concat_render_segments_blocking(app: AppHandle, args: ConcatSegmentsArgs) -> 
     let total = total_duration_sec;
     let mut progress_cb = move |ratio: f64| {
         let ratio = ratio.clamp(0.0, 1.0);
-        let payload = FfmpegProgressPayload {
+        let payload = ExportMergeProgressPayload {
             ratio,
             out_time_sec: total * ratio,
             total_duration_sec: total,
         };
-        let _ = app_progress.emit("export-ffmpeg-progress", &payload);
+        let _ = app_progress.emit("export-merge-progress", &payload);
     };
 
     crate::commands::encoder::concat_mp4_segments(
@@ -219,8 +219,8 @@ fn concat_render_segments_blocking(app: AppHandle, args: ConcatSegmentsArgs) -> 
     )?;
 
     let _ = app.emit(
-        "export-ffmpeg-progress",
-        &FfmpegProgressPayload {
+        "export-merge-progress",
+        &ExportMergeProgressPayload {
             ratio: 1.0,
             out_time_sec: total_duration_sec,
             total_duration_sec,
@@ -300,8 +300,8 @@ fn finalize_render_delivery_blocking(
     );
 
     let _ = app.emit(
-        "export-ffmpeg-progress",
-        &FfmpegProgressPayload {
+        "export-merge-progress",
+        &ExportMergeProgressPayload {
             ratio: 1.0,
             out_time_sec: total_duration_sec,
             total_duration_sec,

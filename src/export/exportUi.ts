@@ -20,7 +20,6 @@ export type ExportUiProgress = {
   error?: string
 }
 
-export const EXPORT_UI_PROGRESS_EVENT = 'export-ui-progress'
 export const EXPORT_CONTROL_EVENT = 'export-control'
 /** Full technical stats for the export debug dashboard window. */
 export const EXPORT_DEBUG_STATS_EVENT = 'export-debug-stats'

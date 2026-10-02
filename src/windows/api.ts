@@ -33,7 +33,7 @@ export type PrepareParallelExportResult = {
   workers: WorkerPlan[]
 }
 
-export type FfmpegProgressEvent = {
+export type ExportMergeProgressEvent = {
   ratio: number
   outTimeSec: number
   totalDurationSec: number
