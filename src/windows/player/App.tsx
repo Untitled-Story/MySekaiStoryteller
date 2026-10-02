@@ -495,7 +495,7 @@ export default function App({
       })
       const payload: ExportUiProgress = {
         sessionId: groupId,
-        projectTitle: projectName ?? '渲染',
+        projectTitle: projectName ?? undefined,
         ...mapped,
         exportPath: renderConfig?.exportPath,
         error: stats.status === 'error' ? stats.message : undefined
@@ -531,7 +531,7 @@ export default function App({
       const debugPayload: ExportDebugStatsEvent = {
         sessionId: preparedOrLive,
         exportGroupId: uiGroupId,
-        projectTitle: projectName ?? '渲染',
+        projectTitle: projectName ?? undefined,
         exportPath: renderConfig?.exportPath,
         stats: {
           progress: doneStats.progress,

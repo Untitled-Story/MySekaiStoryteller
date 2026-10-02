@@ -335,21 +335,32 @@ function normalizeRenderPrecision(value: RenderPrecision | undefined): RenderPre
 export function normalizeExportPrefs(
   value: ExportPreferences | undefined | null
 ): ExportPreferences {
+  const isMobile = isMobileRuntime()
+  const defaults = isMobile ? DEFAULT_EXPORT_PREFS_MOBILE : DEFAULT_EXPORT_PREFS
   const width =
-    typeof value?.width === 'number' && Number.isFinite(value.width) && value.width >= 160
-      ? Math.floor(value.width)
-      : DEFAULT_EXPORT_PREFS.width
+    value && Number.isFinite(value.width)
+      ? Math.min(4096, Math.max(160, Math.floor(value.width)))
+      : defaults.width
   const height =
-    typeof value?.height === 'number' && Number.isFinite(value.height) && value.height >= 90
-      ? Math.floor(value.height)
-      : DEFAULT_EXPORT_PREFS.height
+    value && Number.isFinite(value.height)
+      ? Math.min(2160, Math.max(90, Math.floor(value.height)))
+      : defaults.height
   const fps =
-    typeof value?.fps === 'number' && Number.isFinite(value.fps) && value.fps >= 1
-      ? Math.min(240, Math.floor(value.fps))
-      : DEFAULT_EXPORT_PREFS.fps
+    value && Number.isFinite(value.fps)
+      ? Math.min(120, Math.max(1, Math.floor(value.fps)))
+      : defaults.fps
   const concurrency =
-    typeof value?.concurrency === 'number' && Number.isFinite(value.concurrency)
+    value && Number.isFinite(value.concurrency)
       ? Math.min(4, Math.max(1, Math.floor(value.concurrency)))
-      : DEFAULT_EXPORT_PREFS.concurrency
-  return { width, height, fps, concurrency }
+      : defaults.concurrency
+  // YUV 4:2:0 requires even dimensions; match the Rust encoder clamp
+  // (openh264_worker::clamp_export_config) so UI and encoder never disagree.
+  const evenWidth = Math.max(160, width - (width % 2))
+  const evenHeight = Math.max(90, height - (height % 2))
+  return {
+    width: evenWidth,
+    height: evenHeight,
+    fps,
+    concurrency
+  }
 }

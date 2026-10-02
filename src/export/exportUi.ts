@@ -4,12 +4,15 @@ export type ExportUiStatus = 'running' | 'paused' | 'merging' | 'done' | 'error'
 
 export type ExportUiProgress = {
   sessionId: string
-  projectTitle: string
+  /** Omitted when the project name is unavailable; consumers show an i18n fallback. */
+  projectTitle?: string
   status: ExportUiStatus
   /** 0–1 overall progress for the bar. */
   progress: number
-  /** Short user-facing Chinese message. */
-  message: string
+  /** i18n key of the status message; components render t(messageKey). */
+  messageKey: string
+  /** Optional runtime free text (worker detail / error description), shown verbatim. */
+  messageText?: string
   elapsedSec: number
   canPause: boolean
   canStop: boolean
@@ -90,7 +93,8 @@ export type ExportDebugStatsEvent = {
   sessionId: string
   /** Original UI export group id when different from prepared sessionId. */
   exportGroupId?: string
-  projectTitle: string
+  /** Omitted when the project name is unavailable; consumers show an i18n fallback. */
+  projectTitle?: string
   exportPath?: string
   stats: ExportDebugStats
 }
@@ -108,18 +112,19 @@ export function mapRenderStatusToUi(input: {
   exportPath?: string
 }): Pick<
   ExportUiProgress,
-  'status' | 'message' | 'progress' | 'elapsedSec' | 'canPause' | 'canStop'
+  'status' | 'messageKey' | 'messageText' | 'progress' | 'elapsedSec' | 'canPause' | 'canStop'
 > {
   const elapsedSec =
     typeof input.wallElapsedSec === 'number' && Number.isFinite(input.wallElapsedSec)
       ? Math.max(0, input.wallElapsedSec)
       : 0
   const progress = Math.min(1, Math.max(0, input.progress))
+  const detailText = input.message?.trim() || undefined
 
   if (input.isPaused || input.status === 'paused') {
     return {
       status: 'paused',
-      message: '已暂停',
+      messageKey: 'render.statusPaused',
       progress,
       elapsedSec,
       canPause: true,
@@ -131,7 +136,7 @@ export function mapRenderStatusToUi(input: {
     case 'concatenating':
       return {
         status: 'merging',
-        message: '正在合成视频…',
+        messageKey: 'render.statusMerging',
         // Capture ends at 89%; merge occupies 90%–99%; done is 100%.
         progress: Math.min(0.99, Math.max(0.9, progress)),
         elapsedSec,
@@ -141,7 +146,8 @@ export function mapRenderStatusToUi(input: {
     case 'done':
       return {
         status: 'done',
-        message: input.message?.trim() || '渲染完成',
+        messageKey: 'render.statusDone',
+        messageText: detailText,
         // Always 100% for completed exports — ignore merge-band leftovers.
         progress: 1,
         elapsedSec,
@@ -151,7 +157,8 @@ export function mapRenderStatusToUi(input: {
     case 'error':
       return {
         status: 'error',
-        message: input.message?.trim() || '渲染失败',
+        messageKey: 'render.statusError',
+        messageText: detailText,
         progress,
         elapsedSec,
         canPause: false,
@@ -160,7 +167,7 @@ export function mapRenderStatusToUi(input: {
     case 'warming':
       return {
         status: 'running',
-        message: '正在准备画面…',
+        messageKey: 'render.statusWarming',
         progress,
         elapsedSec,
         canPause: true,
@@ -169,7 +176,7 @@ export function mapRenderStatusToUi(input: {
     case 'finalizing':
       return {
         status: 'running',
-        message: '正在保存片段…',
+        messageKey: 'render.statusFinalizing',
         progress,
         elapsedSec,
         canPause: false,
@@ -179,7 +186,7 @@ export function mapRenderStatusToUi(input: {
     default:
       return {
         status: 'running',
-        message: '正在渲染…',
+        messageKey: 'render.statusRendering',
         progress,
         elapsedSec,
         canPause: true,
@@ -188,10 +195,12 @@ export function mapRenderStatusToUi(input: {
   }
 }
 
-export function formatElapsed(seconds: number): string {
+/** Locale-neutral elapsed-time parts; the component picks its key via i18n. */
+export function elapsedParts(seconds: number): { minutes: number; seconds: number } {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0
-  const mins = Math.floor(safe / 60)
-  const secs = Math.floor(safe % 60)
-  if (mins <= 0) return `${secs} 秒`
-  return `${mins} 分 ${secs.toString().padStart(2, '0')} 秒`
+  return {
+    minutes: Math.floor(safe / 60),
+    seconds: Math.floor(safe % 60)
+  }
 }
+

@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { FolderSearch } from 'lucide-react'
 import { save } from '@tauri-apps/plugin-dialog'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import {
@@ -14,7 +15,6 @@ import {
 import type { RenderConfig } from '@/settings/types'
 import { useSettings } from '@/settings/useSettings'
 import {
-  DEFAULT_EXPORT_PREFS,
   DEFAULT_EXPORT_PREFS_MOBILE,
   normalizeExportPrefs
 } from '@/settings/useSettingsState'
@@ -39,10 +39,16 @@ export function ExportVideoDialog({
   open,
   onOpenChange
 }: ExportVideoDialogProps): JSX.Element {
+  const { t } = useTranslation()
   const mobileRuntime: boolean = isMobileRuntime()
   const { exportPrefs, setExportPrefs } = useSettings()
   const [config, setConfig] = useState<RenderConfig | null>(null)
   const [isStarting, setIsStarting] = useState(false)
+
+  // Depend on the *normalized numeric* prefs rather than the raw settings object so
+  // unrelated settings churn (language/theme identity changes) does not wipe the
+  // user's in-flight edits when the dialog stays open.
+  const prefs = normalizeExportPrefs(exportPrefs)
 
   useEffect(() => {
     if (!open || !projectTitle) {
@@ -56,7 +62,6 @@ export function ExportVideoDialog({
       try {
         const dataPath = await getDataPath()
         if (cancelled || !projectTitle) return
-        const prefs = normalizeExportPrefs(exportPrefs)
         // Mobile: concurrency forced to 1. Prefer 720p when prefs still look like desktop 1080p defaults
         // (legacy installs) so export is usable; user can still raise resolution in the dialog.
         let width = prefs.width
@@ -98,12 +103,12 @@ export function ExportVideoDialog({
     return () => {
       cancelled = true
     }
-  }, [open, projectTitle, exportPrefs, mobileRuntime])
+  }, [open, projectTitle, mobileRuntime, prefs.width, prefs.height, prefs.fps, prefs.concurrency])
 
   const handleBrowse = async (): Promise<void> => {
     const selected = await save({
-      filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
-      title: '选择渲染文件',
+      filters: [{ name: t('render.mp4Filter'), extensions: ['mp4'] }],
+      title: t('render.chooseFileTitle'),
       defaultPath: config?.exportPath
     })
     if (selected && typeof selected === 'string') {
@@ -115,15 +120,18 @@ export function ExportVideoDialog({
     if (!projectTitle || !config?.exportPath) return
     setIsStarting(true)
     try {
-      const width = Math.max(160, Math.floor(config.width) || DEFAULT_EXPORT_PREFS.width)
-      const height = Math.max(90, Math.floor(config.height) || DEFAULT_EXPORT_PREFS.height)
-      const fps = Math.max(1, Math.floor(config.fps) || DEFAULT_EXPORT_PREFS.fps)
-      // Even dimensions required for YUV 4:2:0; no mobile product resolution/fps caps.
-      let widthClamped = width - (width % 2)
-      let heightClamped = height - (height % 2)
-      widthClamped = Math.max(160, widthClamped)
-      heightClamped = Math.max(90, heightClamped)
-      const concurrency = mobileRuntime ? 1 : Math.max(1, Math.floor(config.concurrency ?? 1) || 1)
+      // Single source of truth for clamping: caps + even dimensions are owned by
+      // normalizeExportPrefs (mirrors Rust clamp_export_config: 4096x2160, fps 120).
+      const clamped = normalizeExportPrefs({
+        width: config.width,
+        height: config.height,
+        fps: config.fps,
+        concurrency: config.concurrency ?? 1
+      })
+      const widthClamped = clamped.width
+      const heightClamped = clamped.height
+      const fps = clamped.fps
+      const concurrency = mobileRuntime ? 1 : clamped.concurrency
       const dataPath = await getDataPath()
       // Display path (Movies on mobile). Encode may use private path then publish.
       let displayPath: string = config.exportPath
@@ -143,7 +151,8 @@ export function ExportVideoDialog({
       }
       // Persist last-used export options (not path).
       setExportPrefs({ width: widthClamped, height: heightClamped, fps, concurrency })
-      onOpenChange(false)
+      // Open the player window BEFORE closing the dialog so a failure is visible
+      // inside the dialog (which stays open) instead of leaving the user stranded.
       const exportGroupId = `exp_ui_${Date.now()}`
       const role = concurrency > 1 ? 'coordinator' : 'single'
       logger.info('export.start_requested', {
@@ -171,6 +180,7 @@ export function ExportVideoDialog({
         sessionId: exportGroupId,
         dataPath
       })
+      onOpenChange(false)
       logger.info('export.start_window_opened', {
         projectTitle,
         exportGroupId,
@@ -181,7 +191,9 @@ export function ExportVideoDialog({
         projectTitle,
         error: describeError(error)
       })
-      alert('开始渲染失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      const detail: string =
+        error instanceof Error ? error.message : t('render.unknownError')
+      window.alert(t('render.startFailed', { error: detail }))
     } finally {
       setIsStarting(false)
     }
@@ -191,18 +203,20 @@ export function ExportVideoDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="select-none">
         <DialogHeader>
-          <DialogTitle>渲染视频</DialogTitle>
+          <DialogTitle>{t('render.title')}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">输出路径</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('render.outputPath')}
+            </label>
             <div className="flex gap-2">
               <Input
                 value={config?.exportPath ?? ''}
                 onChange={(e) =>
                   setConfig((prev) => (prev ? { ...prev, exportPath: e.target.value } : prev))
                 }
-                placeholder="选择输出路径..."
+                placeholder={t('render.pathPlaceholder')}
                 className="flex-1"
                 readOnly={mobileRuntime}
               />
@@ -211,7 +225,7 @@ export function ExportVideoDialog({
                   variant="outline"
                   size="icon"
                   onClick={() => void handleBrowse()}
-                  aria-label="浏览"
+                  aria-label={t('render.browse')}
                 >
                   <FolderSearch className="w-4 h-4" />
                 </Button>
@@ -219,16 +233,19 @@ export function ExportVideoDialog({
             </div>
             {mobileRuntime ? (
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                移动端写入应用私有目录，完成后可分享到系统相册/文件。
+                {t('render.mobilePathNote')}
               </p>
             ) : null}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <label className="text-xs font-medium text-muted-foreground">宽度</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('render.width')}
+              </label>
               <Input
                 type="number"
                 min={160}
+                max={4096}
                 value={config?.width ?? 1920}
                 onChange={(e) =>
                   setConfig((prev) =>
@@ -238,10 +255,13 @@ export function ExportVideoDialog({
               />
             </div>
             <div className="grid gap-2">
-              <label className="text-xs font-medium text-muted-foreground">高度</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('render.height')}
+              </label>
               <Input
                 type="number"
                 min={90}
+                max={2160}
                 value={config?.height ?? 1080}
                 onChange={(e) =>
                   setConfig((prev) =>
@@ -252,7 +272,9 @@ export function ExportVideoDialog({
             </div>
           </div>
           <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">帧率 (FPS)</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('render.fps')}
+            </label>
             <Input
               type="number"
               min={1}
@@ -268,11 +290,12 @@ export function ExportVideoDialog({
           {!mobileRuntime ? (
             <div className="grid gap-2">
               <label className="text-xs font-medium text-muted-foreground">
-                并发数（工作线程）
+                {t('render.concurrency')}
               </label>
               <Input
                 type="number"
                 min={1}
+                max={4}
                 step={1}
                 value={config?.concurrency ?? 2}
                 onChange={(e) => {
@@ -281,31 +304,31 @@ export function ExportVideoDialog({
                     prev
                       ? {
                           ...prev,
-                          concurrency: Number.isFinite(raw) ? Math.max(1, raw) : 1
+                          concurrency: Number.isFinite(raw) ? Math.min(4, Math.max(1, raw)) : 1
                         }
                       : prev
                   )
                 }}
               />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                同时渲染的任务数，任意正整数，推荐 2，过高会占更多内存/显存。
+                {t('render.concurrencyHint')}
               </p>
             </div>
           ) : (
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              移动端使用应用内单路渲染（并发固定为 1）。
+              {t('render.mobileConcurrencyNote')}
             </p>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isStarting}>
-            取消
+            {t('render.cancel')}
           </Button>
           <Button
             onClick={() => void handleStart()}
             disabled={isStarting || !config?.exportPath || !projectTitle}
           >
-            {isStarting ? '启动中...' : '开始渲染'}
+            {isStarting ? t('render.starting') : t('render.start')}
           </Button>
         </DialogFooter>
       </DialogContent>

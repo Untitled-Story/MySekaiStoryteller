@@ -1,4 +1,6 @@
 import type { JSX } from 'react'
+import type { TFunction } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import type { ExportDebugStats } from '@/export/exportUi'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { cn } from '@/lib/style'
@@ -17,24 +19,24 @@ function formatTime(seconds: number): string {
     .padStart(2, '0')}`
 }
 
-function formatWorkerStatusText(status: string, message?: string): string {
+function formatWorkerStatusText(t: TFunction, status: string, message?: string): string {
   switch (status) {
     case 'idle':
-      return '空闲'
+      return t('render.debugBadgeIdle')
     case 'warming':
-      return '预热中'
+      return t('render.debugBadgeWarming')
     case 'rendering':
-      return '渲染中'
+      return t('render.debugBadgeRendering')
     case 'finalizing':
-      return '写入中'
+      return t('render.debugBadgeFinalizing')
     case 'concatenating':
-      return '合并中'
+      return t('render.debugBadgeConcatenating')
     case 'paused':
-      return '已暂停'
+      return t('render.debugBadgePaused')
     case 'done':
-      return '完成'
+      return t('render.debugBadgeDone')
     case 'error':
-      return message ? `失败: ${message}` : '失败'
+      return message ? t('render.debugBadgeErrorDetail', { message }) : t('render.debugBadgeError')
     default:
       return status
   }
@@ -86,6 +88,7 @@ function StatusBadge({
   isPaused?: boolean
   message?: string
 }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <span
       className={cn(
@@ -93,7 +96,7 @@ function StatusBadge({
         statusBadgeClass(status, isPaused)
       )}
     >
-      {isPaused ? '已暂停' : formatWorkerStatusText(status, message)}
+      {isPaused ? t('render.debugBadgePaused') : formatWorkerStatusText(t, status, message)}
     </span>
   )
 }
@@ -178,6 +181,7 @@ function TimingWaterfall({
   spans: TimingSpan[]
   wallSec: number
 }): JSX.Element {
+  const { t } = useTranslation()
   const horizon = Math.max(
     0.001,
     wallSec,
@@ -188,7 +192,9 @@ function TimingWaterfall({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-muted-foreground">墙钟 0 — {formatTime(horizon)}</p>
+        <p className="text-xs font-medium text-muted-foreground">
+          {t('render.debugWallClock', { end: formatTime(horizon) })}
+        </p>
       </div>
       <div className="space-y-1.5 rounded-lg border bg-muted/20 px-3 py-2.5">
         {lanes.map((lane) => {
@@ -204,10 +210,14 @@ function TimingWaterfall({
                     Math.max(0.4, ((span.endSec - span.startSec) / horizon) * 100)
                   )
                   const dur = Math.max(0, span.endSec - span.startSec)
+                  const runningTag =
+                    span.state === 'running'
+                      ? ` · ${t('render.debugRunningTag')}`
+                      : ''
                   return (
                     <div
                       key={span.id}
-                      title={`${span.label} · ${formatTime(dur)}${span.state === 'running' ? ' · 进行中' : ''}`}
+                      title={`${span.label} · ${formatTime(dur)}${runningTag}`}
                       className={cn(
                         'absolute inset-y-0.5 rounded-sm',
                         timingPhaseClass(span.phase, span.state),
@@ -224,19 +234,19 @@ function TimingWaterfall({
         <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-2.5 rounded-sm bg-chart-2" />
-            预热
+            {t('render.debugPhaseWarm')}
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-2.5 rounded-sm bg-chart-1" />
-            捕获
+            {t('render.debugPhaseCapture')}
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-2.5 rounded-sm bg-chart-4" />
-            收尾
+            {t('render.debugPhaseFinalize')}
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-2.5 rounded-sm bg-chart-5" />
-            合并压制
+            {t('render.debugPhaseMerge')}
           </span>
         </div>
         <div className="grid max-h-28 gap-0.5 overflow-y-auto text-[11px] text-muted-foreground sm:grid-cols-2">
@@ -253,6 +263,7 @@ function TimingWaterfall({
 }
 
 function WorkerGrid({ workers }: { workers: WorkerCardData[] }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {workers.map((worker) => {
@@ -273,7 +284,7 @@ function WorkerGrid({ workers }: { workers: WorkerCardData[] }): JSX.Element {
 
             <div className="mt-3 space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>捕获</span>
+                <span>{t('render.debugWorkerCapture')}</span>
                 <span className="tabular-nums">
                   {worker.frameCount}/{worker.totalFrames} · {capturePct.toFixed(1)}%
                 </span>
@@ -288,7 +299,7 @@ function WorkerGrid({ workers }: { workers: WorkerCardData[] }): JSX.Element {
               {worker.warmTotalFrames > 0 ? (
                 <>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>预热{isWarming ? '' : '完成'}</span>
+                    <span>{isWarming ? t('render.debugWorkerWarm') : t('render.debugWorkerWarmDone')}</span>
                     <span className="tabular-nums">
                       {worker.warmFrameCount}/{worker.warmTotalFrames} · {warmPct.toFixed(1)}%
                     </span>
@@ -323,10 +334,11 @@ export function ExportDebugDashboard({
   exportPath?: string
   stats: ExportDebugStats | null
 }): JSX.Element {
+  const { t } = useTranslation()
   if (!stats) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background px-6 text-sm text-muted-foreground select-none">
-        等待渲染数据…
+        {t('render.debugWaiting')}
       </div>
     )
   }
@@ -357,40 +369,42 @@ export function ExportDebugDashboard({
 
   const metrics: Array<{ label: string; value: string; hint?: string }> = [
     {
-      label: '进度',
+      label: t('render.debugMetricProgress'),
       value: `${progressPct.toFixed(1)}%`,
-      hint: isFinished ? '全程' : '仅统计已捕获帧'
+      hint: isFinished
+        ? t('render.debugHintAll')
+        : t('render.debugHintCaptured')
     },
     {
-      label: '帧',
+      label: t('render.debugMetricFrames'),
       value: `${stats.frameCount}/${stats.totalFrames || '—'}`,
-      hint: 'capture only'
+      hint: t('render.debugHintCaptureOnly')
     },
     {
-      label: '时间轴',
+      label: t('render.debugMetricTimeline'),
       value: `${formatTime(stats.currentTime)} / ${formatTime(stats.totalDuration)}`
     },
     {
-      label: isFinished ? '平均 FPS' : 'FPS',
+      label: isFinished ? t('render.debugMetricFpsAvg') : t('render.debugMetricFps'),
       value: displayFps.toFixed(1),
-      hint: isFinished ? '总帧数 / 墙钟' : '瞬时'
+      hint: isFinished ? t('render.debugHintWall') : t('render.debugHintInstant')
     },
     {
-      label: isFinished ? '平均 Speed' : 'Speed',
+      label: isFinished ? t('render.debugMetricSpeedAvg') : t('render.debugMetricSpeed'),
       value: `${displaySpeed.toFixed(2)}x`,
-      hint: isFinished ? '故事时间 / 墙钟' : '瞬时'
+      hint: isFinished ? t('render.debugHintWall') : t('render.debugHintInstant')
     },
     {
-      label: '总耗时',
+      label: t('render.debugMetricTotal'),
       value: wallSec > 0 ? formatTime(wallSec) : '—'
     },
     {
-      label: '效率',
+      label: t('render.debugMetricEfficiency'),
       value: `${efficiency.toFixed(2)}x`,
-      hint: '故事时间 / 墙钟'
+      hint: t('render.debugHintWall')
     },
     {
-      label: 'Workers',
+      label: t('render.debugMetricWorkers'),
       value:
         typeof stats.totalWorkers === 'number'
           ? `${stats.doneWorkers ?? 0}/${stats.totalWorkers}`
@@ -405,9 +419,11 @@ export function ExportDebugDashboard({
       <div className="mx-auto flex min-h-full max-w-5xl flex-col">
         <header className="flex flex-wrap items-start justify-between gap-3 border-b bg-background px-5 py-4">
           <div className="min-w-0 space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">渲染调试</p>
+            <p className="text-xs font-medium text-muted-foreground">{t('render.debugHeader')}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-base font-semibold tracking-tight">渲染 Dashboard</h1>
+              <h1 className="text-base font-semibold tracking-tight">
+                {t('render.debugDashboard')}
+              </h1>
               <StatusBadge
                 status={stats.status}
                 isPaused={stats.isPaused}
@@ -419,7 +435,9 @@ export function ExportDebugDashboard({
                 </span>
               ) : null}
             </div>
-            <p className="truncate text-xs text-muted-foreground">{projectTitle ?? '项目'}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {projectTitle ?? t('render.projectFallback')}
+            </p>
             {sessionId ? (
               <p className="truncate font-mono text-[11px] text-muted-foreground/80">{sessionId}</p>
             ) : null}
@@ -432,15 +450,15 @@ export function ExportDebugDashboard({
               {progressPct.toFixed(1)}
               <span className="ml-1 text-base font-medium text-muted-foreground">%</span>
             </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">调试视图 · 只读</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{t('render.debugReadonly')}</p>
           </div>
         </header>
 
         <div className="space-y-4 px-5 py-4">
           <Card className="gap-0 py-0 shadow-sm">
             <CardHeader className="border-b px-4 py-3 [.border-b]:pb-3">
-              <CardTitle className="text-sm">捕获进度</CardTitle>
-              <CardDescription>按块展示 · 预热不计入整体进度</CardDescription>
+              <CardTitle className="text-sm">{t('render.debugCaptureTitle')}</CardTitle>
+              <CardDescription>{t('render.debugCaptureDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 px-4 py-4">
               <ChunkProgressBar
@@ -452,27 +470,29 @@ export function ExportDebugDashboard({
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                   <span className="inline-flex items-center gap-1">
                     <span className="h-1.5 w-2.5 rounded-sm bg-emerald-500" />
-                    完成
+                    {t('render.debugChunkDone')}
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <span className="h-1.5 w-2.5 rounded-sm bg-primary" />
-                    写入中
+                    {t('render.debugChunkRunning')}
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <span className="h-1.5 w-2.5 rounded-sm bg-sky-500" />
-                    预热
+                    {t('render.debugChunkWarming')}
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <span className="h-1.5 w-2.5 rounded-sm bg-amber-500/70" />
-                    排队
+                    {t('render.debugChunkQueued')}
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <span className="h-1.5 w-2.5 rounded-sm bg-muted-foreground/20" />
-                    未分配
+                    {t('render.debugChunkUnassigned')}
                   </span>
                   <span className="ml-auto tabular-nums">
-                    {stats.chunkSegments.filter((s) => s.state === 'done').length}/
-                    {stats.chunkSegments.length} 块
+                    {t('render.debugChunksCount', {
+                      done: stats.chunkSegments.filter((s) => s.state === 'done').length,
+                      total: stats.chunkSegments.length
+                    })}
                   </span>
                 </div>
               ) : null}
@@ -495,15 +515,15 @@ export function ExportDebugDashboard({
 
           <Card className="gap-0 py-0 shadow-sm">
             <CardHeader className="border-b px-4 py-3 [.border-b]:pb-3">
-              <CardTitle className="text-sm">时间瀑布</CardTitle>
-              <CardDescription>按 worker 与阶段分析墙钟耗时</CardDescription>
+              <CardTitle className="text-sm">{t('render.debugWaterfallTitle')}</CardTitle>
+              <CardDescription>{t('render.debugWaterfallDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="px-4 py-4">
               {stats.timingSpans && stats.timingSpans.length > 0 ? (
                 <TimingWaterfall spans={stats.timingSpans} wallSec={wallSec} />
               ) : (
                 <div className="rounded-lg border border-dashed px-3 py-6 text-center text-xs text-muted-foreground">
-                  暂无时间瀑布数据（等待 worker 阶段上报）
+                  {t('render.debugWaterfallEmpty')}
                 </div>
               )}
             </CardContent>
@@ -512,8 +532,8 @@ export function ExportDebugDashboard({
           {stats.workerCards && stats.workerCards.length > 0 ? (
             <Card className="gap-0 py-0 shadow-sm">
               <CardHeader className="border-b px-4 py-3 [.border-b]:pb-3">
-                <CardTitle className="text-sm">Workers</CardTitle>
-                <CardDescription>各工作线程捕获与预热状态</CardDescription>
+                <CardTitle className="text-sm">{t('render.debugWorkersTitle')}</CardTitle>
+                <CardDescription>{t('render.debugWorkersDesc')}</CardDescription>
               </CardHeader>
               <CardContent className="px-4 py-4">
                 <WorkerGrid workers={stats.workerCards} />
@@ -524,7 +544,7 @@ export function ExportDebugDashboard({
           {stats.detailLines && stats.detailLines.length > 0 ? (
             <Card className="gap-0 py-0 shadow-sm">
               <CardHeader className="border-b px-4 py-3 [.border-b]:pb-3">
-                <CardTitle className="text-sm">详情</CardTitle>
+                <CardTitle className="text-sm">{t('render.debugDetailsTitle')}</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-1 px-4 py-3 text-xs text-muted-foreground sm:grid-cols-2">
                 {stats.detailLines.map((line) => (

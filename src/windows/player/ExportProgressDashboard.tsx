@@ -3,7 +3,8 @@ import { revealItemInDir, openPath } from '@tauri-apps/plugin-opener'
 import { invoke } from '@tauri-apps/api/core'
 import { isMobileRuntime } from '@/lib/platform'
 import type { RenderConfig } from '@/settings/types'
-import { formatElapsed, mapRenderStatusToUi } from '@/export/exportUi'
+import { elapsedParts, mapRenderStatusToUi } from '@/export/exportUi'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/style'
 
@@ -79,6 +80,7 @@ export function ExportProgressDashboard({
   projectTitle?: string
   exportPath?: string
 }): JSX.Element {
+  const { t } = useTranslation()
   const wallSec =
     typeof stats.wallElapsedSec === 'number' && Number.isFinite(stats.wallElapsedSec)
       ? Math.max(0, stats.wallElapsedSec)
@@ -92,30 +94,39 @@ export function ExportProgressDashboard({
   })
   // Terminal done always shows 100% even if last merge event was 0.99.
   const pct = Math.min(100, Math.max(0, (mapped.status === 'done' ? 1 : mapped.progress) * 100))
-  const title =
+  const statusTitleKey =
     mapped.status === 'done'
-      ? '渲染完成'
+      ? 'render.titleDone'
       : mapped.status === 'error'
-        ? '渲染失败'
+        ? 'render.titleError'
         : mapped.status === 'paused'
-          ? '已暂停'
+          ? 'render.titlePaused'
           : mapped.status === 'merging'
-            ? '正在合成'
-            : '正在渲染'
+            ? 'render.titleMerging'
+            : 'render.titleRunning'
+  const title = t(statusTitleKey)
+  const statusMessage = mapped.messageText ?? t(mapped.messageKey)
 
   const remainingSec = estimateRemainingSec(wallSec, mapped.progress)
   const remainingLabel =
     mapped.status === 'done'
-      ? '已完成'
+      ? t('render.remainingDone')
       : mapped.status === 'error'
         ? '—'
         : mapped.status === 'paused'
-          ? '已暂停'
+          ? t('render.remainingPaused')
           : remainingSec === null
-            ? '计算中…'
+            ? t('render.remainingComputing')
             : remainingSec < 1
-              ? '即将完成'
-              : `预计剩余 ${formatElapsed(remainingSec)}`
+              ? t('render.remainingSoon')
+              : (() => {
+                  const parts = elapsedParts(remainingSec)
+                  return parts.minutes > 0
+                    ? t('render.remainingEta', { elapsed: t('render.elapsedLong', parts) })
+                    : t('render.remainingEta', {
+                        elapsed: t('render.elapsedShort', { seconds: parts.seconds })
+                      })
+                })()
 
   // Use design-system primary (white in dark theme) for the default fill.
   const barFillClass =
@@ -132,10 +143,10 @@ export function ExportProgressDashboard({
           <div className="min-w-0 space-y-1.5">
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">{title}</h1>
             <p className="truncate text-sm sm:text-base text-muted-foreground">
-              {projectTitle ?? '项目'}
+              {projectTitle ?? t('render.projectFallback')}
               {role === 'worker' && stats.workerLabel ? ` · ${stats.workerLabel}` : ''}
             </p>
-            <p className="text-sm sm:text-base text-muted-foreground">{mapped.message}</p>
+            <p className="text-sm sm:text-base text-muted-foreground">{statusMessage}</p>
           </div>
           <div className="shrink-0 text-right">
             <div className="text-3xl sm:text-4xl font-semibold tabular-nums tracking-tight">
@@ -146,7 +157,7 @@ export function ExportProgressDashboard({
             </div>
             {stats.status !== 'done' && stats.status !== 'error' && stats.fps > 0 ? (
               <div className="mt-1 text-xs sm:text-sm text-muted-foreground">
-                FPS: {stats.fps.toFixed(2)}
+                {t('render.fpsReadout', { fps: stats.fps.toFixed(2) })}
               </div>
             ) : null}
           </div>
@@ -158,7 +169,7 @@ export function ExportProgressDashboard({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(pct)}
-          aria-label="渲染进度"
+          aria-label={t('render.ariaProgress')}
         >
           <div
             className={cn(
@@ -180,7 +191,9 @@ export function ExportProgressDashboard({
               className="h-9 px-4 sm:h-10"
               onClick={onTogglePause}
             >
-              {stats.isPaused || stats.status === 'paused' ? '继续' : '暂停'}
+              {stats.isPaused || stats.status === 'paused'
+                ? t('render.btnResume')
+                : t('render.btnPause')}
             </Button>
           ) : null}
           {stats.canStop ? (
@@ -191,7 +204,7 @@ export function ExportProgressDashboard({
               className="h-9 px-4 sm:h-10"
               onClick={onStop}
             >
-              停止
+              {t('render.btnStop')}
             </Button>
           ) : null}
           {mapped.status === 'done' && (exportPath || stats.exportPath) ? (
@@ -238,7 +251,7 @@ export function ExportProgressDashboard({
                 })
               }}
             >
-              {isMobileRuntime() ? '打开/分享' : '打开文件位置'}
+              {isMobileRuntime() ? t('render.btnOpenShare') : t('render.btnOpenLocation')}
             </Button>
           ) : null}
           {onOpenDetails ? (
@@ -249,7 +262,7 @@ export function ExportProgressDashboard({
               className="ml-auto h-auto px-0 text-xs sm:text-sm text-muted-foreground"
               onClick={onOpenDetails}
             >
-              详细信息
+              {t('render.btnDetails')}
             </Button>
           ) : null}
         </div>
