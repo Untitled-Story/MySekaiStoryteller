@@ -90,99 +90,111 @@ pub fn concat_mp4_segments(
     }
 
     let out_tmp = format!("{export_path}.remuxing.mp4");
-    let file = File::create(&out_tmp).map_err(|e| format!("create remux output: {e}"))?;
-    let mut writer = BufWriter::new(file);
-    let mp4_config = Mp4Config {
-        major_brand: str::parse("isom").expect("brand"),
-        minor_version: 512,
-        compatible_brands: vec![
-            str::parse("isom").expect("brand"),
-            str::parse("iso2").expect("brand"),
-            str::parse("avc1").expect("brand"),
-            str::parse("mp41").expect("brand"),
-        ],
-        timescale: 1000,
-    };
-    let mut mp4 = Mp4Writer::write_start(&mut writer, &mp4_config)
-        .map_err(|e| format!("mp4 write_start: {e}"))?;
+    // Run the whole write phase in a closure so any error path deletes the
+    // partial .remuxing.mp4 temp instead of leaking it next to the export.
+    let mut write_result = || {
+        let file = File::create(&out_tmp).map_err(|e| format!("create remux output: {e}"))?;
+        let mut writer = BufWriter::new(file);
+        let mp4_config = Mp4Config {
+            major_brand: str::parse("isom").expect("brand"),
+            minor_version: 512,
+            compatible_brands: vec![
+                str::parse("isom").expect("brand"),
+                str::parse("iso2").expect("brand"),
+                str::parse("avc1").expect("brand"),
+                str::parse("mp41").expect("brand"),
+            ],
+            timescale: 1000,
+        };
+        let mut mp4 = Mp4Writer::write_start(&mut writer, &mp4_config)
+            .map_err(|e| format!("mp4 write_start: {e}"))?;
 
-    let track = TrackConfig {
-        track_type: TrackType::Video,
-        timescale: 1000,
-        language: "und".to_string(),
-        media_conf: MediaConfig::AvcConfig(AvcConfig {
-            width: *width0,
-            height: *height0,
-            seq_param_set: sps0.clone(),
-            pic_param_set: pps0.clone(),
-        }),
-    };
-    mp4.add_track(&track)
-        .map_err(|e| format!("mp4 add_track: {e}"))?;
+        let track = TrackConfig {
+            track_type: TrackType::Video,
+            timescale: 1000,
+            language: "und".to_string(),
+            media_conf: MediaConfig::AvcConfig(AvcConfig {
+                width: *width0,
+                height: *height0,
+                seq_param_set: sps0.clone(),
+                pic_param_set: pps0.clone(),
+            }),
+        };
+        mp4.add_track(&track)
+            .map_err(|e| format!("mp4 add_track: {e}"))?;
 
-    let mut written: u64 = 0;
-    let mut timeline_ms: u64 = 0;
+        let mut written: u64 = 0;
+        let mut timeline_ms: u64 = 0;
 
-    for (seg_i, path) in segment_paths.iter().enumerate() {
-        let (track_id, count, _, _, _, _) = &segment_meta[seg_i];
-        let f = File::open(path).map_err(|e| format!("open segment {path}: {e}"))?;
-        let size = f
-            .metadata()
-            .map_err(|e| format!("stat segment {path}: {e}"))?
-            .len();
-        let mut reader = Mp4Reader::read_header(BufReader::new(f), size)
-            .map_err(|e| format!("read header {path}: {e}"))?;
+        for (seg_i, path) in segment_paths.iter().enumerate() {
+            let (track_id, count, _, _, _, _) = &segment_meta[seg_i];
+            let f = File::open(path).map_err(|e| format!("open segment {path}: {e}"))?;
+            let size = f
+                .metadata()
+                .map_err(|e| format!("stat segment {path}: {e}"))?
+                .len();
+            let mut reader = Mp4Reader::read_header(BufReader::new(f), size)
+                .map_err(|e| format!("read header {path}: {e}"))?;
 
-        // sample_id is 1-based in mp4 crate.
-        for sample_id in 1..=*count {
-            let sample = reader
-                .read_sample(*track_id, sample_id)
-                .map_err(|e| format!("read_sample {path}#{sample_id}: {e}"))?
-                .ok_or_else(|| format!("missing sample {path}#{sample_id}"))?;
+            // sample_id is 1-based in mp4 crate.
+            for sample_id in 1..=*count {
+                let sample = reader
+                    .read_sample(*track_id, sample_id)
+                    .map_err(|e| format!("read_sample {path}#{sample_id}: {e}"))?
+                    .ok_or_else(|| format!("missing sample {path}#{sample_id}"))?;
 
-            // Convert duration to ms timescale if needed.
-            let src_timescale = reader
-                .tracks()
-                .get(track_id)
-                .map(|t| t.timescale())
-                .unwrap_or(1000)
-                .max(1);
-            let duration_ms = if src_timescale == 1000 {
-                sample.duration.max(1)
-            } else {
-                ((u64::from(sample.duration) * 1000) / u64::from(src_timescale)).max(1) as u32
-            };
+                // Convert duration to ms timescale if needed.
+                let src_timescale = reader
+                    .tracks()
+                    .get(track_id)
+                    .map(|t| t.timescale())
+                    .unwrap_or(1000)
+                    .max(1);
+                let duration_ms = if src_timescale == 1000 {
+                    sample.duration.max(1)
+                } else {
+                    ((u64::from(sample.duration) * 1000) / u64::from(src_timescale)).max(1) as u32
+                };
 
-            let out = Mp4Sample {
-                start_time: timeline_ms,
-                duration: duration_ms,
-                rendering_offset: sample.rendering_offset,
-                is_sync: sample.is_sync || sample_id == 1,
-                bytes: Bytes::from(sample.bytes.to_vec()),
-            };
-            mp4.write_sample(1, &out)
-                .map_err(|e| format!("write_sample: {e}"))?;
-            timeline_ms = timeline_ms.saturating_add(u64::from(duration_ms));
-            written = written.saturating_add(1);
-            if written % 30 == 0 {
-                if let Some(cb) = on_progress.as_mut() {
-                    cb((written as f64 / total_samples as f64).clamp(0.0, 1.0));
+                let out = Mp4Sample {
+                    start_time: timeline_ms,
+                    duration: duration_ms,
+                    rendering_offset: sample.rendering_offset,
+                    is_sync: sample.is_sync || sample_id == 1,
+                    bytes: Bytes::from(sample.bytes.to_vec()),
+                };
+                mp4.write_sample(1, &out)
+                    .map_err(|e| format!("write_sample: {e}"))?;
+                timeline_ms = timeline_ms.saturating_add(u64::from(duration_ms));
+                written = written.saturating_add(1);
+                if written % 30 == 0 {
+                    if let Some(cb) = on_progress.as_mut() {
+                        cb((written as f64 / total_samples as f64).clamp(0.0, 1.0));
+                    }
                 }
             }
         }
-    }
 
-    mp4.write_end().map_err(|e| format!("mp4 write_end: {e}"))?;
-    writer
-        .into_inner()
-        .map_err(|e| format!("flush remux: {e}"))?
-        .sync_all()
-        .ok();
+        mp4.write_end().map_err(|e| format!("mp4 write_end: {e}"))?;
+        writer
+            .into_inner()
+            .map_err(|e| format!("flush remux: {e}"))?
+            .sync_all()
+            .ok();
+        Ok::<(u64, u64), String>((written, timeline_ms))
+    };
 
-    std::fs::rename(&out_tmp, export_path).map_err(|e| {
+    let (written, timeline_ms) = match write_result() {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = std::fs::remove_file(&out_tmp);
+            return Err(e);
+        }
+    };
+    if let Err(e) = std::fs::rename(&out_tmp, export_path) {
         let _ = std::fs::remove_file(&out_tmp);
-        format!("rename remux output: {e}")
-    })?;
+        return Err(format!("rename remux output: {e}"));
+    }
 
     if let Some(cb) = on_progress.as_mut() {
         cb(1.0);

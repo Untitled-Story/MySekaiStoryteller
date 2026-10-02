@@ -401,12 +401,29 @@ pub fn start_render_session(
     };
 
     // Desktop: embedded encode (HW probe → openh264); no system ffmpeg.
+    // catch_unwind keeps a panic in the encoder from silently killing the worker
+    // (which would leave the frontend stuck with no progress and no stop path).
     #[cfg(desktop)]
     let worker_handle = {
         let cfg = crate::commands::encoder::clamp_export_config(&config_clone);
         let stop = Arc::clone(&stop_flag_worker);
+        let stop_signal = Arc::clone(&stop_flag_worker);
         thread::spawn(move || {
-            crate::commands::encoder::run_encode_worker(rx, cfg, stop);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                crate::commands::encoder::run_encode_worker(rx, cfg, stop);
+            }));
+            if let Err(payload) = result {
+                let detail: String = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| (*s).to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic payload".to_string());
+                log::error!(
+                    target: "backend::render",
+                    "desktop encode worker panicked, stopping session: {detail}"
+                );
+                stop_signal.store(true, Ordering::Relaxed);
+            }
         })
     };
 
@@ -440,11 +457,43 @@ pub fn start_render_session(
                 }
 
                 if method == Method::Post && (url == "/frame" || url.starts_with("/frame?")) {
+                    // Bounded read: cap the body so a runaway client cannot OOM the
+                    // process. Queue holds at most 48 desktop frames; clamp the cap
+                    // to a sane 64MiB–512MiB window (RGBA 4K2160 frame = 35MiB).
+                    let cap = expected_bytes
+                        .saturating_mul(48)
+                        .clamp(64 * 1024 * 1024, 512 * 1024 * 1024);
+                    let limit = cap + 1; // read one extra byte to detect overflow
                     let mut body = Vec::new();
-                    if let Err(e) = request.as_reader().read_to_end(&mut body) {
+                    let mut chunk = vec![0u8; 1024 * 1024];
+                    let mut read_total: usize = 0;
+                    let mut exceeded = false;
+                    let read_result = loop {
+                        let want = (limit - read_total).min(chunk.len());
+                        if want == 0 {
+                            exceeded = true;
+                            break Ok(());
+                        }
+                        match request.as_reader().read(&mut chunk[..want]) {
+                            Ok(0) => break Ok(()),
+                            Ok(n) => {
+                                read_total += n;
+                                body.extend_from_slice(&chunk[..n]);
+                            }
+                            Err(e) => break Err(e),
+                        }
+                    };
+                    if let Err(e) = read_result {
                         let _ = request.respond(with_cors(
                             Response::from_string(format!("read error: {e}"))
                                 .with_status_code(StatusCode(400)),
+                        ));
+                        continue;
+                    }
+                    if exceeded || body.len() > cap {
+                        let _ = request.respond(with_cors(
+                            Response::from_string("body too large")
+                                .with_status_code(StatusCode(413)),
                         ));
                         continue;
                     }
@@ -821,36 +870,45 @@ pub fn publish_render_output(app: AppHandle, args: PublishRenderOutputArgs) -> R
     );
     let source = Path::new(&args.source_path);
     if !source.is_file() {
-        return Err(format!("源文件不存在: {}", args.source_path));
+        return Err(format!("Source file does not exist: {}", args.source_path));
     }
-    let bytes = std::fs::read(source).map_err(|e| format!("读取渲染结果失败: {e}"))?;
-    if bytes.is_empty() {
-        return Err("渲染结果为空".into());
+    // Stream the copy instead of buffering the whole file (exports can be 100MB+).
+    let mut src = std::fs::File::open(source).map_err(|e| format!("Failed to read render output: {e}"))?;
+    let len = src
+        .metadata()
+        .and_then(|m| Ok(m.len()))
+        .map_err(|e| format!("Failed to stat render output: {e}"))?;
+    if len == 0 {
+        return Err("Render output is empty".into());
     }
 
     let dest = args.destination.trim().to_string();
     let lowered = dest.to_ascii_lowercase();
     if lowered.starts_with("content://") || lowered.starts_with("file://") {
         use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
-        let file_path = FilePath::from_str(&dest).map_err(|e| format!("解析导出目标失败: {e}"))?;
+        let file_path =
+            FilePath::from_str(&dest).map_err(|e| format!("Failed to parse export target: {e}"))?;
         let mut options = OpenOptions::new();
         options.write(true).truncate(true).create(true);
         let mut file = app
             .fs()
             .open(file_path, options)
-            .map_err(|e| format!("打开导出目标失败: {e}"))?;
+            .map_err(|e| format!("Failed to open export target: {e}"))?;
         use std::io::Write as _;
-        file.write_all(&bytes)
-            .map_err(|e| format!("写入导出目标失败: {e}"))?;
-        file.flush().map_err(|e| format!("刷新导出目标失败: {e}"))?;
+        std::io::copy(&mut src, &mut file)
+            .map_err(|e| format!("Failed to write export target: {e}"))?;
+        file.flush().map_err(|e| format!("Failed to flush export target: {e}"))?;
         return Ok(());
     }
 
     if let Some(parent) = Path::new(&dest).parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create export dir: {e}"))?;
         }
     }
-    std::fs::write(&dest, &bytes).map_err(|e| format!("写入导出文件失败: {e}"))?;
+    let mut dst = std::fs::File::create(&dest).map_err(|e| format!("Failed to create export file: {e}"))?;
+    use std::io::Write as _;
+    std::io::copy(&mut src, &mut dst).map_err(|e| format!("Failed to write export file: {e}"))?;
+    dst.flush().map_err(|e| format!("Failed to flush export file: {e}"))?;
     Ok(())
 }

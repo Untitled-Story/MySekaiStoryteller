@@ -133,6 +133,8 @@ pub fn run_openh264_with_profile(
     let mut wrote_samples = 0u64;
     let mut yuv = YUVBuffer::new(width as usize, height as usize);
     let mut annex_b: Vec<u8> = Vec::with_capacity(64 * 1024);
+    // Hoisted flip buffer: avoids a full RGBA allocation (up to 35MB at 4K) per frame.
+    let mut flipped = vec![0u8; frame_bytes];
     let mut encode_ns_acc: u128 = 0;
     let mut encode_ns_count: u64 = 0;
     let encode_started = std::time::Instant::now();
@@ -188,6 +190,7 @@ pub fn run_openh264_with_profile(
                         &mut pps,
                         &mut yuv,
                         &mut annex_b,
+                        &mut flipped,
                         frame,
                         width as usize,
                         height as usize,
@@ -242,6 +245,7 @@ pub fn run_openh264_with_profile(
                         &mut pps,
                         &mut yuv,
                         &mut annex_b,
+                        &mut flipped,
                         frame,
                         width as usize,
                         height as usize,
@@ -295,6 +299,7 @@ fn encode_one_frame<W: Write + std::io::Seek>(
     pps: &mut Vec<u8>,
     yuv: &mut YUVBuffer,
     annex_b: &mut Vec<u8>,
+    flipped: &mut [u8],
     rgba: &[u8],
     width: usize,
     height: usize,
@@ -304,7 +309,7 @@ fn encode_one_frame<W: Write + std::io::Seek>(
 ) -> Result<(), String> {
     // WebGL readPixels is bottom-up.
     let row = width * 4;
-    let mut flipped = vec![0u8; width * height * 4];
+    let flipped = &mut flipped[..row * height];
     for y in 0..height {
         let src = (height - 1 - y) * row;
         let dst = y * row;
