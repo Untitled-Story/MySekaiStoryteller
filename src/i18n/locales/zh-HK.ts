@@ -49,7 +49,7 @@ export const zhHK: LocaleShape = {
     home: '主頁',
     projects: '專案',
     settings: '設定',
-    about: '關於與鳴謝',
+    about: '關於',
     mainNavigation: '主導覽',
     openMenu: '開啟選單',
     closeMenu: '關閉選單',
@@ -186,6 +186,9 @@ export const zhHK: LocaleShape = {
     closePlayerDescription: '關閉目前播放器視窗'
   },
   about: {
+    appName: 'MySekaiStoryteller',
+    byline: 'by Untitled Story',
+    dedication: '願將此篇，獻給此刻的你。',
     specialThanks: '特別鳴謝',
     unordered: '排名不分先後',
     avatarAlt: '{{name}} 的頭像',

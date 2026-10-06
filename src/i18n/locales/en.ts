@@ -53,7 +53,7 @@ export const en: LocaleShape = {
     home: 'Home',
     projects: 'Projects',
     settings: 'Settings',
-    about: 'About & Credits',
+    about: 'About',
     mainNavigation: 'Main navigation',
     openMenu: 'Open menu',
     closeMenu: 'Close menu',
@@ -196,6 +196,9 @@ export const en: LocaleShape = {
     closePlayerDescription: 'Close the current player window'
   },
   about: {
+    appName: 'MySekaiStoryteller',
+    byline: 'by Untitled Story',
+    dedication: 'For you, who are here in this moment.',
     specialThanks: 'Special Thanks',
     unordered: 'In no particular order',
     avatarAlt: '{{name}}’s avatar',

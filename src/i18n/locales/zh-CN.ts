@@ -45,7 +45,7 @@ export const zhCN = {
     home: '主页',
     projects: '项目',
     settings: '设置',
-    about: '关于与鸣谢',
+    about: '关于',
     mainNavigation: '主导航',
     openMenu: '打开菜单',
     closeMenu: '关闭菜单',
@@ -182,6 +182,9 @@ export const zhCN = {
     closePlayerDescription: '关闭当前播放器窗口'
   },
   about: {
+    appName: 'MySekaiStoryteller',
+    byline: 'by Untitled Story',
+    dedication: '愿将此篇，献给此刻的你。',
     specialThanks: '特别鸣谢',
     unordered: '排名不分先后',
     avatarAlt: '{{name}} 的头像',
