@@ -80,6 +80,10 @@ export const zhHK: LocaleShape = {
     openPlayerFailed: '開啟播放器失敗：{{error}}',
     deleteFailed: '刪除失敗：{{error}}',
     renameFailed: '重新命名失敗：{{error}}',
+    pin: '置頂',
+    unpin: '取消置頂',
+    pinFailed: '置頂失敗：{{error}}',
+    unpinFailed: '取消置頂失敗：{{error}}',
     metadataMissing: '專案 metadata.json 不存在：{{name}}'
   },
   projectArchive: {
@@ -103,6 +107,7 @@ export const zhHK: LocaleShape = {
   home: {
     welcome: '歡迎回來',
     recent: '上次編輯',
+    pinned: '置頂專案',
     continueEditing: '繼續編輯',
     noRecent: '還沒有編輯過專案。',
     quickActions: '快速操作',

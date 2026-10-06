@@ -76,6 +76,10 @@ export const zhCN = {
     openPlayerFailed: '打开播放器失败：{{error}}',
     deleteFailed: '删除失败：{{error}}',
     renameFailed: '重命名失败：{{error}}',
+    pin: '置顶',
+    unpin: '取消置顶',
+    pinFailed: '置顶失败：{{error}}',
+    unpinFailed: '取消置顶失败：{{error}}',
     metadataMissing: '项目 metadata.json 不存在：{{name}}'
   },
   projectArchive: {
@@ -99,6 +103,7 @@ export const zhCN = {
   home: {
     welcome: '欢迎回来',
     recent: '上次编辑',
+    pinned: '置顶项目',
     continueEditing: '继续编辑',
     noRecent: '还没有编辑过项目。',
     quickActions: '快捷操作',

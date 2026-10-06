@@ -9,6 +9,7 @@ export const AssetsSummarySchema = z.object({
 export const ProjectMetadataSchema = z.object({
   title: z.string(),
   lastModified: z.number(),
+  pinned: z.boolean().optional(),
   assetsSummary: AssetsSummarySchema.optional()
 })
 
@@ -19,5 +20,6 @@ export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>
 export type ProjectMetadataInput = {
   title: string
   lastModified: number
+  pinned?: boolean
   assetsSummary?: AssetsSummary
 }
