@@ -47,6 +47,7 @@ import uiTextBackgroundUrl from '@/story/assets/ui/ui_text_background.svg?url'
 import uiTextUnderlineUrl from '@/story/assets/ui/ui_text_underline.svg?url'
 import { createInitialStorySceneState } from './state'
 import type { StoryModelSceneState, StorySceneState } from './state'
+import { composeLive2DEyeMotion } from './composeLive2DEyeMotion'
 
 export type CreateStorySceneOptions = {
   app: Application
@@ -78,14 +79,10 @@ const TELOP_HOLD_TIME_MS: number = 2000
 const TELOP_HIDE_TIME_MS: number = 200
 const VOICE_VOLUME: number = 0.5
 const LAYOUT_HOLOGRAM_EFFECT_PREFIX: string = '__layout-hologram:'
-const MOTION_IGNORE_EYE_PARAMS = [
-  'ParamEyeROpen',
-  'ParamEyeLOpen',
+const MOTION_EYE_OPEN_PARAMS: readonly string[] = ['ParamEyeROpen', 'ParamEyeLOpen']
+const MOTION_IGNORE_FACE_PARAMS: readonly string[] = [
   'ParamEyeballX',
-  'ParamEyeballY'
-] as const
-const MOTION_IGNORE_FACE_PARAMS = [
-  ...MOTION_IGNORE_EYE_PARAMS,
+  'ParamEyeballY',
   'ParamBrowRX',
   'ParamBrowRY',
   'ParamBrowRAngle',
@@ -113,7 +110,11 @@ const MOTION_IGNORE_FACE_PARAMS = [
   'ParamSweatOn',
   'ParamSweatMove',
   'ParamCheekAngry'
-] as const
+]
+const MOTION_IGNORE_FACE_AND_EYE_PARAMS: readonly string[] = [
+  ...MOTION_EYE_OPEN_PARAMS,
+  ...MOTION_IGNORE_FACE_PARAMS
+]
 
 type PositionRel = {
   x: number
@@ -147,9 +148,11 @@ type ParallelMotionManagerLike = {
   playMotionLastFrame(group: string, index: number): Promise<boolean>
   isFinished(): boolean
   stopAllMotions(): void
+  update?(model: object, now: number): boolean
 }
 
 type Live2DCoreModelLike = {
+  getParameterValueById?: (id: unknown) => number
   setParamFloat?: (id: string, value: number, weight?: number) => unknown
   setParameterValueById?: (id: unknown, value: number, weight?: number) => unknown
   parameters?: {
@@ -178,6 +181,7 @@ type Live2DInternalModelLike = {
   readonly settings?: Live2DSettingsLike
   readonly eyeBlink?: Live2DEyeBlinkLike
   extendParallelMotionManager?(managerCount: number): void
+  on?(event: 'beforeMotionUpdate' | 'afterMotionUpdate', listener: () => void): unknown
 }
 
 type SpeakableSekaiLive2DModel = SekaiLive2DModel & {
@@ -456,7 +460,7 @@ export function createStoryScene({
       trackPendingAction(
         delayMs(MOTION_START_DELAY_MS)
           .then((): Promise<void> => {
-            return applyAndWaitModelMotion(model, waitUntil, options.motion, options.facial, true)
+            return applyAndWaitModelMotion(model, waitUntil, options.motion, options.facial)
           })
           .catch((): void => undefined)
       )
@@ -511,7 +515,7 @@ export function createStoryScene({
         await applyModelLastFrame(model, options.motion, options.facial)
         return
       }
-      await applyAndWaitModelMotion(model, waitUntil, options.motion, options.facial, true)
+      await applyAndWaitModelMotion(model, waitUntil, options.motion, options.facial)
     },
     async setModelParameters(options: StoryModelParameterOptions): Promise<void> {
       const { model } = getModel(options.modelKey)
@@ -1259,7 +1263,7 @@ async function playModelLastFrame(
 
   const results: boolean[] = await Promise.all(waits)
   if (results.includes(false)) {
-    await applyAndWaitModelMotion(model, waitUntil, motion, facial, true)
+    await applyAndWaitModelMotion(model, waitUntil, motion, facial)
   } else if (waits.length > 0) {
     await waitForModelMotion(managers, waitUntil)
   }
@@ -1285,39 +1289,43 @@ async function applyAndWaitModelMotion(
   model: SekaiLive2DModel,
   waitUntil: (whenFinish: () => boolean) => Promise<void>,
   motion?: string,
-  facial?: string,
-  ignoreMotionEyeParams = false
+  facial?: string
 ): Promise<void> {
   const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
     getParallelMotionManagers(model)
   stopMotionManagers(managers)
   const waits: Promise<boolean>[] = []
+  const finishEyeComposition: (() => void) | undefined =
+    motion && facial ? composeLive2DEyeMotion(getInternalModel(model), ...managers) : undefined
 
-  if (motion) {
-    waits.push(
-      managers[0].startMotion(motion, 0, MOTION_PRIORITY_FORCE, {
-        ignoreParamIds: resolveMotionIgnoreParamIds(facial, ignoreMotionEyeParams),
-        loop: false
-      })
-    )
-  }
-  if (facial) {
-    waits.push(managers[1].startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false }))
-  }
+  try {
+    if (motion) {
+      waits.push(
+        managers[0].startMotion(motion, 0, MOTION_PRIORITY_FORCE, {
+          ignoreParamIds: resolveMotionIgnoreParamIds(facial, Boolean(finishEyeComposition)),
+          loop: false
+        })
+      )
+    }
+    if (facial) {
+      waits.push(managers[1].startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false }))
+    }
 
-  await Promise.all(waits)
-  if (waits.length > 0) {
-    await waitForModelMotion(managers, waitUntil)
+    await Promise.all(waits)
+    if (waits.length > 0) {
+      await waitForModelMotion(managers, waitUntil)
+    }
+  } finally {
+    finishEyeComposition?.()
   }
 }
 
 function resolveMotionIgnoreParamIds(
   facial: string | undefined,
-  ignoreMotionEyeParams: boolean
+  composingEyeMotion: boolean
 ): readonly string[] {
-  if (facial) return MOTION_IGNORE_FACE_PARAMS
-  if (ignoreMotionEyeParams) return MOTION_IGNORE_EYE_PARAMS
-  return []
+  if (!facial) return []
+  return composingEyeMotion ? MOTION_IGNORE_FACE_PARAMS : MOTION_IGNORE_FACE_AND_EYE_PARAMS
 }
 
 function closeModelEyes(
