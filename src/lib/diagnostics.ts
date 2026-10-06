@@ -43,6 +43,11 @@ function prepareDiagnosticBundle(
   preparedBundlePromise ??= waitForLogWrite()
     .then((): Promise<unknown> => invoke<unknown>('prepare_diagnostic_bundle', { report }))
     .then((raw: unknown): DiagnosticBundle => DiagnosticBundleSchema.parse(raw))
+    // Failure-only reset: a resolved bundle must stay cached for reuse after a cancelled save.
+    .catch((error: unknown): never => {
+      preparedBundlePromise = null
+      throw error
+    })
   return preparedBundlePromise
 }
 
