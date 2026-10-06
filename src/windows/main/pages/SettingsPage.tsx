@@ -353,7 +353,7 @@ export default function SettingsPage(): JSX.Element {
           <Input
             type="text"
             inputMode="decimal"
-            placeholder="Auto"
+            placeholder={t('settings.precisionAuto')}
             value={renderPrecisionText}
             onChange={(event) => {
               const nextText = event.target.value.trim()

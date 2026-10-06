@@ -38,6 +38,16 @@ export type EditorPreviewInput = {
 
 type PreviewStatus = 'idle' | 'loading' | 'running' | 'paused' | 'completed' | 'stopped' | 'error'
 
+const PREVIEW_STATUS_LABEL_KEYS: Record<PreviewStatus, string> = {
+  idle: 'editor.previewStatusIdle',
+  loading: 'editor.previewStatusLoading',
+  running: 'editor.previewStatusRunning',
+  paused: 'editor.previewStatusPaused',
+  completed: 'editor.previewStatusCompleted',
+  stopped: 'editor.previewStatusStopped',
+  error: 'editor.previewStatusError'
+}
+
 type PreviewSession = {
   dispatcher: StoryDispatcher
   dispose(): void
@@ -495,11 +505,11 @@ export function EditorPreview({
         <div className={cn('mx-3 h-px flex-1', compact ? 'bg-white/15' : 'bg-border')} />
         <span
           className={cn(
-            'font-mono text-[11px]',
+            'font-mono text-[11px] uppercase',
             compact ? 'text-white/55' : 'text-muted-foreground'
           )}
         >
-          {paused ? 'PAUSED' : status.toUpperCase()}
+          {t(PREVIEW_STATUS_LABEL_KEYS[status])}
         </span>
       </div>
     </section>
