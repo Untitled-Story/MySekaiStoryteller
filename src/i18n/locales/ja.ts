@@ -192,6 +192,9 @@ export const ja: typeof en = {
     closePlayerDescription: '現在のプレイヤーウィンドウを閉じます'
   },
   about: {
+    appName: 'MySekaiStoryteller',
+    byline: 'by Untitled Story',
+    dedication: 'この一篇を、今ここにいるあなたへ。',
     specialThanks: 'スペシャルサンクス',
     unordered: '順不同',
     avatarAlt: '{{name}}のアバター',
