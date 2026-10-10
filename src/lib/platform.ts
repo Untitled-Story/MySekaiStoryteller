@@ -48,6 +48,11 @@ export function playerRoutePath(projectName: string): string {
   return `/player/${encodeURIComponent(projectName)}`
 }
 
+/** In-app single-webview story video render (Android/iOS). */
+export function exportRoutePath(projectName: string): string {
+  return `/export/${encodeURIComponent(projectName)}`
+}
+
 export function homeRoutePath(): string {
   return '/'
 }
