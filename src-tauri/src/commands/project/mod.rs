@@ -66,6 +66,17 @@ fn projects_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn validate_project_name(name: &str) -> Result<(), String> {
+    validate_project_reference(name)?;
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Err("项目名称不能以点或空格结尾".into());
+    }
+    if is_windows_reserved_name(name) {
+        return Err("项目名称不能使用 Windows 保留设备名".into());
+    }
+    Ok(())
+}
+
+fn validate_project_reference(name: &str) -> Result<(), String> {
     if name.trim().is_empty() {
         return Err("项目名称不能为空".into());
     }
@@ -75,7 +86,59 @@ fn validate_project_name(name: &str) -> Result<(), String> {
     if name.len() > 255 {
         return Err("项目名称过长(最多255个字符)".into());
     }
+    if !is_single_normal_component(name) {
+        return Err("项目名称不能是 . 或 .. 等路径别名".into());
+    }
+    if name
+        .trim_end_matches(|c: char| c == '.' || c == ' ')
+        .is_empty()
+    {
+        return Err("项目名称不能是 . 或 .. 等路径别名".into());
+    }
     Ok(())
+}
+
+fn is_single_normal_component(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    match components.next() {
+        Some(Component::Normal(_)) => components.next().is_none(),
+        _ => false,
+    }
+}
+
+fn is_windows_reserved_name(name: &str) -> bool {
+    let base = name.split('.').next().unwrap_or(name);
+    matches!(
+        base.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "COM¹"
+            | "COM²"
+            | "COM³"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+            | "LPT¹"
+            | "LPT²"
+            | "LPT³"
+    )
 }
 
 fn read_metadata(project_path: &Path) -> Option<ProjectMetadata> {
@@ -269,7 +332,7 @@ fn resolve_project_file(project_path: &Path, relative_path: &str) -> Result<Path
 }
 
 fn project_path(app: &AppHandle, project_name: &str) -> Result<PathBuf, String> {
-    validate_project_name(project_name)?;
+    validate_project_reference(project_name)?;
     let dir = projects_dir(app)?;
     let path = dir.join(project_name);
     if !path.exists() {
@@ -691,5 +754,73 @@ mod tests {
         );
 
         fs::remove_dir_all(project_path).unwrap();
+    }
+
+    #[test]
+    fn validate_project_name_accepts_regular_names() {
+        for name in ["My Story", "我的故事", "v1.2", ".hidden", "notes_draft-2"] {
+            validate_project_name(name).unwrap();
+        }
+    }
+
+    #[test]
+    fn validate_project_name_rejects_path_aliases_and_windows_unsafe_names() {
+        let rejected = [
+            ".",
+            "..",
+            "foo.",
+            "foo ",
+            "CON",
+            "con.txt",
+            "NUL",
+            "COM1",
+            "LPT9",
+            "a/b",
+            "a\\b",
+            "COM¹",
+            "COM²",
+            "COM³",
+            "LPT¹",
+            "LPT²",
+            "LPT³",
+            "COM¹.txt",
+            "COM².txt",
+            "COM³.txt",
+            "LPT¹.txt",
+            "LPT².txt",
+            "LPT³.txt",
+        ];
+        for name in rejected {
+            assert!(
+                validate_project_name(name).is_err(),
+                "project name {name:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_project_reference_keeps_legacy_names_addressable() {
+        for name in ["foo.", "foo ", "CON"] {
+            validate_project_reference(name).unwrap();
+        }
+        for name in [".", ".."] {
+            assert!(
+                validate_project_reference(name).is_err(),
+                "path alias {name:?} must stay rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_project_reference_rejects_windows_dot_space_aliases() {
+        let rejected = [
+            ". ", ".. ", " .", ". .", ".. .", ".  .", "...", "... ", "  ..",
+        ];
+        for name in rejected {
+            assert!(
+                validate_project_reference(name).is_err(),
+                "dot/space alias {name:?} must be rejected"
+            );
+        }
     }
 }
