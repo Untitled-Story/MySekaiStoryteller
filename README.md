@@ -87,6 +87,12 @@ Notes:
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
 - Everyone who tests, contributes, and creates stories with MySekaiStoryteller
 
+## Sponsors
+
+This project is supported by the following sponsor.
+
+- <a href="https://vgtopup.com/" rel="sponsored">VGTopup</a> — Game top-up and digital recharge services.
+
 ## Licenses
 
 - Source code: [GNU GPL v3.0](LICENSE)
