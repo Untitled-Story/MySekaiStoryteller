@@ -20,3 +20,7 @@ export function getLogPath(): Promise<string> {
 export function getDataFonts(): Promise<DataFontInfo[]> {
   return invoke<DataFontInfo[]>('get_data_fonts')
 }
+
+export function getPublicMoviesDir(): Promise<string> {
+  return invoke<string>('get_public_movies_dir')
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "player",
-  "description": "Additional permissions for the borderless player window",
-  "windows": ["player"],
+  "description": "Additional permissions for the borderless player and export windows",
+  "windows": ["player", "export-coordinator", "export-debug", "export-worker-*"],
   "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
 }
