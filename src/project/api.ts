@@ -54,6 +54,14 @@ export function renameProject(oldName: string, newName: string): Promise<void> {
   )
 }
 
+export function setProjectPinned(projectName: string, pinned: boolean): Promise<void> {
+  return runLoggedOperation(
+    'project.pin',
+    { projectName, pinned },
+    (): Promise<void> => invoke('set_project_pinned', { projectName, pinned })
+  )
+}
+
 export function getProjectPath(projectName: string): Promise<string> {
   return invoke<string>('get_project_path', { projectName })
 }
