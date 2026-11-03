@@ -87,6 +87,12 @@ pnpm tauri android build --apk --target aarch64
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
 - MySekaiStorytellerをテストし、開発に貢献し、このアプリで物語を作ってくださるすべての皆さま
 
+## スポンサー
+
+本プロジェクトは、以下のスポンサーの支援を受けています。
+
+- <a href="https://vgtopup.com/" rel="sponsored">VGTopup</a> — ゲームへのチャージおよびデジタルチャージサービス。
+
 ## ライセンス
 
 - ソースコード：[GNU GPL v3.0](LICENSE)

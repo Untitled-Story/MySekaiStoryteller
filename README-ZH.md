@@ -87,6 +87,12 @@ pnpm tauri android build --apk --target aarch64
 - [lezzthanthree/SEKAI-Stories](https://github.com/lezzthanthree/SEKAI-Stories)
 - 每一位参与测试、贡献代码，以及用它讲出自己故事的人
 
+## 赞助商
+
+本项目由以下赞助商提供支持。
+
+- <a href="https://vgtopup.com/" rel="sponsored">VGTopup</a> — 游戏充值与数字充值服务。
+
 ## 许可
 
 - 源代码：[GNU GPL v3.0](LICENSE)
