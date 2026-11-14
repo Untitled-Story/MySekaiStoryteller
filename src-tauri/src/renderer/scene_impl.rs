@@ -150,12 +150,31 @@ impl<'a> StorySceneState<'a> {
         })
     }
 
-    /// Completes the final trailing in-flight GPU frame readback into `rgba_out`.
+    /// Completes the oldest trailing in-flight GPU frame readback into `rgba_out`.
     pub fn finish_pending_frame_into(
         &mut self,
         rgba_out: &mut Vec<u8>,
     ) -> Result<bool, RendererError> {
         self.gpu.finish_pending_frame_into(rgba_out)
+    }
+
+    /// Submits the current frame onto the GPU YUV420p readback ring and drains the oldest
+    /// completed frame into `prev_yuv_out` once the ring is full.
+    pub fn submit_and_drain_previous_yuv_frame_into(
+        &mut self,
+        prev_yuv_out: &mut rusty_h264_common::YuvFrame,
+    ) -> Result<bool, RendererError> {
+        self.with_prepared_frame(|gpu, text_renderer, frame_input| {
+            gpu.submit_and_drain_previous_yuv_into(frame_input, text_renderer, prev_yuv_out)
+        })
+    }
+
+    /// Completes the oldest trailing in-flight GPU YUV420p frame readback into `yuv_out`.
+    pub fn finish_pending_yuv_frame_into(
+        &mut self,
+        yuv_out: &mut rusty_h264_common::YuvFrame,
+    ) -> Result<bool, RendererError> {
+        self.gpu.finish_pending_yuv_into(yuv_out)
     }
 
     fn with_prepared_frame<R>(
@@ -166,12 +185,39 @@ impl<'a> StorySceneState<'a> {
             &GpuRenderFrameInput<'_>,
         ) -> Result<R, RendererError>,
     ) -> Result<R, RendererError> {
+        let effective_fade_alpha: f32 = self.fade_alpha * self.fade_color[3];
+        let opaque_fade: bool = self.fade_visible && effective_fade_alpha >= 1.0 - 1e-5;
         for key in &self.model_order {
             if let Some(entry) = self.models.get_mut(key) {
                 if entry.instance.stage.visible && entry.instance.stage.alpha > 0.0 {
-                    entry.instance.commit_frame_update();
+                    entry.instance.commit_simulation_step(!opaque_fade);
                 }
             }
+        }
+
+        if opaque_fade {
+            let empty_input = GpuRenderFrameInput {
+                background_key: None,
+                models: &[],
+                stage_filters: &[],
+                screen_filters: &[],
+                dialogue_visible: false,
+                dialogue_bg_alpha: 0.0,
+                dialogue_underline_alpha: 0.0,
+                dialogue_body_text: "",
+                dialogue_body_alpha: 0.0,
+                dialogue_speaker_text: "",
+                dialogue_speaker_alpha: 0.0,
+                telop_visible: false,
+                telop_text: "",
+                telop_alpha: 0.0,
+                telop_x_offset: 0.0,
+                fade_visible: true,
+                fade_color: self.fade_color,
+                fade_alpha: effective_fade_alpha,
+                background_clear: self.background_clear,
+            };
+            return render_fn(&mut self.gpu, &mut self.text_renderer, &empty_input);
         }
 
         struct PreparedModel<'m> {

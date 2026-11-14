@@ -20,6 +20,12 @@ pub trait VideoFrameEncoder: Send {
         pts_secs: f64,
     ) -> Result<Vec<EncodedVideoPacket>, RendererError>;
 
+    fn encode_yuv(
+        &mut self,
+        yuv: &YuvFrame,
+        pts_secs: f64,
+    ) -> Result<Vec<EncodedVideoPacket>, RendererError>;
+
     fn finish(&mut self) -> Result<Vec<EncodedVideoPacket>, RendererError>;
 }
 
@@ -37,7 +43,7 @@ impl H264EncoderOptions {
             quality,
             qp: quality.h264_qp(),
             bitrate_bps: 0,
-            gop_size: fps.clamp(2, 250),
+            gop_size: (fps / 2).clamp(2, 30),
         }
     }
 }
@@ -80,24 +86,18 @@ fn build_encoder_config(
     }
     cfg.level_idc = select_h264_level(width, height, fps);
 
+    cfg.coded_path_v2 = true;
     match options.quality {
-        VideoQualityPreset::Fast => {
+        VideoQualityPreset::Fast | VideoQualityPreset::Balanced => {
             cfg.preset = Preset::Fast;
             cfg.num_ref_frames = 1;
+            cfg.weightp = false;
+            cfg.cabac_rdoq = 0.0;
+            cfg.cabac_rdoq_p = 0.0;
             cfg.tune_sub8x8_split = false;
             cfg.tune_sub8_rd = false;
             cfg.tune_shape_rd = false;
             cfg.tune_intra_rd = false;
-            cfg.cabac_rdoq_p = 0.0;
-        }
-        VideoQualityPreset::Balanced => {
-            cfg.preset = Preset::Balanced;
-            cfg.num_ref_frames = 1;
-            cfg.tune_sub8x8_split = false;
-            cfg.tune_sub8_rd = false;
-            cfg.tune_shape_rd = false;
-            cfg.tune_intra_rd = false;
-            cfg.cabac_rdoq_p = 0.0;
         }
         VideoQualityPreset::Quality => {
             // Balanced + QP 14 yields sub-pel quality at ~7x higher throughput than Preset::Quality.
@@ -106,6 +106,77 @@ fn build_encoder_config(
         }
     }
     Ok(cfg)
+}
+
+fn validate_yuv_frame(
+    yuv: &YuvFrame,
+    width: usize,
+    height: usize,
+    frame_index: u64,
+) -> Result<(), RendererError> {
+    let expected_y: usize = width * height;
+    let expected_uv: usize = (width / 2) * (height / 2);
+    if yuv.width != width
+        || yuv.height != height
+        || yuv.y.len() != expected_y
+        || yuv.u.len() != expected_uv
+        || yuv.v.len() != expected_uv
+    {
+        return Err(RendererError::VideoEncode(format!(
+            "YUV420p frame buffer size mismatch at frame {frame_index}: expected {width}x{height} ({expected_y}/{expected_uv}), got {}x{} ({}/{}/{})",
+            yuv.width,
+            yuv.height,
+            yuv.y.len(),
+            yuv.u.len(),
+            yuv.v.len(),
+        )));
+    }
+    Ok(())
+}
+
+/// Encodes one independent CQP GOP (`yuv_frames`, starting with an IDR frame at `base_frame_index`)
+/// via `Encoder::encode_all`, enabling grain fast-path detection across the GOP without a second
+/// RGBA->YUV conversion.
+pub fn encode_yuv_gop_chunk(
+    yuv_frames: &[YuvFrame],
+    base_frame_index: u64,
+    width: u32,
+    height: u32,
+    fps: u32,
+    options: H264EncoderOptions,
+) -> Result<Vec<EncodedVideoPacket>, RendererError> {
+    if yuv_frames.is_empty() {
+        return Ok(Vec::new());
+    }
+    let w: usize = width as usize;
+    let h: usize = height as usize;
+    for (idx, yuv) in yuv_frames.iter().enumerate() {
+        validate_yuv_frame(yuv, w, h, base_frame_index + idx as u64)?;
+    }
+    let cfg: EncoderConfig =
+        build_encoder_config(width, height, fps, options, Some(yuv_frames.len() as u32))?;
+    let encoder: Encoder = Encoder::new(cfg)
+        .map_err(|err| RendererError::VideoEncode(format!("Encoder init failed: {err}")))?;
+
+    let aus: Vec<Vec<u8>> = encoder
+        .encode_all(yuv_frames)
+        .map_err(|err| RendererError::VideoEncode(format!("H.264 GOP encode failed: {err}")))?;
+
+    let fps_f64: f64 = fps.max(1) as f64;
+    let mut packets: Vec<EncodedVideoPacket> = Vec::with_capacity(aus.len());
+    for (idx, annex_b) in aus.into_iter().enumerate() {
+        if annex_b.is_empty() {
+            continue;
+        }
+        let is_keyframe: bool = contains_annex_b_idr(&annex_b);
+        let pts_secs: f64 = ((base_frame_index + idx as u64) as f64) / fps_f64;
+        packets.push(EncodedVideoPacket {
+            pts_secs,
+            annex_b,
+            is_keyframe,
+        });
+    }
+    Ok(packets)
 }
 
 /// Encodes one independent CQP GOP (`rgba_frames`, starting with an IDR frame at `base_frame_index`)
@@ -124,10 +195,8 @@ pub fn encode_rgba_gop_chunk(
     let w: usize = width as usize;
     let h: usize = height as usize;
     let expected_len: usize = w * h * 4;
-    let cfg: EncoderConfig =
-        build_encoder_config(width, height, fps, options, Some(rgba_frames.len() as u32))?;
-    let encoder: Encoder = Encoder::new(cfg)
-        .map_err(|err| RendererError::VideoEncode(format!("Encoder init failed: {err}")))?;
+    let cw: usize = w / 2;
+    let ch: usize = h / 2;
 
     let mut yuv_frames: Vec<YuvFrame> = Vec::with_capacity(rgba_frames.len());
     for (idx, rgba) in rgba_frames.iter().enumerate() {
@@ -139,8 +208,6 @@ pub fn encode_rgba_gop_chunk(
             )));
         }
         let mut y: Vec<u8> = Vec::with_capacity(w * h);
-        let cw: usize = w / 2;
-        let ch: usize = h / 2;
         let mut u: Vec<u8> = Vec::with_capacity(cw * ch);
         let mut v: Vec<u8> = Vec::with_capacity(cw * ch);
         rgba_to_yuv420p_bt709(rgba, w, h, &mut y, &mut u, &mut v);
@@ -153,25 +220,7 @@ pub fn encode_rgba_gop_chunk(
         });
     }
 
-    let aus: Vec<Vec<u8>> = encoder
-        .encode_all(&yuv_frames)
-        .map_err(|err| RendererError::VideoEncode(format!("H.264 GOP encode failed: {err}")))?;
-
-    let fps_f64: f64 = fps.max(1) as f64;
-    let mut packets: Vec<EncodedVideoPacket> = Vec::with_capacity(aus.len());
-    for (idx, annex_b) in aus.into_iter().enumerate() {
-        if annex_b.is_empty() {
-            continue;
-        }
-        let is_keyframe: bool = contains_annex_b_idr(&annex_b);
-        let pts_secs: f64 = ((base_frame_index + idx as u64) as f64) / fps_f64;
-        packets.push(EncodedVideoPacket {
-            pts_secs,
-            annex_b,
-            is_keyframe,
-        });
-    }
-    Ok(packets)
+    encode_yuv_gop_chunk(&yuv_frames, base_frame_index, width, height, fps, options)
 }
 
 /// Factory returning the active video encoder backend.
@@ -256,13 +305,40 @@ impl RustyH264VideoEncoder {
     }
 }
 
+fn encode_yuv_planes(
+    encoder: &mut Encoder,
+    frame_index: &mut u64,
+    yuv: &YuvFrame,
+    pts_secs: f64,
+) -> Result<Vec<EncodedVideoPacket>, RendererError> {
+    let annex_b: Vec<u8> = encoder
+        .encode_planes(&yuv.as_planes())
+        .map_err(|err| {
+            RendererError::VideoEncode(format!(
+                "H.264 encode failed at frame {}: {err}",
+                *frame_index
+            ))
+        })?;
+    *frame_index += 1;
+
+    if annex_b.is_empty() {
+        return Ok(Vec::new());
+    }
+    let is_keyframe: bool = contains_annex_b_idr(&annex_b);
+    Ok(vec![EncodedVideoPacket {
+        pts_secs,
+        annex_b,
+        is_keyframe,
+    }])
+}
+
 impl VideoFrameEncoder for RustyH264VideoEncoder {
     fn encode_rgba(
         &mut self,
         rgba: &[u8],
         pts_secs: f64,
     ) -> Result<Vec<EncodedVideoPacket>, RendererError> {
-        let expected_len = self.width * self.height * 4;
+        let expected_len: usize = self.width * self.height * 4;
         if rgba.len() != expected_len {
             return Err(RendererError::VideoEncode(format!(
                 "RGBA frame buffer size mismatch: expected {expected_len}, got {}",
@@ -279,26 +355,21 @@ impl VideoFrameEncoder for RustyH264VideoEncoder {
             &mut self.yuv_scratch.v,
         );
 
-        let annex_b = self
-            .encoder
-            .encode_planes(&self.yuv_scratch.as_planes())
-            .map_err(|err| {
-                RendererError::VideoEncode(format!(
-                    "H.264 encode failed at frame {}: {err}",
-                    self.frame_index
-                ))
-            })?;
-        self.frame_index += 1;
-
-        if annex_b.is_empty() {
-            return Ok(Vec::new());
-        }
-        let is_keyframe = contains_annex_b_idr(&annex_b);
-        Ok(vec![EncodedVideoPacket {
+        encode_yuv_planes(
+            &mut self.encoder,
+            &mut self.frame_index,
+            &self.yuv_scratch,
             pts_secs,
-            annex_b,
-            is_keyframe,
-        }])
+        )
+    }
+
+    fn encode_yuv(
+        &mut self,
+        yuv: &YuvFrame,
+        pts_secs: f64,
+    ) -> Result<Vec<EncodedVideoPacket>, RendererError> {
+        validate_yuv_frame(yuv, self.width, self.height, self.frame_index)?;
+        encode_yuv_planes(&mut self.encoder, &mut self.frame_index, yuv, pts_secs)
     }
 
     fn finish(&mut self) -> Result<Vec<EncodedVideoPacket>, RendererError> {

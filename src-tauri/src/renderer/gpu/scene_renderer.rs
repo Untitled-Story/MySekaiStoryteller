@@ -1,6 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 use mocari::moc3::Moc3DrawableBlendMode;
-use std::collections::HashMap;
+use mocari::render::common::draw_order_indices;
+use rusty_h264_common::YuvFrame;
+use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
 
@@ -12,11 +14,12 @@ use crate::renderer::vfx::{GpuFilterSpec, HologramBeamRenderData, TrianglePartic
 
 use super::filters::{
     live2d_additive_blend, live2d_mask_setup_blend, live2d_multiplicative_blend, pixi_add_blend,
-    pixi_normal_blend, FilterPipelines, FilterUniformScratch,
+    pixi_normal_blend, FilterPipelines, FilterUniformScratch, YuvConvertUniformGpu,
 };
 
 const WGSL_SHADERS: &str = include_str!("shaders.wgsl");
 const MASK_ATLAS_SIZE: u32 = 1024;
+const READBACK_RING_DEPTH: usize = 4;
 
 const SLOT_STAGE_ROOT: usize = 0;
 const SLOT_PRESENTATION_ROOT: usize = 1;
@@ -155,8 +158,15 @@ impl GpuTextureAsset {
         sampler_clamp: &wgpu::Sampler,
         width: u32,
         height: u32,
+        include_storage_binding: bool,
         label: &str,
     ) -> Self {
+        let mut usage: wgpu::TextureUsages = wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC;
+        if include_storage_binding {
+            usage |= wgpu::TextureUsages::STORAGE_BINDING;
+        }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: wgpu::Extent3d {
@@ -168,9 +178,7 @@ impl GpuTextureAsset {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+            usage,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -437,10 +445,27 @@ impl FrameScratch {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReadbackKind {
+    Rgba,
+    Yuv,
+}
+
 struct InFlightReadback {
     slot: usize,
+    kind: ReadbackKind,
     submission_index: wgpu::SubmissionIndex,
     rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+}
+
+struct GpuYuvPackResources {
+    y_words: u32,
+    uv_words: u32,
+    yuv_byte_len: u64,
+    gpu_buf: wgpu::Buffer,
+    _uniform_buf: wgpu::Buffer,
+    pack_bg: wgpu::BindGroup,
+    readback_bufs: [wgpu::Buffer; READBACK_RING_DEPTH],
 }
 
 pub struct GpuSceneRenderer {
@@ -467,16 +492,19 @@ pub struct GpuSceneRenderer {
     live2d_draw_tbgl: wgpu::BindGroupLayout,
     live2d_pipes: [[wgpu::RenderPipeline; 2]; 3], // [Normal|Add|Mult][cull|nocull]
 
-    // Render target pool & double-buffered readback state
+    // Render target pool & deep asynchronous readback ring
     pool_textures: Vec<wgpu::Texture>,
     pool_views: Vec<wgpu::TextureView>,
     pool_quad_bgs: Vec<wgpu::BindGroup>,
     pool_filter_bgs: Vec<wgpu::BindGroup>,
+    pool_cs_dst_bgs: Vec<wgpu::BindGroup>,
+    pool_cs_orig_bgs: Vec<wgpu::BindGroup>,
     mask_atlas: GpuTextureAsset,
-    readback_bufs: [wgpu::Buffer; 2],
-    scratches: [Option<FrameScratch>; 2],
+    readback_bufs: [wgpu::Buffer; READBACK_RING_DEPTH],
+    yuv_resources: Option<GpuYuvPackResources>,
+    scratches: [Option<FrameScratch>; READBACK_RING_DEPTH],
     next_slot: usize,
-    in_flight: Option<InFlightReadback>,
+    in_flight: VecDeque<InFlightReadback>,
     padded_bytes_per_row: u32,
 
     // Cached static/dynamic scene textures and model geometry
@@ -510,6 +538,11 @@ impl GpuSceneRenderer {
         })
         .map_err(|err| RendererError::Gpu(format!("No WebGPU/wgpu adapter available: {err}")))?;
 
+        let supports_compute_filters: bool = adapter
+            .get_texture_format_features(wgpu::TextureFormat::Rgba8Unorm)
+            .allowed_usages
+            .contains(wgpu::TextureUsages::STORAGE_BINDING);
+
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .map_err(|err| {
@@ -524,7 +557,7 @@ impl GpuSceneRenderer {
             source: wgpu::ShaderSource::Wgsl(WGSL_SHADERS.into()),
         });
 
-        let filters = FilterPipelines::new(&device, &shader);
+        let filters = FilterPipelines::new(&device, &shader, supports_compute_filters);
 
         let sampler_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("clamp_linear"),
@@ -811,11 +844,14 @@ impl GpuSceneRenderer {
             ],
         ];
 
-        // Allocate render target pool and pre-cached quad/filter bind groups
-        let mut pool_textures = Vec::with_capacity(POOL_SIZE);
-        let mut pool_views = Vec::with_capacity(POOL_SIZE);
-        let mut pool_quad_bgs = Vec::with_capacity(POOL_SIZE);
-        let mut pool_filter_bgs = Vec::with_capacity(POOL_SIZE);
+        // Allocate render target pool and pre-cached quad/filter/compute bind groups
+        let enable_compute: bool = filters.compute.is_some();
+        let mut pool_textures: Vec<wgpu::Texture> = Vec::with_capacity(POOL_SIZE);
+        let mut pool_views: Vec<wgpu::TextureView> = Vec::with_capacity(POOL_SIZE);
+        let mut pool_quad_bgs: Vec<wgpu::BindGroup> = Vec::with_capacity(POOL_SIZE);
+        let mut pool_filter_bgs: Vec<wgpu::BindGroup> = Vec::with_capacity(POOL_SIZE);
+        let mut pool_cs_dst_bgs: Vec<wgpu::BindGroup> = Vec::with_capacity(POOL_SIZE);
+        let mut pool_cs_orig_bgs: Vec<wgpu::BindGroup> = Vec::with_capacity(POOL_SIZE);
         for i in 0..POOL_SIZE {
             let rt = GpuTextureAsset::create_render_target(
                 &device,
@@ -823,6 +859,7 @@ impl GpuSceneRenderer {
                 &sampler_clamp,
                 stage_width,
                 stage_height,
+                enable_compute,
                 &format!("rt_slot_{i}"),
             );
             pool_filter_bgs.push(filters.create_tex_bind_group(
@@ -830,6 +867,16 @@ impl GpuSceneRenderer {
                 &rt.view,
                 &format!("rt_flt_bg_{i}"),
             ));
+            if let Some(dst_bg) =
+                filters.create_cs_dst_bind_group(&device, &rt.view, &format!("rt_cs_dst_{i}"))
+            {
+                pool_cs_dst_bgs.push(dst_bg);
+            }
+            if let Some(orig_bg) =
+                filters.create_cs_orig_bind_group(&device, &rt.view, &format!("rt_cs_orig_{i}"))
+            {
+                pool_cs_orig_bgs.push(orig_bg);
+            }
             pool_quad_bgs.push(rt.quad_bg);
             pool_views.push(rt.view);
             pool_textures.push(rt.texture);
@@ -841,39 +888,88 @@ impl GpuSceneRenderer {
             &sampler_clamp,
             MASK_ATLAS_SIZE,
             MASK_ATLAS_SIZE,
+            false,
             "live2d_mask_atlas",
         );
 
-        let padded_bytes_per_row = align_to(stage_width * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let padded_bytes_per_row: u32 =
+            align_to(stage_width * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         let readback_size: u64 = (padded_bytes_per_row as u64) * (stage_height as u64);
-        let make_readback = |label: &str| {
+        let make_readback = |label: &str, byte_size: u64| -> wgpu::Buffer {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
-                size: readback_size,
+                size: byte_size,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         };
-        let readback_bufs: [wgpu::Buffer; 2] = [
-            make_readback("frame_readback_buf_0"),
-            make_readback("frame_readback_buf_1"),
-        ];
-        let scratches: [Option<FrameScratch>; 2] = [
+        let readback_bufs: [wgpu::Buffer; READBACK_RING_DEPTH] = std::array::from_fn(|i| {
+            make_readback(&format!("frame_readback_buf_{i}"), readback_size)
+        });
+        let yuv_resources: Option<GpuYuvPackResources> =
+            filters.compute.as_ref().map(|cs| {
+                let y_words: u32 = (stage_width * stage_height) / 4;
+                let uv_bytes: u32 = (stage_width / 2) * (stage_height / 2);
+                let uv_words: u32 = uv_bytes.div_ceil(4);
+                let yuv_byte_len: u64 = ((y_words + 2 * uv_words) as u64) * 4;
+                let gpu_buf: wgpu::Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("gpu_yuv_pack_buf"),
+                    size: yuv_byte_len,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                });
+                let yuv_u: YuvConvertUniformGpu = YuvConvertUniformGpu {
+                    width: stage_width,
+                    height: stage_height,
+                    y_words,
+                    uv_words,
+                };
+                let uniform_buf: wgpu::Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("gpu_yuv_pack_ubuf"),
+                    size: std::mem::size_of::<YuvConvertUniformGpu>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                queue.write_buffer(&uniform_buf, 0, bytemuck::bytes_of(&yuv_u));
+                let pack_bg: wgpu::BindGroup =
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("gpu_yuv_pack_bg"),
+                        layout: &cs.yuv_pack_bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: gpu_buf.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: uniform_buf.as_entire_binding(),
+                            },
+                        ],
+                    });
+                let yuv_readback_bufs: [wgpu::Buffer; READBACK_RING_DEPTH] =
+                    std::array::from_fn(|i| {
+                        make_readback(&format!("frame_yuv_readback_buf_{i}"), yuv_byte_len)
+                    });
+                GpuYuvPackResources {
+                    y_words,
+                    uv_words,
+                    yuv_byte_len,
+                    gpu_buf,
+                    _uniform_buf: uniform_buf,
+                    pack_bg,
+                    readback_bufs: yuv_readback_bufs,
+                }
+            });
+
+        let scratches: [Option<FrameScratch>; READBACK_RING_DEPTH] = std::array::from_fn(|_| {
             Some(FrameScratch::new(
                 &device,
                 &filters,
                 &live2d_mask_ubgl,
                 &live2d_draw_ubgl,
                 uniform_stride,
-            )),
-            Some(FrameScratch::new(
-                &device,
-                &filters,
-                &live2d_mask_ubgl,
-                &live2d_draw_ubgl,
-                uniform_stride,
-            )),
-        ];
+            ))
+        });
 
         let ui_bitmaps = BuiltinUiBitmaps::render_for_stage(stage_width, stage_height)?;
         let ui_text_bg = GpuTextureAsset::from_premul(
@@ -932,11 +1028,14 @@ impl GpuSceneRenderer {
             pool_views,
             pool_quad_bgs,
             pool_filter_bgs,
+            pool_cs_dst_bgs,
+            pool_cs_orig_bgs,
             mask_atlas,
             readback_bufs,
+            yuv_resources,
             scratches,
             next_slot: 0,
-            in_flight: None,
+            in_flight: VecDeque::with_capacity(READBACK_RING_DEPTH),
             padded_bytes_per_row,
             ui_text_bg,
             ui_text_underline,
@@ -1078,6 +1177,11 @@ impl GpuSceneRenderer {
         );
     }
 
+    /// Returns whether GPU compute BT.709 YUV420p packing is active on this adapter.
+    pub fn supports_gpu_yuv(&self) -> bool {
+        self.yuv_resources.is_some()
+    }
+
     /// Renders one complete composited frame synchronously and returns tight RGBA8 bytes.
     pub fn render_frame(
         &mut self,
@@ -1089,6 +1193,20 @@ impl GpuSceneRenderer {
         Ok(rgba)
     }
 
+    #[cfg(test)]
+    pub(crate) fn render_frame_with_force_render_filters(
+        &mut self,
+        input: &GpuRenderFrameInput<'_>,
+        text_renderer: &mut StoryTextRenderer,
+        force_render_filters: bool,
+    ) -> Result<Vec<u8>, RendererError> {
+        self.flush_all_pending_discard()?;
+        self.submit_frame_internal(input, text_renderer, ReadbackKind::Rgba, force_render_filters)?;
+        let mut rgba_out: Vec<u8> = Vec::new();
+        let _ = self.finish_pending_frame_into(&mut rgba_out)?;
+        Ok(rgba_out)
+    }
+
     /// Renders one complete composited frame synchronously into `rgba_out`.
     pub fn render_frame_into(
         &mut self,
@@ -1096,63 +1214,103 @@ impl GpuSceneRenderer {
         text_renderer: &mut StoryTextRenderer,
         rgba_out: &mut Vec<u8>,
     ) -> Result<(), RendererError> {
-        // Flush any previously queued pipelined frame so synchronous callers observe deterministic state.
-        if self.in_flight.is_some() {
-            let mut discarded: Vec<u8> = Vec::new();
-            let _ = self.finish_pending_frame_into(&mut discarded)?;
-        }
-        self.submit_frame_internal(input, text_renderer)?;
+        self.flush_all_pending_discard()?;
+        self.submit_frame_internal(input, text_renderer, ReadbackKind::Rgba, false)?;
         let _ = self.finish_pending_frame_into(rgba_out)?;
         Ok(())
     }
 
-    /// Submits `input` on the active scratch/readback slot and, if a previous frame was already
-    /// in-flight on the paired slot, completes its readback into `prev_rgba_out` (returning `Ok(true)`).
+    fn flush_all_pending_discard(&mut self) -> Result<(), RendererError> {
+        let mut discarded_rgba: Vec<u8> = Vec::new();
+        let mut discarded_yuv: YuvFrame = YuvFrame {
+            width: self.stage_width as usize,
+            height: self.stage_height as usize,
+            y: Vec::new(),
+            u: Vec::new(),
+            v: Vec::new(),
+        };
+        while let Some(pending) = self.in_flight.pop_front() {
+            match pending.kind {
+                ReadbackKind::Rgba => self.drain_readback_rgba_into(pending, &mut discarded_rgba)?,
+                ReadbackKind::Yuv => self.drain_readback_yuv_into(pending, &mut discarded_yuv)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Submits `input` on the next readback ring slot and, once all `READBACK_RING_DEPTH` slots
+    /// are busy, drains the oldest completed RGBA8 frame into `prev_rgba_out` (returning `Ok(true)`).
     pub fn submit_and_drain_previous_into(
         &mut self,
         input: &GpuRenderFrameInput<'_>,
         text_renderer: &mut StoryTextRenderer,
         prev_rgba_out: &mut Vec<u8>,
     ) -> Result<bool, RendererError> {
-        if self
-            .in_flight
-            .as_ref()
-            .is_some_and(|pending| pending.slot == self.next_slot)
-        {
-            let _ = self.finish_pending_frame_into(prev_rgba_out)?;
+        let mut drained: bool = false;
+        if self.in_flight.len() >= READBACK_RING_DEPTH {
+            if let Some(oldest) = self.in_flight.pop_front() {
+                self.drain_readback_rgba_into(oldest, prev_rgba_out)?;
+                drained = true;
+            }
         }
-        let previous: Option<InFlightReadback> = self.in_flight.take();
-        self.submit_frame_internal(input, text_renderer)?;
-        let newly_submitted: Option<InFlightReadback> = self.in_flight.take();
-        if let Some(prev) = previous {
-            self.drain_readback_into(prev, prev_rgba_out)?;
-            self.in_flight = newly_submitted;
-            Ok(true)
-        } else {
-            self.in_flight = newly_submitted;
-            Ok(false)
-        }
+        self.submit_frame_internal(input, text_renderer, ReadbackKind::Rgba, false)?;
+        Ok(drained)
     }
 
-    /// Completes the trailing in-flight pipelined frame into `rgba_out`, returning `Ok(false)` if none exists.
+    /// Submits `input` on the next readback ring slot (producing GPU-packed YUV420p when supported)
+    /// and drains the oldest completed frame into `prev_yuv_out` once the ring is full.
+    pub fn submit_and_drain_previous_yuv_into(
+        &mut self,
+        input: &GpuRenderFrameInput<'_>,
+        text_renderer: &mut StoryTextRenderer,
+        prev_yuv_out: &mut YuvFrame,
+    ) -> Result<bool, RendererError> {
+        let mut drained: bool = false;
+        if self.in_flight.len() >= READBACK_RING_DEPTH {
+            if let Some(oldest) = self.in_flight.pop_front() {
+                self.drain_readback_yuv_into(oldest, prev_yuv_out)?;
+                drained = true;
+            }
+        }
+        let kind: ReadbackKind = if self.yuv_resources.is_some() {
+            ReadbackKind::Yuv
+        } else {
+            ReadbackKind::Rgba
+        };
+        self.submit_frame_internal(input, text_renderer, kind, false)?;
+        Ok(drained)
+    }
+
+    /// Completes the oldest in-flight pipelined RGBA8 frame into `rgba_out`, returning `Ok(false)` when empty.
     pub fn finish_pending_frame_into(
         &mut self,
         rgba_out: &mut Vec<u8>,
     ) -> Result<bool, RendererError> {
-        let Some(pending) = self.in_flight.take() else {
+        let Some(pending) = self.in_flight.pop_front() else {
             return Ok(false);
         };
-        self.drain_readback_into(pending, rgba_out)?;
+        self.drain_readback_rgba_into(pending, rgba_out)?;
         Ok(true)
     }
 
-    fn drain_readback_into(
+    /// Completes the oldest in-flight pipelined YUV420p frame into `yuv_out`, returning `Ok(false)` when empty.
+    pub fn finish_pending_yuv_into(
+        &mut self,
+        yuv_out: &mut YuvFrame,
+    ) -> Result<bool, RendererError> {
+        let Some(pending) = self.in_flight.pop_front() else {
+            return Ok(false);
+        };
+        self.drain_readback_yuv_into(pending, yuv_out)?;
+        Ok(true)
+    }
+
+    fn wait_for_mapping(
         &self,
-        pending: InFlightReadback,
-        rgba_out: &mut Vec<u8>,
+        pending: &InFlightReadback,
     ) -> Result<(), RendererError> {
         let _ = self.device.poll(wgpu::PollType::Wait {
-            submission_index: Some(pending.submission_index),
+            submission_index: Some(pending.submission_index.clone()),
             timeout: None,
         });
         let map_res: Result<(), wgpu::BufferAsyncError> = match pending.rx.try_recv() {
@@ -1168,8 +1326,15 @@ impl GpuSceneRenderer {
                 return Err(RendererError::Gpu("GPU readback channel closed".to_string()));
             }
         };
-        map_res.map_err(|err| RendererError::Gpu(format!("GPU buffer map failed: {err}")))?;
+        map_res.map_err(|err| RendererError::Gpu(format!("GPU buffer map failed: {err}")))
+    }
 
+    fn drain_readback_rgba_into(
+        &self,
+        pending: InFlightReadback,
+        rgba_out: &mut Vec<u8>,
+    ) -> Result<(), RendererError> {
+        self.wait_for_mapping(&pending)?;
         let buf: &wgpu::Buffer = &self.readback_bufs[pending.slot];
         let slice = buf.slice(..);
         let mapped = slice
@@ -1195,13 +1360,89 @@ impl GpuSceneRenderer {
         Ok(())
     }
 
+    fn drain_readback_yuv_into(
+        &self,
+        pending: InFlightReadback,
+        yuv_out: &mut YuvFrame,
+    ) -> Result<(), RendererError> {
+        let w: usize = self.stage_width as usize;
+        let h: usize = self.stage_height as usize;
+        let cw: usize = w / 2;
+        let ch: usize = h / 2;
+        yuv_out.width = w;
+        yuv_out.height = h;
+
+        if pending.kind == ReadbackKind::Rgba {
+            let mut rgba: Vec<u8> = Vec::new();
+            self.drain_readback_rgba_into(pending, &mut rgba)?;
+            crate::renderer::encoder::rgba_to_yuv420p_bt709(
+                &rgba,
+                w,
+                h,
+                &mut yuv_out.y,
+                &mut yuv_out.u,
+                &mut yuv_out.v,
+            );
+            return Ok(());
+        }
+
+        let yuv_res: &GpuYuvPackResources = self.yuv_resources.as_ref().ok_or_else(|| {
+            RendererError::Gpu("GPU YUV resources missing for YUV readback".to_string())
+        })?;
+        self.wait_for_mapping(&pending)?;
+        let buf: &wgpu::Buffer = &yuv_res.readback_bufs[pending.slot];
+        let slice = buf.slice(..);
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|err| RendererError::Gpu(format!("GPU YUV buffer map range failed: {err}")))?;
+
+        let y_bytes: usize = w * h;
+        let uv_bytes: usize = cw * ch;
+        let u_off: usize = (yuv_res.y_words as usize) * 4;
+        let v_off: usize = u_off + (yuv_res.uv_words as usize) * 4;
+
+        yuv_out.y.resize(y_bytes, 16);
+        yuv_out.u.resize(uv_bytes, 128);
+        yuv_out.v.resize(uv_bytes, 128);
+        yuv_out.y.copy_from_slice(&mapped[..y_bytes]);
+        yuv_out.u.copy_from_slice(&mapped[u_off..u_off + uv_bytes]);
+        yuv_out.v.copy_from_slice(&mapped[v_off..v_off + uv_bytes]);
+
+        drop(mapped);
+        buf.unmap();
+        Ok(())
+    }
+
     fn submit_frame_internal(
         &mut self,
         input: &GpuRenderFrameInput<'_>,
         text_renderer: &mut StoryTextRenderer,
+        readback_kind: ReadbackKind,
+        force_render_filters: bool,
     ) -> Result<(), RendererError> {
         let sw: f32 = self.stage_width as f32;
         let sh: f32 = self.stage_height as f32;
+        let slot: usize = self.next_slot;
+
+        // Opaque fade short-circuit: solid fade covers the entire stage, so skip models, UI & filters.
+        let is_opaque_fade: bool = input.fade_visible && input.fade_alpha >= 1.0 - 1e-5;
+        if is_opaque_fade {
+            let mut encoder: wgpu::CommandEncoder =
+                self.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("frame_opaque_fade_encoder"),
+                    });
+            let a: f64 = input.fade_alpha.clamp(0.0, 1.0) as f64;
+            let clear_col: wgpu::Color = wgpu::Color {
+                r: (input.fade_color[0] as f64) * a,
+                g: (input.fade_color[1] as f64) * a,
+                b: (input.fade_color[2] as f64) * a,
+                a,
+            };
+            self.clear_rt(&mut encoder, SLOT_FINAL_OUTPUT, clear_col);
+            self.enqueue_readback(encoder, slot, readback_kind);
+            return Ok(());
+        }
 
         // Pre-update dynamic UI text textures cleanly outside active command encoder borrows.
         if input.dialogue_visible && input.dialogue_body_alpha > 0.0 {
@@ -1221,7 +1462,7 @@ impl GpuSceneRenderer {
         // Compute upper bounds for persistent per-slot buffers before recording passes.
         let mut req_l2d_verts: usize = 0;
         let mut req_draw_slots: usize = 0;
-        let mut req_quad_verts: usize = 64;
+        let mut req_quad_verts: usize = 96;
         let mut req_filter_slots: usize = FilterPipelines::estimate_passes(input.stage_filters)
             + FilterPipelines::estimate_passes(input.screen_filters)
             + 8;
@@ -1241,7 +1482,6 @@ impl GpuSceneRenderer {
         }
         let req_mask_slots: usize = req_draw_slots.saturating_mul(2).max(512);
 
-        let slot: usize = self.next_slot;
         let mut scratch: FrameScratch = self
             .scratches[slot]
             .take()
@@ -1259,156 +1499,77 @@ impl GpuSceneRenderer {
         );
 
         let record_result: Result<(), RendererError> = (|| {
-            let mut encoder =
+            let mut encoder: wgpu::CommandEncoder =
                 self.device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                         label: Some("frame_encoder"),
                     });
 
-            // 1. Clear `stage_root` transparent and draw background (`background` layer).
-            self.clear_rt(&mut encoder, SLOT_STAGE_ROOT, wgpu::Color::TRANSPARENT);
-            if let Some(bg_key) = input.background_key {
-                if let Some(bg) = self.backgrounds.get(bg_key) {
-                    let scale = if (bg.width as f32 / bg.height.max(1) as f32) > (sw / sh) {
+            // 1. Clear `stage_root` transparent and draw background (`background` layer) in a single pass.
+            let stage_batches: [(&wgpu::BindGroup, u32, u32); 1];
+            let stage_slice: &[(&wgpu::BindGroup, u32, u32)] =
+                if let Some(bg) = input.background_key.and_then(|k| self.backgrounds.get(k)) {
+                    let scale: f32 = if (bg.width as f32 / bg.height.max(1) as f32) > (sw / sh) {
                         sh / bg.height.max(1) as f32
                     } else {
                         sw / bg.width.max(1) as f32
                     };
-                    let draw_w = bg.width as f32 * scale;
-                    let draw_h = bg.height as f32 * scale;
-                    let x = (sw - draw_w) * 0.5;
-                    let y = (sh - draw_h) * 0.5;
-                    let verts = stage_quad_verts(x, y, draw_w, draw_h, sw, sh, [1.0; 4]);
-                    self.draw_quads(
-                        &mut encoder,
-                        &mut scratch,
-                        SLOT_STAGE_ROOT,
-                        &bg.quad_bg,
-                        &verts,
-                        false,
-                        false,
-                    );
-                }
-            }
+                    let draw_w: f32 = bg.width as f32 * scale;
+                    let draw_h: f32 = bg.height as f32 * scale;
+                    let x: f32 = (sw - draw_w) * 0.5;
+                    let y: f32 = (sh - draw_h) * 0.5;
+                    let verts: [QuadVertex; 4] =
+                        stage_quad_verts(x, y, draw_w, draw_h, sw, sh, [1.0; 4]);
+                    let (v_start, v_end) = Self::push_quad_tris(&mut scratch.quad_verts, &verts);
+                    stage_batches = [(&bg.quad_bg, v_start, v_end)];
+                    &stage_batches
+                } else {
+                    &[]
+                };
+            self.draw_batched_quad_pass(
+                &mut encoder,
+                &scratch,
+                SLOT_STAGE_ROOT,
+                Some(wgpu::Color::TRANSPARENT),
+                stage_slice,
+            );
 
             // 2. Render each visible Live2D model + child VFX + parent filters onto `stage_root`.
             for model_in in input.models {
                 if !model_in.model.stage.visible || model_in.model.stage.alpha <= 0.0 {
                     continue;
                 }
-                self.render_single_model(&mut encoder, &mut scratch, model_in)?;
+                self.render_single_model(
+                    &mut encoder,
+                    &mut scratch,
+                    model_in,
+                    force_render_filters,
+                )?;
             }
 
-            // 3. Apply Stage filters (`stageRoot.filters`) into `presentation_root`.
-            let stage_filtered_slot = self.filters.apply_chain(
+            // 3. Apply Stage filters (`stageRoot.filters`).
+            let stage_filtered_slot: usize = self.filters.apply_chain(
                 &mut encoder,
                 &self.pool_views,
                 &self.pool_filter_bgs,
+                &self.pool_cs_dst_bgs,
+                &self.pool_cs_orig_bgs,
                 &mut scratch.filter_scratch,
                 SLOT_STAGE_ROOT,
                 SCRATCH_START,
                 self.stage_width,
                 self.stage_height,
                 input.stage_filters,
+                force_render_filters,
             );
-            if stage_filtered_slot != SLOT_PRESENTATION_ROOT {
-                let verts = full_ndc_quad([1.0; 4]);
-                self.draw_quads(
-                    &mut encoder,
-                    &mut scratch,
-                    SLOT_PRESENTATION_ROOT,
-                    &self.pool_quad_bgs[stage_filtered_slot],
-                    &verts,
-                    false,
-                    true,
-                );
-            }
 
-            // 4. Draw `ui` layer (Dialogue + Telop) into `presentation_root`.
-            if input.dialogue_visible {
-                if input.dialogue_bg_alpha > 0.0 {
-                    let a = input.dialogue_bg_alpha;
-                    let verts = stage_quad_verts(0.0, 0.0, sw, sh, sw, sh, [a; 4]);
-                    self.draw_quads(
-                        &mut encoder,
-                        &mut scratch,
-                        SLOT_PRESENTATION_ROOT,
-                        &self.ui_text_bg.quad_bg,
-                        &verts,
-                        false,
-                        false,
-                    );
-                }
-                if input.dialogue_underline_alpha > 0.0 {
-                    let a = input.dialogue_underline_alpha;
-                    let uw = self.ui_text_underline.width as f32;
-                    let uh = self.ui_text_underline.height as f32;
-                    let ux = sw / 10.0;
-                    let uy = sh / 1.3;
-                    let verts = stage_quad_verts(ux, uy, uw, uh, sw, sh, [a; 4]);
-                    self.draw_quads(
-                        &mut encoder,
-                        &mut scratch,
-                        SLOT_PRESENTATION_ROOT,
-                        &self.ui_text_underline.quad_bg,
-                        &verts,
-                        false,
-                        false,
-                    );
-                }
-                if input.dialogue_body_alpha > 0.0 {
-                    if let Some((tex, ox, oy)) = &self.cached_body.surface {
-                        let a = input.dialogue_body_alpha;
-                        let verts = stage_quad_verts(
-                            sw / 8.0 + ox,
-                            sh / 1.27 + oy,
-                            tex.width as f32,
-                            tex.height as f32,
-                            sw,
-                            sh,
-                            [a; 4],
-                        );
-                        self.draw_quads(
-                            &mut encoder,
-                            &mut scratch,
-                            SLOT_PRESENTATION_ROOT,
-                            &tex.quad_bg,
-                            &verts,
-                            false,
-                            false,
-                        );
-                    }
-                }
-                if input.dialogue_speaker_alpha > 0.0 {
-                    if let Some((tex, ox, oy)) = &self.cached_speaker.surface {
-                        let a = input.dialogue_speaker_alpha;
-                        let verts = stage_quad_verts(
-                            sw / 9.0 + ox,
-                            sh / 1.3 - sw / 42.0 + oy,
-                            tex.width as f32,
-                            tex.height as f32,
-                            sw,
-                            sh,
-                            [a; 4],
-                        );
-                        self.draw_quads(
-                            &mut encoder,
-                            &mut scratch,
-                            SLOT_PRESENTATION_ROOT,
-                            &tex.quad_bg,
-                            &verts,
-                            false,
-                            false,
-                        );
-                    }
-                }
-            }
-
-            if input.telop_visible && input.telop_alpha > 0.0 {
-                self.clear_rt(&mut encoder, SLOT_TELOP_RT, wgpu::Color::TRANSPARENT);
-                let tw = self.ui_telop.width as f32;
-                let th = self.ui_telop.height as f32;
-                let bg_verts = stage_quad_verts(
+            // 4a. Render Telop card onto `SLOT_TELOP_RT` in a single pass when visible.
+            let telop_active: bool = input.telop_visible && input.telop_alpha > 0.0;
+            if telop_active {
+                let mut telop_batches: Vec<(&wgpu::BindGroup, u32, u32)> = Vec::with_capacity(2);
+                let tw: f32 = self.ui_telop.width as f32;
+                let th: f32 = self.ui_telop.height as f32;
+                let bg_verts: [QuadVertex; 4] = stage_quad_verts(
                     sw * 0.5 - tw * 0.5 + input.telop_x_offset,
                     sh * 0.5 - th * 0.5,
                     tw,
@@ -1417,17 +1578,10 @@ impl GpuSceneRenderer {
                     sh,
                     [1.0; 4],
                 );
-                self.draw_quads(
-                    &mut encoder,
-                    &mut scratch,
-                    SLOT_TELOP_RT,
-                    &self.ui_telop.quad_bg,
-                    &bg_verts,
-                    false,
-                    false,
-                );
+                let (v_start, v_end) = Self::push_quad_tris(&mut scratch.quad_verts, &bg_verts);
+                telop_batches.push((&self.ui_telop.quad_bg, v_start, v_end));
                 if let Some((tex, ox, oy)) = &self.cached_telop.surface {
-                    let t_verts = stage_quad_verts(
+                    let t_verts: [QuadVertex; 4] = stage_quad_verts(
                         sw * 0.5 - 10.0 + input.telop_x_offset + ox,
                         sh * 0.5 + sh / 300.0 + oy,
                         tex.width as f32,
@@ -1436,121 +1590,141 @@ impl GpuSceneRenderer {
                         sh,
                         [1.0; 4],
                     );
-                    self.draw_quads(
-                        &mut encoder,
-                        &mut scratch,
-                        SLOT_TELOP_RT,
-                        &tex.quad_bg,
-                        &t_verts,
-                        false,
-                        false,
-                    );
+                    let (ts, te) = Self::push_quad_tris(&mut scratch.quad_verts, &t_verts);
+                    telop_batches.push((&tex.quad_bg, ts, te));
                 }
-                let alpha_verts = full_ndc_quad([input.telop_alpha; 4]);
-                self.draw_quads(
+                self.draw_batched_quad_pass(
                     &mut encoder,
-                    &mut scratch,
-                    SLOT_PRESENTATION_ROOT,
-                    &self.pool_quad_bgs[SLOT_TELOP_RT],
-                    &alpha_verts,
-                    false,
-                    false,
+                    &scratch,
+                    SLOT_TELOP_RT,
+                    Some(wgpu::Color::TRANSPARENT),
+                    &telop_batches,
                 );
             }
 
+            // 4b. Batch `stage_filtered_slot` + Dialogue UI + Telop into ONE `SLOT_PRESENTATION_ROOT` pass.
+            let mut pres_batches: Vec<(&wgpu::BindGroup, u32, u32)> = Vec::with_capacity(6);
+            if stage_filtered_slot != SLOT_PRESENTATION_ROOT {
+                let verts: [QuadVertex; 4] = full_ndc_quad([1.0; 4]);
+                let (vs, ve) = Self::push_quad_tris(&mut scratch.quad_verts, &verts);
+                pres_batches.push((&self.pool_quad_bgs[stage_filtered_slot], vs, ve));
+            }
+            if input.dialogue_visible {
+                if input.dialogue_bg_alpha > 0.0 {
+                    let a: f32 = input.dialogue_bg_alpha;
+                    let verts: [QuadVertex; 4] =
+                        stage_quad_verts(0.0, 0.0, sw, sh, sw, sh, [a; 4]);
+                    let (vs, ve) = Self::push_quad_tris(&mut scratch.quad_verts, &verts);
+                    pres_batches.push((&self.ui_text_bg.quad_bg, vs, ve));
+                }
+                if input.dialogue_underline_alpha > 0.0 {
+                    let a: f32 = input.dialogue_underline_alpha;
+                    let uw: f32 = self.ui_text_underline.width as f32;
+                    let uh: f32 = self.ui_text_underline.height as f32;
+                    let ux: f32 = sw / 10.0;
+                    let uy: f32 = sh / 1.3;
+                    let verts: [QuadVertex; 4] =
+                        stage_quad_verts(ux, uy, uw, uh, sw, sh, [a; 4]);
+                    let (vs, ve) = Self::push_quad_tris(&mut scratch.quad_verts, &verts);
+                    pres_batches.push((&self.ui_text_underline.quad_bg, vs, ve));
+                }
+                if input.dialogue_body_alpha > 0.0 {
+                    if let Some((tex, ox, oy)) = &self.cached_body.surface {
+                        let a: f32 = input.dialogue_body_alpha;
+                        let verts: [QuadVertex; 4] = stage_quad_verts(
+                            sw / 8.0 + ox,
+                            sh / 1.27 + oy,
+                            tex.width as f32,
+                            tex.height as f32,
+                            sw,
+                            sh,
+                            [a; 4],
+                        );
+                        let (vs, ve) = Self::push_quad_tris(&mut scratch.quad_verts, &verts);
+                        pres_batches.push((&tex.quad_bg, vs, ve));
+                    }
+                }
+                if input.dialogue_speaker_alpha > 0.0 {
+                    if let Some((tex, ox, oy)) = &self.cached_speaker.surface {
+                        let a: f32 = input.dialogue_speaker_alpha;
+                        let verts: [QuadVertex; 4] = stage_quad_verts(
+                            sw / 9.0 + ox,
+                            sh / 1.3 - sw / 42.0 + oy,
+                            tex.width as f32,
+                            tex.height as f32,
+                            sw,
+                            sh,
+                            [a; 4],
+                        );
+                        let (vs, ve) = Self::push_quad_tris(&mut scratch.quad_verts, &verts);
+                        pres_batches.push((&tex.quad_bg, vs, ve));
+                    }
+                }
+            }
+            if telop_active {
+                let alpha_verts: [QuadVertex; 4] = full_ndc_quad([input.telop_alpha; 4]);
+                let (vs, ve) = Self::push_quad_tris(&mut scratch.quad_verts, &alpha_verts);
+                pres_batches.push((&self.pool_quad_bgs[SLOT_TELOP_RT], vs, ve));
+            }
+            self.draw_batched_quad_pass(
+                &mut encoder,
+                &scratch,
+                SLOT_PRESENTATION_ROOT,
+                Some(wgpu::Color::TRANSPARENT),
+                &pres_batches,
+            );
+
             // 5. Apply Screen filters (`presentationRoot.filters`).
-            let screen_filtered_slot = self.filters.apply_chain(
+            let screen_filtered_slot: usize = self.filters.apply_chain(
                 &mut encoder,
                 &self.pool_views,
                 &self.pool_filter_bgs,
+                &self.pool_cs_dst_bgs,
+                &self.pool_cs_orig_bgs,
                 &mut scratch.filter_scratch,
                 SLOT_PRESENTATION_ROOT,
                 SCRATCH_START,
                 self.stage_width,
                 self.stage_height,
                 input.screen_filters,
+                force_render_filters,
             );
 
-            // 6. Composite `presentation_root` over backdrop color + `fade_overlay` into `final_output_rt`.
-            let bg = input.background_clear;
-            self.clear_rt(
-                &mut encoder,
-                SLOT_FINAL_OUTPUT,
-                wgpu::Color {
-                    r: (bg[0] * bg[3]) as f64,
-                    g: (bg[1] * bg[3]) as f64,
-                    b: (bg[2] * bg[3]) as f64,
-                    a: bg[3] as f64,
-                },
-            );
-            let pres_verts = full_ndc_quad([1.0; 4]);
-            self.draw_quads(
-                &mut encoder,
-                &mut scratch,
-                SLOT_FINAL_OUTPUT,
-                &self.pool_quad_bgs[screen_filtered_slot],
-                &pres_verts,
-                false,
-                false,
-            );
-
+            // 6. Composite `presentation_root` over backdrop color + `fade_overlay` in ONE `final_output_rt` pass.
+            let bg: [f32; 4] = input.background_clear;
+            let clear_bg: wgpu::Color = wgpu::Color {
+                r: (bg[0] * bg[3]) as f64,
+                g: (bg[1] * bg[3]) as f64,
+                b: (bg[2] * bg[3]) as f64,
+                a: bg[3] as f64,
+            };
+            let mut final_batches: Vec<(&wgpu::BindGroup, u32, u32)> = Vec::with_capacity(2);
+            let pres_verts: [QuadVertex; 4] = full_ndc_quad([1.0; 4]);
+            let (p_start, p_end) = Self::push_quad_tris(&mut scratch.quad_verts, &pres_verts);
+            final_batches.push((&self.pool_quad_bgs[screen_filtered_slot], p_start, p_end));
             if input.fade_visible && input.fade_alpha > 0.0 {
-                let a = input.fade_alpha;
-                let fade_col = [
+                let a: f32 = input.fade_alpha;
+                let fade_col: [f32; 4] = [
                     input.fade_color[0] * a,
                     input.fade_color[1] * a,
                     input.fade_color[2] * a,
                     a,
                 ];
-                let fade_verts = full_ndc_quad(fade_col);
-                self.draw_quads(
-                    &mut encoder,
-                    &mut scratch,
-                    SLOT_FINAL_OUTPUT,
-                    &self.white_tex.quad_bg,
-                    &fade_verts,
-                    false,
-                    false,
-                );
+                let fade_verts: [QuadVertex; 4] = full_ndc_quad(fade_col);
+                let (f_start, f_end) = Self::push_quad_tris(&mut scratch.quad_verts, &fade_verts);
+                final_batches.push((&self.white_tex.quad_bg, f_start, f_end));
             }
-
-            // 7. Copy `final_output_rt` to the current slot's readback buffer.
-            encoder.copy_texture_to_buffer(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &self.pool_textures[SLOT_FINAL_OUTPUT],
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &self.readback_bufs[slot],
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(self.padded_bytes_per_row),
-                        rows_per_image: Some(self.stage_height),
-                    },
-                },
-                wgpu::Extent3d {
-                    width: self.stage_width,
-                    height: self.stage_height,
-                    depth_or_array_layers: 1,
-                },
+            self.draw_batched_quad_pass(
+                &mut encoder,
+                &scratch,
+                SLOT_FINAL_OUTPUT,
+                Some(clear_bg),
+                &final_batches,
             );
 
+            // 7. Pack YUV420p on GPU (when enabled) or copy RGBA8 to staging readback buffer and submit.
             scratch.flush(&self.queue);
-            let submission_index: wgpu::SubmissionIndex = self.queue.submit(Some(encoder.finish()));
-
-            let slice = self.readback_bufs[slot].slice(..);
-            let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |res| {
-                let _ = tx.send(res);
-            });
-            self.next_slot = slot ^ 1;
-            self.in_flight = Some(InFlightReadback {
-                slot,
-                submission_index,
-                rx,
-            });
+            self.enqueue_readback(encoder, slot, readback_kind);
             Ok(())
         })();
 
@@ -1558,11 +1732,84 @@ impl GpuSceneRenderer {
         record_result
     }
 
+    fn enqueue_readback(
+        &mut self,
+        mut encoder: wgpu::CommandEncoder,
+        slot: usize,
+        readback_kind: ReadbackKind,
+    ) {
+        let target_buf: &wgpu::Buffer = match (readback_kind, self.yuv_resources.as_ref()) {
+            (ReadbackKind::Yuv, Some(yuv)) => {
+                self.filters.encode_yuv420p_pass(
+                    &mut encoder,
+                    &self.pool_filter_bgs[SLOT_FINAL_OUTPUT],
+                    &yuv.pack_bg,
+                    yuv.y_words,
+                    yuv.uv_words,
+                );
+                encoder.copy_buffer_to_buffer(
+                    &yuv.gpu_buf,
+                    0,
+                    &yuv.readback_bufs[slot],
+                    0,
+                    yuv.yuv_byte_len,
+                );
+                &yuv.readback_bufs[slot]
+            }
+            _ => {
+                encoder.copy_texture_to_buffer(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &self.pool_textures[SLOT_FINAL_OUTPUT],
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &self.readback_bufs[slot],
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(self.padded_bytes_per_row),
+                            rows_per_image: Some(self.stage_height),
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width: self.stage_width,
+                        height: self.stage_height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                &self.readback_bufs[slot]
+            }
+        };
+
+        let submission_index: wgpu::SubmissionIndex = self.queue.submit(Some(encoder.finish()));
+        let slice = target_buf.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
+        let actual_kind: ReadbackKind = if matches!(readback_kind, ReadbackKind::Yuv)
+            && self.yuv_resources.is_some()
+        {
+            ReadbackKind::Yuv
+        } else {
+            ReadbackKind::Rgba
+        };
+        self.next_slot = (slot + 1) % READBACK_RING_DEPTH;
+        self.in_flight.push_back(InFlightReadback {
+            slot,
+            kind: actual_kind,
+            submission_index,
+            rx,
+        });
+    }
+
     fn render_single_model(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         scratch: &mut FrameScratch,
         model_in: &GpuRenderModelInput<'_>,
+        force_render_filters: bool,
     ) -> Result<(), RendererError> {
         let model = model_in.model;
         let cache: &ModelGpuCache = self.model_caches.get(&model.key).ok_or_else(|| {
@@ -1610,29 +1857,29 @@ impl GpuSceneRenderer {
                     continue;
                 };
                 let b = layout.bounds();
-                let u_rect = [
+                let u_rect: [f32; 4] = [
                     b.x() * 2.0 - 1.0,
                     b.y() * 2.0 - 1.0,
                     (b.x() + b.width()) * 2.0 - 1.0,
                     (b.y() + b.height()) * 2.0 - 1.0,
                 ];
-                let ch_flag = layout.channel_flag();
+                let ch_flag: [f32; 4] = layout.channel_flag();
                 for &clip_idx_i32 in ctx.masks() {
                     if clip_idx_i32 < 0 {
                         continue;
                     }
-                    let m_idx = clip_idx_i32 as usize;
+                    let m_idx: usize = clip_idx_i32 as usize;
                     if m_idx >= meshes.len() || m_idx >= mesh_ranges.len() {
                         continue;
                     }
-                    let tex_i = meshes[m_idx].texture_index();
+                    let tex_i: i32 = meshes[m_idx].texture_index();
                     if tex_i < 0 || (tex_i as usize) >= cache.textures.len() {
                         continue;
                     }
                     if mesh_ranges[m_idx].2 == 0 {
                         continue;
                     }
-                    let u = Live2dMaskUniformGpu {
+                    let u: Live2dMaskUniformGpu = Live2dMaskUniformGpu {
                         clip_matrix: *clip_mat.as_slice(),
                         base_color: u_rect,
                         channel_flag: ch_flag,
@@ -1668,26 +1915,34 @@ impl GpuSceneRenderer {
                 });
                 rpass.set_vertex_buffer(0, scratch.l2d_vbuf.slice(..));
                 rpass.set_index_buffer(cache.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+                let mut prev_double_sided: Option<bool> = None;
+                let mut prev_tex: Option<usize> = None;
                 for (slot_idx, &(m_idx, double_sided, tex_i)) in mask_calls.iter().enumerate() {
-                    let pipe = if double_sided {
-                        &self.live2d_mask_pipe_nocull
-                    } else {
-                        &self.live2d_mask_pipe_cull
-                    };
+                    if prev_double_sided != Some(double_sided) {
+                        let pipe = if double_sided {
+                            &self.live2d_mask_pipe_nocull
+                        } else {
+                            &self.live2d_mask_pipe_cull
+                        };
+                        rpass.set_pipeline(pipe);
+                        prev_double_sided = Some(double_sided);
+                    }
                     let (base_v, idx_start, idx_count) = mesh_ranges[m_idx];
                     let dyn_off: u32 = (mask_u_base + slot_idx * self.uniform_stride) as u32;
-                    rpass.set_pipeline(pipe);
                     rpass.set_bind_group(0, &scratch.l2d_mask_ubg, &[dyn_off]);
-                    rpass.set_bind_group(1, &cache.mask_tbgs[tex_i], &[]);
+                    if prev_tex != Some(tex_i) {
+                        rpass.set_bind_group(1, &cache.mask_tbgs[tex_i], &[]);
+                        prev_tex = Some(tex_i);
+                    }
                     rpass.draw_indexed(idx_start..idx_start + idx_count, model_v_base + base_v, 0..1);
                 }
             }
         }
 
-        // 2. Render model meshes in sorted draw order into `SLOT_MODEL_RT`.
-        self.clear_rt(encoder, SLOT_MODEL_RT, wgpu::Color::TRANSPARENT);
-        let draw_order = model.sorted_draw_order();
-        let mvp = model.mvp_ndc_for_stage(self.stage_width as f32, self.stage_height as f32);
+        // 2+3. Clear `SLOT_MODEL_RT` + render Live2D meshes + add-blend `TriangleParticles` in ONE pass.
+        let draw_order: Vec<usize> = draw_order_indices(&infos);
+        let mvp: [f32; 16] =
+            model.mvp_ndc_for_stage(self.stage_width as f32, self.stage_height as f32);
 
         struct DrawCallMeta {
             mesh_idx: usize,
@@ -1706,7 +1961,7 @@ impl GpuSceneRenderer {
             if !info.is_visible() {
                 continue;
             }
-            let tex_i = info.texture_index();
+            let tex_i: i32 = info.texture_index();
             if tex_i < 0 || (tex_i as usize) >= cache.textures.len() {
                 continue;
             }
@@ -1730,7 +1985,7 @@ impl GpuSceneRenderer {
 
             let mc = mesh.multiply_color();
             let sc = mesh.screen_color();
-            let u = Live2dDrawUniformGpu {
+            let u: Live2dDrawUniformGpu = Live2dDrawUniformGpu {
                 mvp,
                 clip_matrix,
                 base_color: [1.0, 1.0, 1.0, info.opacity()],
@@ -1745,16 +2000,12 @@ impl GpuSceneRenderer {
             scratch.l2d_draw_raw[off..off + std::mem::size_of::<Live2dDrawUniformGpu>()]
                 .copy_from_slice(bytemuck::bytes_of(&u));
 
-            let blend_idx = match mesh.blend_mode() {
+            let blend_idx: usize = match mesh.blend_mode() {
                 Moc3DrawableBlendMode::Normal => 0,
                 Moc3DrawableBlendMode::Additive => 1,
                 Moc3DrawableBlendMode::Multiplicative => 2,
             };
-            let cull_idx = if (mesh.drawable_flags() & 0x04) != 0 {
-                1
-            } else {
-                0
-            };
+            let cull_idx: usize = usize::from((mesh.drawable_flags() & 0x04) != 0);
             draw_calls.push(DrawCallMeta {
                 mesh_idx: d_idx,
                 tex_idx: tex_i as usize,
@@ -1763,15 +2014,34 @@ impl GpuSceneRenderer {
             });
         }
 
-        if !draw_calls.is_empty() {
+        let particle_range: Option<(u32, u32)> = if !model_in.particles.is_empty() {
+            let tri_verts: Vec<QuadVertex> = build_triangle_particle_verts(
+                model,
+                model_in.particles,
+                self.stage_width as f32,
+                self.stage_height as f32,
+            );
+            if tri_verts.is_empty() {
+                None
+            } else {
+                let p_start: u32 = scratch.quad_verts.len() as u32;
+                scratch.quad_verts.extend_from_slice(&tri_verts);
+                let p_end: u32 = scratch.quad_verts.len() as u32;
+                Some((p_start, p_end))
+            }
+        } else {
+            None
+        };
+
+        {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("l2d_draw_pass"),
+                label: Some("l2d_model_and_particles_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.pool_views[SLOT_MODEL_RT],
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1780,42 +2050,37 @@ impl GpuSceneRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            rpass.set_vertex_buffer(0, scratch.l2d_vbuf.slice(..));
-            rpass.set_index_buffer(cache.ibuf.slice(..), wgpu::IndexFormat::Uint16);
-            for (slot_idx, meta) in draw_calls.iter().enumerate() {
-                let (base_v, idx_start, idx_count) = mesh_ranges[meta.mesh_idx];
-                let dyn_off: u32 = (draw_u_base + slot_idx * self.uniform_stride) as u32;
-                rpass.set_pipeline(&self.live2d_pipes[meta.blend_idx][meta.cull_idx]);
-                rpass.set_bind_group(0, &scratch.l2d_draw_ubg, &[dyn_off]);
-                rpass.set_bind_group(1, &cache.draw_tbgs[meta.tex_idx], &[]);
-                rpass.draw_indexed(idx_start..idx_start + idx_count, model_v_base + base_v, 0..1);
+            if !draw_calls.is_empty() {
+                rpass.set_vertex_buffer(0, scratch.l2d_vbuf.slice(..));
+                rpass.set_index_buffer(cache.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+                let mut prev_pipe: Option<(usize, usize)> = None;
+                let mut prev_tex: Option<usize> = None;
+                for (slot_idx, meta) in draw_calls.iter().enumerate() {
+                    if prev_pipe != Some((meta.blend_idx, meta.cull_idx)) {
+                        rpass.set_pipeline(&self.live2d_pipes[meta.blend_idx][meta.cull_idx]);
+                        prev_pipe = Some((meta.blend_idx, meta.cull_idx));
+                    }
+                    let (base_v, idx_start, idx_count) = mesh_ranges[meta.mesh_idx];
+                    let dyn_off: u32 = (draw_u_base + slot_idx * self.uniform_stride) as u32;
+                    rpass.set_bind_group(0, &scratch.l2d_draw_ubg, &[dyn_off]);
+                    if prev_tex != Some(meta.tex_idx) {
+                        rpass.set_bind_group(1, &cache.draw_tbgs[meta.tex_idx], &[]);
+                        prev_tex = Some(meta.tex_idx);
+                    }
+                    rpass.draw_indexed(idx_start..idx_start + idx_count, model_v_base + base_v, 0..1);
+                }
             }
-        }
-
-        // 3. Draw model child `TriangleParticles` (add blend inside model container).
-        if !model_in.particles.is_empty() {
-            let tri_verts = build_triangle_particle_verts(
-                model,
-                model_in.particles,
-                self.stage_width as f32,
-                self.stage_height as f32,
-            );
-            if !tri_verts.is_empty() {
-                self.draw_triangle_list(
-                    encoder,
-                    scratch,
-                    SLOT_MODEL_RT,
-                    &self.white_tex.quad_bg,
-                    &tri_verts,
-                    true,
-                );
+            if let Some((p_start, p_end)) = particle_range {
+                rpass.set_pipeline(&self.quad_pipe_add);
+                rpass.set_bind_group(0, &self.white_tex.quad_bg, &[]);
+                rpass.set_vertex_buffer(0, scratch.quad_vbuf.slice(..));
+                rpass.draw(p_start..p_end, 0..1);
             }
         }
 
         // 4. Draw model child `HologramBeam` (`beam_rt` -> `[CRT, Adjustment, Bloom]` -> `SLOT_MODEL_RT`).
         for beam in model_in.hologram_beams {
-            self.clear_rt(encoder, SLOT_BEAM_RT, wgpu::Color::TRANSPARENT);
-            let mut beam_verts = Vec::with_capacity(12);
+            let mut beam_verts: Vec<QuadVertex> = Vec::with_capacity(12);
             beam_verts.extend_from_slice(&build_hologram_trapezoid_verts(
                 model,
                 beam.large_scale,
@@ -1837,20 +2102,24 @@ impl GpuSceneRenderer {
                 &self.ui_hologram.quad_bg,
                 &beam_verts,
                 false,
+                Some(wgpu::Color::TRANSPARENT),
             );
 
-            let filtered_beam_slot = self.filters.apply_chain(
+            let filtered_beam_slot: usize = self.filters.apply_chain(
                 encoder,
                 &self.pool_views,
                 &self.pool_filter_bgs,
+                &self.pool_cs_dst_bgs,
+                &self.pool_cs_orig_bgs,
                 &mut scratch.filter_scratch,
                 SLOT_BEAM_RT,
                 SCRATCH_START,
                 self.stage_width,
                 self.stage_height,
                 &beam.filters,
+                force_render_filters,
             );
-            let beam_comp_verts = full_ndc_quad([1.0; 4]);
+            let beam_comp_verts: [QuadVertex; 4] = full_ndc_quad([1.0; 4]);
             self.draw_quads(
                 encoder,
                 scratch,
@@ -1865,7 +2134,7 @@ impl GpuSceneRenderer {
         // 5. Composite onto `SLOT_STAGE_ROOT`, folding `AlphaFilter` into the composite quad when no
         // parent filters are attached to avoid an extra full-screen pass.
         if model_in.parent_filters.is_empty() {
-            let comp_verts = full_ndc_quad([model.stage.alpha; 4]);
+            let comp_verts: [QuadVertex; 4] = full_ndc_quad([model.stage.alpha; 4]);
             self.draw_quads(
                 encoder,
                 scratch,
@@ -1876,22 +2145,26 @@ impl GpuSceneRenderer {
                 false,
             );
         } else {
-            let mut model_filters = Vec::with_capacity(1 + model_in.parent_filters.len());
+            let mut model_filters: Vec<GpuFilterSpec> =
+                Vec::with_capacity(1 + model_in.parent_filters.len());
             model_filters.push(GpuFilterSpec::Alpha(model.stage.alpha));
             model_filters.extend_from_slice(model_in.parent_filters);
 
-            let filtered_model_slot = self.filters.apply_chain(
+            let filtered_model_slot: usize = self.filters.apply_chain(
                 encoder,
                 &self.pool_views,
                 &self.pool_filter_bgs,
+                &self.pool_cs_dst_bgs,
+                &self.pool_cs_orig_bgs,
                 &mut scratch.filter_scratch,
                 SLOT_MODEL_RT,
                 SCRATCH_START,
                 self.stage_width,
                 self.stage_height,
                 &model_filters,
+                force_render_filters,
             );
-            let comp_verts = full_ndc_quad([1.0; 4]);
+            let comp_verts: [QuadVertex; 4] = full_ndc_quad([1.0; 4]);
             self.draw_quads(
                 encoder,
                 scratch,
@@ -1959,6 +2232,58 @@ impl GpuSceneRenderer {
         Ok(())
     }
 
+    fn push_quad_tris(
+        quad_verts: &mut Vec<QuadVertex>,
+        verts: &[QuadVertex; 4],
+    ) -> (u32, u32) {
+        let v_start: u32 = quad_verts.len() as u32;
+        quad_verts.extend_from_slice(&[verts[0], verts[1], verts[2], verts[0], verts[2], verts[3]]);
+        let v_end: u32 = quad_verts.len() as u32;
+        (v_start, v_end)
+    }
+
+    fn draw_batched_quad_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        scratch: &FrameScratch,
+        dst_slot: usize,
+        clear_color: Option<wgpu::Color>,
+        batches: &[(&wgpu::BindGroup, u32, u32)],
+    ) {
+        let load: wgpu::LoadOp<wgpu::Color> = match clear_color {
+            Some(c) => wgpu::LoadOp::Clear(c),
+            None => wgpu::LoadOp::Load,
+        };
+        let mut rpass: wgpu::RenderPass<'_> =
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("quad_batch_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.pool_views[dst_slot],
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        if batches.is_empty() {
+            return;
+        }
+        rpass.set_pipeline(&self.quad_pipe_normal);
+        rpass.set_vertex_buffer(0, scratch.quad_vbuf.slice(..));
+        for &(tex_bg, v_start, v_end) in batches {
+            if v_end > v_start {
+                rpass.set_bind_group(0, tex_bg, &[]);
+                rpass.draw(v_start..v_end, 0..1);
+            }
+        }
+    }
+
     fn clear_rt(&self, encoder: &mut wgpu::CommandEncoder, slot: usize, color: wgpu::Color) {
         let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("clear_rt"),
@@ -1989,10 +2314,20 @@ impl GpuSceneRenderer {
         clear_first: bool,
     ) {
         let tri: [QuadVertex; 6] = [verts[0], verts[1], verts[2], verts[0], verts[2], verts[3]];
-        if clear_first {
-            self.clear_rt(encoder, dst_slot, wgpu::Color::TRANSPARENT);
-        }
-        self.draw_triangle_list(encoder, scratch, dst_slot, tex_bg, &tri, additive);
+        let clear_color: Option<wgpu::Color> = if clear_first {
+            Some(wgpu::Color::TRANSPARENT)
+        } else {
+            None
+        };
+        self.draw_triangle_list(
+            encoder,
+            scratch,
+            dst_slot,
+            tex_bg,
+            &tri,
+            additive,
+            clear_color,
+        );
     }
 
     fn draw_triangle_list(
@@ -2003,13 +2338,21 @@ impl GpuSceneRenderer {
         tex_bg: &wgpu::BindGroup,
         verts: &[QuadVertex],
         additive: bool,
+        clear_color: Option<wgpu::Color>,
     ) {
         if verts.is_empty() {
+            if let Some(c) = clear_color {
+                self.clear_rt(encoder, dst_slot, c);
+            }
             return;
         }
         let v_start: u32 = scratch.quad_verts.len() as u32;
         scratch.quad_verts.extend_from_slice(verts);
         let v_end: u32 = scratch.quad_verts.len() as u32;
+        let load: wgpu::LoadOp<wgpu::Color> = match clear_color {
+            Some(c) => wgpu::LoadOp::Clear(c),
+            None => wgpu::LoadOp::Load,
+        };
 
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("tri_pass"),
@@ -2018,7 +2361,7 @@ impl GpuSceneRenderer {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
+                    load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -2236,32 +2579,44 @@ fn build_triangle_particle_verts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::renderer::encoder::rgba_to_yuv420p_bt709;
     use crate::renderer::story::PlaybackFontConfig;
+    use crate::renderer::vfx::{
+        AdjustmentFilterParams, BloomFilterParams, BlurFilterParams, ColorOverlayFilterParams,
+        CrtFilterParams, OldFilmFilterParams,
+    };
     use std::path::PathBuf;
 
-    #[test]
-    fn gpu_renders_live2d_model_with_dialogue_and_filters() {
-        let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+    fn load_test_ichika() -> Live2DModelInstance {
+        let model_path: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
             "../tests/models/01ichika_normal_3.0_f_t04/01ichika_normal_3.0_f_t04.model3.json",
         );
-        let mut model = Live2DModelInstance::load("ichika", &model_path, 42).expect("load model");
-        let scale = (720.0 / model.original_height()) * 2.1;
+        let mut model: Live2DModelInstance =
+            Live2DModelInstance::load("ichika", &model_path, 42).expect("load model");
+        let scale: f32 = (720.0 / model.original_height()) * 2.1;
         model.stage.pos_x = 640.0;
         model.stage.pos_y = 720.0 * 0.8;
         model.stage.scale = scale;
         model.stage.anchor_x = 0.5;
         model.stage.anchor_y = 0.5;
-        model.stage.alpha = 1.0;
+        model.stage.alpha = 0.85;
         model.stage.visible = true;
         model.accumulate_delta_ms(16.0);
         model.commit_frame_update();
+        model
+    }
 
-        let mut gpu = GpuSceneRenderer::new(1280, 720).expect("init headless wgpu");
+    #[test]
+    fn gpu_renders_live2d_model_with_dialogue_and_filters() {
+        let mut model: Live2DModelInstance = load_test_ichika();
+        model.stage.alpha = 1.0;
+
+        let mut gpu: GpuSceneRenderer = GpuSceneRenderer::new(1280, 720).expect("init headless wgpu");
         gpu.register_live2d_model("ichika", &model);
-        let mut text_renderer =
+        let mut text_renderer: StoryTextRenderer =
             StoryTextRenderer::new(&PlaybackFontConfig::Default, None).expect("font");
 
-        let frame = gpu
+        let frame: Vec<u8> = gpu
             .render_frame(
                 &GpuRenderFrameInput {
                     background_key: None,
@@ -2294,7 +2649,7 @@ mod tests {
             .expect("render frame");
 
         assert_eq!(frame.len(), 1280 * 720 * 4);
-        let non_black_pixels = frame
+        let non_black_pixels: usize = frame
             .chunks_exact(4)
             .filter(|px| px[0] > 4 || px[1] > 4 || px[2] > 4)
             .count();
@@ -2305,25 +2660,11 @@ mod tests {
     }
 
     #[test]
-    fn pipelined_double_buffer_matches_sync_render() {
-        let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../tests/models/01ichika_normal_3.0_f_t04/01ichika_normal_3.0_f_t04.model3.json",
-        );
-        let mut model = Live2DModelInstance::load("ichika", &model_path, 42).expect("load model");
-        let scale = (720.0 / model.original_height()) * 2.1;
-        model.stage.pos_x = 640.0;
-        model.stage.pos_y = 720.0 * 0.8;
-        model.stage.scale = scale;
-        model.stage.anchor_x = 0.5;
-        model.stage.anchor_y = 0.5;
-        model.stage.alpha = 0.85;
-        model.stage.visible = true;
-        model.accumulate_delta_ms(16.0);
-        model.commit_frame_update();
-
-        let mut gpu = GpuSceneRenderer::new(1280, 720).expect("init headless wgpu");
+    fn pipelined_ring_buffer_matches_sync_render() {
+        let model: Live2DModelInstance = load_test_ichika();
+        let mut gpu: GpuSceneRenderer = GpuSceneRenderer::new(1280, 720).expect("init headless wgpu");
         gpu.register_live2d_model("ichika", &model);
-        let mut text_renderer =
+        let mut text_renderer: StoryTextRenderer =
             StoryTextRenderer::new(&PlaybackFontConfig::Default, None).expect("font");
 
         let input_a = GpuRenderFrameInput {
@@ -2339,7 +2680,7 @@ mod tests {
             dialogue_visible: true,
             dialogue_bg_alpha: 1.0,
             dialogue_underline_alpha: 1.0,
-            dialogue_body_text: "测试双缓冲渲染一致性 A",
+            dialogue_body_text: "测试环形缓冲渲染一致性 A",
             dialogue_body_alpha: 1.0,
             dialogue_speaker_text: "星乃一歌",
             dialogue_speaker_alpha: 1.0,
@@ -2353,7 +2694,7 @@ mod tests {
             background_clear: [0.0, 0.0, 0.0, 1.0],
         };
         let input_b = GpuRenderFrameInput {
-            dialogue_body_text: "测试双缓冲渲染一致性 B",
+            dialogue_body_text: "测试环形缓冲渲染一致性 B",
             fade_visible: true,
             fade_color: [0.1, 0.2, 0.3, 1.0],
             fade_alpha: 0.25,
@@ -2363,19 +2704,171 @@ mod tests {
         let sync_a: Vec<u8> = gpu.render_frame(&input_a, &mut text_renderer).expect("sync a");
         let sync_b: Vec<u8> = gpu.render_frame(&input_b, &mut text_renderer).expect("sync b");
 
-        let mut out_a: Vec<u8> = Vec::new();
-        let mut out_b: Vec<u8> = Vec::new();
-        assert!(!gpu
-            .submit_and_drain_previous_into(&input_a, &mut text_renderer, &mut out_a)
-            .expect("submit a"));
-        assert!(gpu
-            .submit_and_drain_previous_into(&input_b, &mut text_renderer, &mut out_a)
-            .expect("submit b drain a"));
-        assert!(gpu
-            .finish_pending_frame_into(&mut out_b)
-            .expect("flush b"));
+        // Submit 6 alternating frames across READBACK_RING_DEPTH = 4 slots to verify FIFO wraparound.
+        let mut ring_outputs: Vec<Vec<u8>> = Vec::with_capacity(6);
+        let mut scratch_out: Vec<u8> = Vec::new();
+        for idx in 0..6 {
+            let inp = if idx % 2 == 0 { &input_a } else { &input_b };
+            if gpu
+                .submit_and_drain_previous_into(inp, &mut text_renderer, &mut scratch_out)
+                .expect("submit ring frame")
+            {
+                ring_outputs.push(scratch_out.clone());
+            }
+        }
+        while gpu
+            .finish_pending_frame_into(&mut scratch_out)
+            .expect("drain tail")
+        {
+            ring_outputs.push(scratch_out.clone());
+        }
 
-        assert_eq!(out_a, sync_a);
-        assert_eq!(out_b, sync_b);
+        assert_eq!(ring_outputs.len(), 6);
+        for (idx, frame) in ring_outputs.iter().enumerate() {
+            let expected: &[u8] = if idx % 2 == 0 { &sync_a } else { &sync_b };
+            assert_eq!(frame.as_slice(), expected, "frame {idx} diverged from sync");
+        }
+    }
+
+    #[test]
+    fn compute_filters_and_yuv420p_match_reference() {
+        let model: Live2DModelInstance = load_test_ichika();
+        let mut gpu: GpuSceneRenderer = GpuSceneRenderer::new(640, 360).expect("init headless wgpu");
+        gpu.register_live2d_model("ichika", &model);
+        let mut text_renderer: StoryTextRenderer =
+            StoryTextRenderer::new(&PlaybackFontConfig::Default, None).expect("font");
+
+        let filters: [GpuFilterSpec; 6] = [
+            GpuFilterSpec::Adjustment(AdjustmentFilterParams {
+                gamma: 1.0,
+                contrast: 1.1,
+                saturation: 0.9,
+                brightness: 1.05,
+                color: [0.95, 1.0, 1.05, 1.0],
+            }),
+            GpuFilterSpec::ColorOverlay(ColorOverlayFilterParams {
+                color: [0.2, 0.4, 0.8],
+                alpha: 0.15,
+            }),
+            GpuFilterSpec::Blur(BlurFilterParams {
+                strength: 4.0,
+                quality: 2,
+                kernel_size: 5,
+            }),
+            GpuFilterSpec::Bloom(BloomFilterParams {
+                strength_x: 8.0,
+                strength_y: 8.0,
+                quality: 4,
+                kernel_size: 5,
+            }),
+            GpuFilterSpec::Crt(CrtFilterParams {
+                curvature: 1.0,
+                line_width: 1.0,
+                line_contrast: 0.25,
+                vertical_line: false,
+                noise: 0.2,
+                noise_size: 1.0,
+                vignetting: 0.3,
+                vignetting_alpha: 0.8,
+                vignetting_blur: 0.3,
+                seed: 0.37,
+                time: 2.5,
+            }),
+            GpuFilterSpec::OldFilm(OldFilmFilterParams {
+                sepia: 0.3,
+                noise: 0.2,
+                noise_size: 1.0,
+                scratch: 0.4,
+                scratch_density: 0.3,
+                scratch_width: 1.0,
+                vignetting: 0.3,
+                vignetting_alpha: 0.8,
+                vignetting_blur: 0.3,
+                seed: 0.21,
+            }),
+        ];
+
+        let input = GpuRenderFrameInput {
+            background_key: None,
+            models: &[GpuRenderModelInput {
+                model: &model,
+                parent_filters: &filters[..3],
+                particles: &[],
+                hologram_beams: &[],
+            }],
+            stage_filters: &filters[3..4],
+            screen_filters: &filters[4..],
+            dialogue_visible: true,
+            dialogue_bg_alpha: 0.9,
+            dialogue_underline_alpha: 0.9,
+            dialogue_body_text: "Compute 滤镜数值一致性验证",
+            dialogue_body_alpha: 1.0,
+            dialogue_speaker_text: "一歌",
+            dialogue_speaker_alpha: 1.0,
+            telop_visible: true,
+            telop_text: "序章",
+            telop_alpha: 0.8,
+            telop_x_offset: 0.0,
+            fade_visible: false,
+            fade_color: [0.0; 4],
+            fade_alpha: 0.0,
+            background_clear: [0.0, 0.0, 0.0, 1.0],
+        };
+
+        let compute_rgba: Vec<u8> = gpu
+            .render_frame_with_force_render_filters(&input, &mut text_renderer, false)
+            .expect("compute rgba");
+        let render_rgba: Vec<u8> = gpu
+            .render_frame_with_force_render_filters(&input, &mut text_renderer, true)
+            .expect("render rgba");
+        assert_eq!(compute_rgba.len(), render_rgba.len());
+
+        let max_diff: u8 = compute_rgba
+            .iter()
+            .zip(render_rgba.iter())
+            .map(|(&a, &b)| a.abs_diff(b))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            max_diff <= 1,
+            "Compute filter path exceeded 1/255 channel tolerance vs fragment path: max_diff={max_diff}"
+        );
+
+        // Verify GPU YUV420p output matches CPU BT.709 reference on identical RGBA output.
+        let mut gpu_yuv: YuvFrame = YuvFrame {
+            width: 640,
+            height: 360,
+            y: Vec::new(),
+            u: Vec::new(),
+            v: Vec::new(),
+        };
+        assert!(!gpu
+            .submit_and_drain_previous_yuv_into(&input, &mut text_renderer, &mut gpu_yuv)
+            .expect("submit yuv"));
+        assert!(gpu
+            .finish_pending_yuv_into(&mut gpu_yuv)
+            .expect("finish yuv"));
+
+        let mut cpu_y: Vec<u8> = Vec::new();
+        let mut cpu_u: Vec<u8> = Vec::new();
+        let mut cpu_v: Vec<u8> = Vec::new();
+        rgba_to_yuv420p_bt709(&compute_rgba, 640, 360, &mut cpu_y, &mut cpu_u, &mut cpu_v);
+        assert_eq!(gpu_yuv.y, cpu_y, "GPU Y plane diverged from CPU BT.709");
+        assert_eq!(gpu_yuv.u, cpu_u, "GPU U plane diverged from CPU BT.709");
+        assert_eq!(gpu_yuv.v, cpu_v, "GPU V plane diverged from CPU BT.709");
+
+        // Verify opaque fade short-circuit produces exact uniform color.
+        let opaque_input = GpuRenderFrameInput {
+            fade_visible: true,
+            fade_color: [0.0, 0.0, 0.0, 1.0],
+            fade_alpha: 1.0,
+            ..input
+        };
+        let opaque_rgba: Vec<u8> = gpu
+            .render_frame(&opaque_input, &mut text_renderer)
+            .expect("opaque fade");
+        assert!(opaque_rgba
+            .chunks_exact(4)
+            .all(|px| px == [0, 0, 0, 255]));
     }
 }

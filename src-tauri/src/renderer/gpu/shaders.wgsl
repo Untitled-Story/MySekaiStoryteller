@@ -117,13 +117,15 @@ fn live2d_draw_fs(in: Live2dDrawVsOut) -> @location(0) vec4<f32> {
     tex_color = vec4<f32>(rgb, tex_color.a);
     var col = tex_color * draw_u.base_color;
 
-    let clip_uv = in.clip_pos.xy / in.clip_pos.w;
-    let clip_mask = (vec4<f32>(1.0) - textureSample(draw_mask_tex, draw_samp, clip_uv)) * draw_u.channel_flag;
-    let mask_val = clip_mask.r + clip_mask.g + clip_mask.b + clip_mask.a;
-    if (draw_u.mask_mode == 1u) {
-        col = col * mask_val;
-    } else if (draw_u.mask_mode == 2u) {
-        col = col * (1.0 - mask_val);
+    if (draw_u.mask_mode != 0u) {
+        let clip_uv = in.clip_pos.xy / in.clip_pos.w;
+        let clip_mask = (vec4<f32>(1.0) - textureSampleLevel(draw_mask_tex, draw_samp, clip_uv, 0.0)) * draw_u.channel_flag;
+        let mask_val = clip_mask.r + clip_mask.g + clip_mask.b + clip_mask.a;
+        if (draw_u.mask_mode == 1u) {
+            col = col * mask_val;
+        } else if (draw_u.mask_mode == 2u) {
+            col = col * (1.0 - mask_val);
+        }
     }
     return col;
 }
@@ -153,6 +155,21 @@ fn filter_vs(@builtin(vertex_index) vid: u32) -> FilterVsOut {
 
 @group(0) @binding(0) var flt_tex: texture_2d<f32>;
 @group(0) @binding(1) var flt_samp: sampler;
+@group(2) @binding(0) var cs_dst_tex: texture_storage_2d<rgba8unorm, write>;
+@group(3) @binding(0) var cs_bloom_orig_tex: texture_2d<f32>;
+
+fn cs_uv(gid: vec3<u32>) -> vec2<f32> {
+    let dims = textureDimensions(cs_dst_tex);
+    return vec2<f32>(
+        (f32(gid.x) + 0.5) / f32(dims.x),
+        (f32(gid.y) + 0.5) / f32(dims.y)
+    );
+}
+
+fn cs_in_bounds(gid: vec3<u32>) -> bool {
+    let dims = textureDimensions(cs_dst_tex);
+    return gid.x < dims.x && gid.y < dims.y;
+}
 
 // ---- 4a. AlphaFilter ----
 struct AlphaFilterUniforms {
@@ -163,9 +180,20 @@ struct AlphaFilterUniforms {
 };
 @group(1) @binding(0) var<uniform> alpha_u: AlphaFilterUniforms;
 
+fn eval_alpha(uv: vec2<f32>) -> vec4<f32> {
+    return textureSampleLevel(flt_tex, flt_samp, uv, 0.0) * alpha_u.alpha;
+}
+
 @fragment
 fn filter_alpha_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
-    return textureSample(flt_tex, flt_samp, in.uv) * alpha_u.alpha;
+    return eval_alpha(in.uv);
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn filter_alpha_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (!cs_in_bounds(gid)) { return; }
+    let out_col = clamp(eval_alpha(cs_uv(gid)), vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(cs_dst_tex, vec2<i32>(gid.xy), out_col);
 }
 
 // ---- 4b. AdjustmentFilter (matches pixi-filters adjustment.mjs) ----
@@ -178,9 +206,8 @@ struct AdjustmentUniforms {
 };
 @group(1) @binding(0) var<uniform> adj_u: AdjustmentUniforms;
 
-@fragment
-fn filter_adjustment_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
-    var c = textureSample(flt_tex, flt_samp, in.uv);
+fn eval_adjustment(uv: vec2<f32>) -> vec4<f32> {
+    var c = textureSampleLevel(flt_tex, flt_samp, uv, 0.0);
     if (c.a > 0.0) {
         var rgb = max(c.rgb / c.a, vec3<f32>(0.0));
         rgb = pow(rgb, vec3<f32>(1.0 / max(adj_u.gamma, 1e-4)));
@@ -194,6 +221,18 @@ fn filter_adjustment_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
     return c * adj_u.color.a;
 }
 
+@fragment
+fn filter_adjustment_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
+    return eval_adjustment(in.uv);
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn filter_adjustment_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (!cs_in_bounds(gid)) { return; }
+    let out_col = clamp(eval_adjustment(cs_uv(gid)), vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(cs_dst_tex, vec2<i32>(gid.xy), out_col);
+}
+
 // ---- 4c. ColorOverlayFilter (matches pixi-filters color-overlay.mjs) ----
 struct ColorOverlayUniforms {
     color: vec3<f32>,
@@ -201,10 +240,21 @@ struct ColorOverlayUniforms {
 };
 @group(1) @binding(0) var<uniform> overlay_u: ColorOverlayUniforms;
 
+fn eval_color_overlay(uv: vec2<f32>) -> vec4<f32> {
+    let c = textureSampleLevel(flt_tex, flt_samp, uv, 0.0);
+    return vec4<f32>(mix(c.rgb, overlay_u.color * c.a, overlay_u.alpha), c.a);
+}
+
 @fragment
 fn filter_color_overlay_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
-    let c = textureSample(flt_tex, flt_samp, in.uv);
-    return vec4<f32>(mix(c.rgb, overlay_u.color * c.a, overlay_u.alpha), c.a);
+    return eval_color_overlay(in.uv);
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn filter_color_overlay_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (!cs_in_bounds(gid)) { return; }
+    let out_col = clamp(eval_color_overlay(cs_uv(gid)), vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(cs_dst_tex, vec2<i32>(gid.xy), out_col);
 }
 
 // ---- 4d. BlurFilterPass (matches Pixi BlurFilterPass + GAUSSIAN_VALUES) ----
@@ -233,8 +283,7 @@ fn blur_weight(idx: i32) -> f32 {
     return v.w;
 }
 
-@fragment
-fn filter_blur_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
+fn eval_blur(uv: vec2<f32>) -> vec4<f32> {
     let half_len = (blur_u.kernel_size + 1) / 2;
     var sum = vec4<f32>(0.0);
     let step_uv = select(
@@ -248,10 +297,31 @@ fn filter_blur_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
         }
         let offset_steps = f32(i - half_len + 1);
         let k_idx = select(blur_u.kernel_size - i - 1, i, i < half_len);
-        let uv_off = clamp(in.uv + step_uv * offset_steps, vec2<f32>(0.0), vec2<f32>(1.0));
-        sum = sum + textureSample(flt_tex, flt_samp, uv_off) * blur_weight(k_idx);
+        let uv_off = clamp(uv + step_uv * offset_steps, vec2<f32>(0.0), vec2<f32>(1.0));
+        sum = sum + textureSampleLevel(flt_tex, flt_samp, uv_off, 0.0) * blur_weight(k_idx);
     }
     return sum;
+}
+
+@fragment
+fn filter_blur_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
+    return eval_blur(in.uv);
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn filter_blur_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (!cs_in_bounds(gid)) { return; }
+    let out_col = clamp(eval_blur(cs_uv(gid)), vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(cs_dst_tex, vec2<i32>(gid.xy), out_col);
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn filter_blur_screen_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (!cs_in_bounds(gid)) { return; }
+    let src = clamp(eval_blur(cs_uv(gid)), vec4<f32>(0.0), vec4<f32>(1.0));
+    let dst = textureLoad(cs_bloom_orig_tex, vec2<i32>(gid.xy), 0);
+    let out_col = clamp(src + dst - src * dst, vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(cs_dst_tex, vec2<i32>(gid.xy), out_col);
 }
 
 // ---- 4e. CRTFilter (matches pixi-filters crt.mjs) ----
@@ -318,20 +388,31 @@ fn crt_interlace_lines(co: vec3<f32>, coord: vec2<f32>) -> vec3<f32> {
     return color;
 }
 
-@fragment
-fn filter_crt_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
-    var color = textureSample(flt_tex, flt_samp, in.uv);
-    let coord = in.uv;
+fn eval_crt(uv: vec2<f32>) -> vec4<f32> {
+    var color = textureSampleLevel(flt_tex, flt_samp, uv, 0.0);
+    let coord = uv;
     if (crt_u.u_noise.x > 0.0 && crt_u.u_noise.y > 0.0) {
-        color += vec4<f32>(vec3<f32>(crt_noise(in.uv)), color.a);
+        color += vec4<f32>(vec3<f32>(crt_noise(uv)), color.a);
     }
     if (crt_u.u_vignette.x > 0.0) {
         color *= vec4<f32>(vec3<f32>(crt_vignette(coord)), color.a);
     }
     if (crt_u.u_line.y > 0.0) {
-        color = vec4<f32>(crt_interlace_lines(color.rgb, in.uv), color.a);
+        color = vec4<f32>(crt_interlace_lines(color.rgb, uv), color.a);
     }
     return color;
+}
+
+@fragment
+fn filter_crt_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
+    return eval_crt(in.uv);
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn filter_crt_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (!cs_in_bounds(gid)) { return; }
+    let out_col = clamp(eval_crt(cs_uv(gid)), vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(cs_dst_tex, vec2<i32>(gid.xy), out_col);
 }
 
 // ---- 4f. OldFilmFilter (matches pixi-filters old-film.mjs) ----
@@ -354,9 +435,8 @@ fn overlay_blend(src: vec3<f32>, dst: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(r, g, b);
 }
 
-@fragment
-fn filter_old_film_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
-    let orig = textureSample(flt_tex, flt_samp, in.uv);
+fn eval_old_film(uv: vec2<f32>) -> vec4<f32> {
+    let orig = textureSampleLevel(flt_tex, flt_samp, uv, 0.0);
     var color = orig.rgb;
     if (old_u.u_sepia > 0.0) {
         let gray = (color.x + color.y + color.z) / 3.0;
@@ -364,7 +444,7 @@ fn filter_old_film_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
         let sep = overlay_blend(SEPIA_RGB, grayscale);
         color = grayscale + old_u.u_sepia * (sep - grayscale);
     }
-    let coord = in.uv;
+    let coord = uv;
     let vignette = old_u.u_vignetting.x;
     let vignette_alpha = old_u.u_vignetting.y;
     let vignette_blur = old_u.u_vignetting.z;
@@ -404,11 +484,104 @@ fn filter_old_film_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
     let noise = old_u.u_noise.x;
     let noise_size = old_u.u_noise.y;
     if (noise > 0.0 && noise_size > 0.0) {
-        var px = in.uv * old_u.u_dimensions;
+        var px = uv * old_u.u_dimensions;
         px.x = floor(px.x / noise_size);
         px.y = floor(px.y / noise_size);
         let _noise = pixi_rand(px * noise_size * old_u.u_seed) - 0.5;
         color += _noise * noise;
     }
     return vec4<f32>(color, orig.a);
+}
+
+@fragment
+fn filter_old_film_fs(in: FilterVsOut) -> @location(0) vec4<f32> {
+    return eval_old_film(in.uv);
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn filter_old_film_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (!cs_in_bounds(gid)) { return; }
+    let out_col = clamp(eval_old_film(cs_uv(gid)), vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(cs_dst_tex, vec2<i32>(gid.xy), out_col);
+}
+
+// ============================================================================
+// 5. GPU RGBA8 -> BT.709 Limited-Range Planar YUV420p Compute Packing
+// ============================================================================
+
+struct YuvConvertUniforms {
+    width: u32,
+    height: u32,
+    y_words: u32,
+    uv_words: u32,
+};
+
+@group(1) @binding(1) var<storage, read_write> yuv_out: array<u32>;
+@group(1) @binding(2) var<uniform> yuv_u: YuvConvertUniforms;
+
+fn load_rgb_i32(px: i32, py: i32) -> vec3<i32> {
+    let c = textureLoad(flt_tex, vec2<i32>(px, py), 0).rgb;
+    return vec3<i32>(round(c * 255.0));
+}
+
+@compute @workgroup_size(64, 1, 1)
+fn rgba_to_yuv420p_bt709_cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.y * (256u * 64u) + gid.x;
+    let total_words = yuv_u.y_words + yuv_u.uv_words;
+    if (idx >= total_words) {
+        return;
+    }
+    if (idx < yuv_u.y_words) {
+        let base_px = idx * 4u;
+        var packed: u32 = 0u;
+        for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+            let p = base_px + i;
+            let px = i32(p % yuv_u.width);
+            let py = i32(p / yuv_u.width);
+            let rgb = load_rgb_i32(px, py);
+            let y = clamp(
+                ((11966 * rgb.r + 40254 * rgb.g + 4064 * rgb.b + 32768) >> 16) + 16,
+                16,
+                235
+            );
+            packed = packed | (u32(y) << (i * 8u));
+        }
+        yuv_out[idx] = packed;
+        return;
+    }
+
+    let u_word = idx - yuv_u.y_words;
+    let cw = yuv_u.width / 2u;
+    let ch = yuv_u.height / 2u;
+    let uv_total = cw * ch;
+    let base_c = u_word * 4u;
+    var packed_u: u32 = 0u;
+    var packed_v: u32 = 0u;
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let c_idx = base_c + i;
+        if (c_idx < uv_total) {
+            let cx = i32(c_idx % cw);
+            let cy = i32(c_idx / cw);
+            let x0 = cx * 2;
+            let y0 = cy * 2;
+            let rgb_sum = load_rgb_i32(x0, y0)
+                + load_rgb_i32(x0 + 1, y0)
+                + load_rgb_i32(x0, y0 + 1)
+                + load_rgb_i32(x0 + 1, y0 + 1);
+            let cb = clamp(
+                ((-6596 * rgb_sum.r - 22188 * rgb_sum.g + 28784 * rgb_sum.b + 131072) >> 18) + 128,
+                16,
+                240
+            );
+            let cr = clamp(
+                ((28784 * rgb_sum.r - 26145 * rgb_sum.g - 2639 * rgb_sum.b + 131072) >> 18) + 128,
+                16,
+                240
+            );
+            packed_u = packed_u | (u32(cb) << (i * 8u));
+            packed_v = packed_v | (u32(cr) << (i * 8u));
+        }
+    }
+    yuv_out[yuv_u.y_words + u_word] = packed_u;
+    yuv_out[yuv_u.y_words + yuv_u.uv_words + u_word] = packed_v;
 }
