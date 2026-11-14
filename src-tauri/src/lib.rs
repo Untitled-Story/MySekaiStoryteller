@@ -36,6 +36,9 @@ pub fn run() {
 
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log_level)
+        .level_for("naga", log::LevelFilter::Warn)
+        .level_for("wgpu_core", log::LevelFilter::Warn)
+        .level_for("wgpu_hal", log::LevelFilter::Warn)
         .max_file_size(LOG_FILE_SIZE_BYTES)
         .rotation_strategy(RotationStrategy::KeepSome(LOG_FILE_COUNT))
         .targets(log_targets)

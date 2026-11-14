@@ -1,7 +1,11 @@
+#[cfg(any(desktop, test))]
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+#[cfg(any(desktop, test))]
+use tauri::Emitter;
+use tauri::{AppHandle, Manager};
 
+#[cfg(any(desktop, test))]
 const IMPORT_EVENT: &str = "project-import-requested";
 
 #[derive(Default)]
@@ -17,6 +21,7 @@ pub fn get_pending_project_imports(app: AppHandle) -> Vec<String> {
     std::mem::take(&mut *pending)
 }
 
+#[cfg(any(desktop, test))]
 pub fn queue_paths(app: &AppHandle, paths: impl IntoIterator<Item = PathBuf>) {
     for path in paths {
         if !is_project_archive(&path) {
@@ -39,6 +44,7 @@ pub fn queue_paths(app: &AppHandle, paths: impl IntoIterator<Item = PathBuf>) {
     }
 }
 
+#[cfg(any(desktop, test))]
 pub fn project_paths_from_args(args: &[String], current_dir: &Path) -> Vec<PathBuf> {
     args.iter()
         .skip(1)
@@ -54,6 +60,7 @@ pub fn project_paths_from_args(args: &[String], current_dir: &Path) -> Vec<PathB
         .collect()
 }
 
+#[cfg(any(desktop, test))]
 fn is_project_archive(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())

@@ -223,6 +223,11 @@ pub fn encode_rgba_gop_chunk(
     encode_yuv_gop_chunk(&yuv_frames, base_frame_index, width, height, fps, options)
 }
 
+/// Returns `true` when the build targets a hardware streaming video encoder backend.
+pub fn prefers_hardware_streaming_encoder() -> bool {
+    cfg!(all(target_os = "macos", feature = "native-hw-accel"))
+}
+
 /// Factory returning the active video encoder backend.
 pub fn create_video_encoder(
     width: u32,
@@ -245,13 +250,13 @@ pub fn create_video_encoder_with_options(
     fps: u32,
     options: H264EncoderOptions,
 ) -> Result<Box<dyn VideoFrameEncoder>, RendererError> {
-    #[cfg(feature = "native-hw-accel")]
+    #[cfg(all(target_os = "macos", feature = "native-hw-accel"))]
     {
-        // Reserved native hardware acceleration hook; falls back cleanly to pure-Rust H.264.
-        let enc = RustyH264VideoEncoder::new_with_options(width, height, fps, options)?;
+        let enc: super::video_vt::VideoVtEncoder =
+            super::video_vt::VideoVtEncoder::new_with_options(width, height, fps, options)?;
         return Ok(Box::new(enc));
     }
-    #[cfg(not(feature = "native-hw-accel"))]
+    #[cfg(not(all(target_os = "macos", feature = "native-hw-accel")))]
     {
         let enc = RustyH264VideoEncoder::new_with_options(width, height, fps, options)?;
         Ok(Box::new(enc))

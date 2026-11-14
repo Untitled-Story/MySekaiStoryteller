@@ -4,10 +4,13 @@ use super::audio::{decode_audio_file, DecodedAudio, ScheduledVoiceEvent, VOICE_V
 use super::config::VideoExportConfig;
 use super::dispatcher::SceneDriver;
 use super::error::RendererError;
+use super::gpu::scene_renderer::{
+    precompute_background_mips, precompute_model_texture_mips, PrecomputedTextureMips,
+};
 use super::gpu::{GpuRenderFrameInput, GpuRenderModelInput, GpuSceneRenderer};
 use super::live2d::Live2DModelInstance;
 use super::story::{
-    EffectTargetData, LayoutMode, ModelAsset, PositionData, ProjectRenderInput, Side,
+    EffectTargetData, LayoutMode, ModelAsset, PositionData, ProjectRenderInput, Side, SnippetData,
     VisualEffectData,
 };
 use super::text::StoryTextRenderer;
@@ -82,10 +85,115 @@ impl<'a> StorySceneState<'a> {
         master_seed: u64,
         decoded_voices: HashMap<String, DecodedAudio>,
     ) -> Result<Self, RendererError> {
-        let gpu = GpuSceneRenderer::new(config.width, config.height)?;
-        let text_renderer = StoryTextRenderer::new(&input.font, Some(&input.data_dir))?;
-        let vfx = VisualEffectManager::new(master_seed);
+        let mut preload_model_keys: HashSet<String> = HashSet::new();
+        let mut preload_bg_keys: HashSet<String> = HashSet::new();
+        collect_story_preload_keys(
+            &input.story.snippets,
+            &mut preload_model_keys,
+            &mut preload_bg_keys,
+        );
+
+        let mut model_specs: Vec<(String, ModelAsset, std::path::PathBuf, u64)> =
+            Vec::with_capacity(preload_model_keys.len());
+        for key in preload_model_keys {
+            if let Ok((asset, path)) = input.resolve_model_asset(&key) {
+                let seed: u64 = derive_key_seed(master_seed, &key);
+                model_specs.push((key, asset.clone(), path, seed));
+            }
+        }
+        let mut bg_specs: Vec<(String, std::path::PathBuf)> =
+            Vec::with_capacity(preload_bg_keys.len());
+        for key in preload_bg_keys {
+            if let Ok(path) = input.resolve_background_path(&key) {
+                bg_specs.push((key, path));
+            }
+        }
+
         let background_clear = config.resolved_background_rgba()?;
+        let mut gpu: Option<GpuSceneRenderer> = None;
+        let mut text_renderer: Option<StoryTextRenderer> = None;
+        let mut init_err: Option<RendererError> = None;
+        let mut preloaded_models: Vec<(
+            String,
+            ModelAsset,
+            Live2DModelInstance,
+            Vec<PrecomputedTextureMips>,
+        )> = Vec::new();
+        let mut preloaded_bgs: Vec<(String, PrecomputedTextureMips)> = Vec::new();
+
+        std::thread::scope(|s| {
+            let model_handles: Vec<_> = model_specs
+                .into_iter()
+                .map(|(key, asset, path, seed)| {
+                    s.spawn(
+                        move || -> Option<(
+                            String,
+                            ModelAsset,
+                            Live2DModelInstance,
+                            Vec<PrecomputedTextureMips>,
+                        )> {
+                            let instance: Live2DModelInstance =
+                                Live2DModelInstance::load(&key, &path, seed).ok()?;
+                            let pre_mips: Vec<PrecomputedTextureMips> =
+                                precompute_model_texture_mips(&instance);
+                            Some((key, asset, instance, pre_mips))
+                        },
+                    )
+                })
+                .collect();
+            let bg_handles: Vec<_> = bg_specs
+                .into_iter()
+                .map(|(key, path)| {
+                    s.spawn(move || -> Option<(String, PrecomputedTextureMips)> {
+                        let pre: PrecomputedTextureMips = precompute_background_mips(&path).ok()?;
+                        Some((key, pre))
+                    })
+                })
+                .collect();
+
+            match GpuSceneRenderer::new(config.width, config.height)
+                .and_then(|g| Ok((g, StoryTextRenderer::new(&input.font, Some(&input.data_dir))?)))
+            {
+                Ok((g, t)) => {
+                    gpu = Some(g);
+                    text_renderer = Some(t);
+                }
+                Err(e) => {
+                    init_err = Some(e);
+                }
+            }
+
+            for h in model_handles {
+                if let Ok(Some(item)) = h.join() {
+                    preloaded_models.push(item);
+                }
+            }
+            for h in bg_handles {
+                if let Ok(Some(item)) = h.join() {
+                    preloaded_bgs.push(item);
+                }
+            }
+        });
+
+        if let Some(e) = init_err {
+            return Err(e);
+        }
+        let mut gpu: GpuSceneRenderer = gpu.expect("gpu initialized");
+        let text_renderer: StoryTextRenderer = text_renderer.expect("text initialized");
+        let vfx = VisualEffectManager::new(master_seed);
+
+        let mut models: HashMap<String, LoadedSceneModel> =
+            HashMap::with_capacity(preloaded_models.len());
+        for (key, asset, instance, pre_mips) in preloaded_models {
+            gpu.register_live2d_model_precomputed(&key, &instance, &pre_mips);
+            models.insert(key, LoadedSceneModel { asset, instance });
+        }
+
+        let mut loaded_backgrounds: HashSet<String> = HashSet::with_capacity(preloaded_bgs.len());
+        for (key, pre_bg) in preloaded_bgs {
+            gpu.register_background_precomputed(&key, &pre_bg);
+            loaded_backgrounds.insert(key);
+        }
 
         Ok(Self {
             input,
@@ -97,8 +205,8 @@ impl<'a> StorySceneState<'a> {
             vfx,
             layout_mode: LayoutMode::Normal,
             background_key: None,
-            loaded_backgrounds: HashSet::new(),
-            models: HashMap::new(),
+            loaded_backgrounds,
+            models,
             model_order: Vec::new(),
             positioned_model_keys: HashSet::new(),
             decoded_voices,
@@ -620,6 +728,46 @@ fn derive_key_seed(master_seed: u64, key: &str) -> u64 {
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash
+}
+
+fn collect_story_preload_keys(
+    snippets: &[SnippetData],
+    models: &mut HashSet<String>,
+    backgrounds: &mut HashSet<String>,
+) {
+    for snippet in snippets {
+        match snippet {
+            SnippetData::ChangeBackgroundImage { data, .. } => {
+                backgrounds.insert(data.background.clone());
+            }
+            SnippetData::LayoutAppear { data, .. } => {
+                models.insert(data.model.clone());
+            }
+            SnippetData::Move { data, .. } => {
+                models.insert(data.model.clone());
+            }
+            SnippetData::Motion { data, .. } => {
+                models.insert(data.model.clone());
+            }
+            SnippetData::DoParam { data, .. } => {
+                models.insert(data.model.clone());
+            }
+            SnippetData::Talk { data, .. } => {
+                if let Some(model) = &data.model {
+                    models.insert(model.clone());
+                }
+            }
+            SnippetData::ApplyEffect { data, .. } => {
+                if let EffectTargetData::Model { model } = &data.target {
+                    models.insert(model.clone());
+                }
+            }
+            SnippetData::Parallel { snippets, .. } => {
+                collect_story_preload_keys(snippets, models, backgrounds);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

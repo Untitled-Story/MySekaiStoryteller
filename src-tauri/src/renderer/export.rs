@@ -12,8 +12,8 @@ use super::config::VideoExportConfig;
 use super::dispatcher::{SceneDriver, StoryRunner};
 use super::encoder::{
     create_video_encoder_with_options, encode_interleaved_i16_parallel_with_workers,
-    encode_yuv_gop_chunk, EncodedAudioPacket, EncodedVideoPacket, H264EncoderOptions,
-    Mp4MuxerWriter,
+    encode_yuv_gop_chunk, prefers_hardware_streaming_encoder, EncodedAudioPacket,
+    EncodedVideoPacket, H264EncoderOptions, Mp4MuxerWriter,
 };
 use super::error::RendererError;
 use super::scene_impl::StorySceneState;
@@ -138,12 +138,17 @@ where
         gop_size: config.resolved_gop_frames(),
     };
 
+    let use_parallel_gop: bool = h264_opts.bitrate_bps == 0
+        && !prefers_hardware_streaming_encoder()
+        && !(cfg!(target_os = "android")
+            && ((config.width as u64) * (config.height as u64) > 1920 * 1080));
+
     let (video_frames, scheduled_voices, decoded_voices, audio_packets): (
         u64,
         Vec<ScheduledVoiceEvent>,
         HashMap<String, DecodedAudio>,
         Vec<EncodedAudioPacket>,
-    ) = if h264_opts.bitrate_bps == 0 {
+    ) = if use_parallel_gop {
         run_parallel_gop_pipeline(
             input,
             config,
@@ -557,12 +562,28 @@ fn run_parallel_gop_pipeline<F>(
 where
     F: FnMut(ExportProgress),
 {
-    let gop_size: usize = h264_opts.gop_size.max(1) as usize;
+    let frame_bytes: usize = ((config.width as usize) * (config.height as usize) * 3) / 2;
+    let gop_size: usize = if cfg!(target_os = "android") && frame_bytes > 0 {
+        let max_gop_frames: usize = (128 * 1024 * 1024 / frame_bytes).max(8);
+        (h264_opts.gop_size.max(1) as usize).min(max_gop_frames)
+    } else {
+        h264_opts.gop_size.max(1) as usize
+    };
+    let mut h264_opts: H264EncoderOptions = h264_opts;
+    h264_opts.gop_size = gop_size as u32;
     let total_cores: usize = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(2);
-    let worker_count: usize = total_cores.saturating_sub(1).clamp(1, 16);
-    let queue: BoundedGopQueue = BoundedGopQueue::new(worker_count + 1, gop_size);
+    let mut worker_count: usize = total_cores.saturating_sub(1).clamp(1, 16);
+    let max_in_flight: usize = if cfg!(target_os = "android") && frame_bytes > 0 {
+        let gop_bytes: usize = gop_size.saturating_mul(frame_bytes).max(1);
+        let max_gops: usize = (256 * 1024 * 1024 / gop_bytes).max(1);
+        worker_count = worker_count.min(max_gops.max(2));
+        max_gops
+    } else {
+        worker_count + 1
+    };
+    let queue: BoundedGopQueue = BoundedGopQueue::new(max_in_flight, gop_size);
     let (res_tx, res_rx) = mpsc::channel::<(usize, Result<Vec<EncodedVideoPacket>, RendererError>)>();
 
     let width: u32 = config.width;
@@ -703,14 +724,22 @@ where
         }
         queue.close();
 
-        // Mix timeline PCM on the idle producer thread while trailing H.264 GOPs finish, then
-        // wait for H.264 workers before launching parallel AAC encoding so threads do not thrash.
+        // Mix timeline PCM and encode AAC concurrently while trailing H.264 GOPs finish.
         let total_video_duration_ms: f64 = (video_frames as f64) * frame_dt_ms;
         let mixed_pcm: Option<Vec<i16>> = mix_timeline_pcm(
             config,
             &scheduled_voices,
             &decoded_voices,
             total_video_duration_ms,
+        );
+        let audio_res: Result<Vec<EncodedAudioPacket>, RendererError> = encode_mixed_audio_track(
+            config,
+            mixed_pcm.as_deref(),
+            total_video_duration_ms,
+            video_frames,
+            total_cores.clamp(1, 8),
+            started,
+            on_progress,
         );
 
         for h in worker_handles {
@@ -722,15 +751,7 @@ where
             ))
         })?;
 
-        audio_packets = encode_mixed_audio_track(
-            config,
-            mixed_pcm.as_deref(),
-            total_video_duration_ms,
-            video_frames,
-            total_cores.clamp(1, 16),
-            started,
-            on_progress,
-        )?;
+        audio_packets = audio_res?;
         video_frames_out = video_frames;
         scheduled_out = scheduled_voices;
         decoded_out = decoded_voices;
@@ -782,7 +803,7 @@ where
     std::thread::scope(|scope| -> Result<(), RendererError> {
         let free_ref: &Mutex<Vec<YuvFrame>> = &free_frames;
         let enc_handle = scope.spawn(move || -> Result<(), RendererError> {
-            let mut encoded_count: u64 = 0;
+            let mut muxed_count: u64 = 0;
             while let Ok((frame_idx, yuv)) = frame_rx.recv() {
                 let pts_secs: f64 = (frame_idx as f64) / (fps as f64);
                 let pkts: Vec<EncodedVideoPacket> = video_encoder.encode_yuv(&yuv, pts_secs)?;
@@ -793,13 +814,23 @@ where
                     }
                 }
                 for pkt in pkts {
-                    muxer.write_video(pkt.pts_secs, &pkt.annex_b, pkt.is_keyframe)?;
+                    let pkt_pts: f64 = if pkt.pts_secs > 0.0 || muxed_count == 0 {
+                        pkt.pts_secs
+                    } else {
+                        (muxed_count as f64) / (fps as f64)
+                    };
+                    muxer.write_video(pkt_pts, &pkt.annex_b, pkt.is_keyframe)?;
+                    muxed_count += 1;
                 }
-                encoded_count += 1;
             }
             for pkt in video_encoder.finish()? {
-                let pts_secs: f64 = (encoded_count as f64) / (fps as f64);
-                muxer.write_video(pts_secs, &pkt.annex_b, pkt.is_keyframe)?;
+                let pkt_pts: f64 = if pkt.pts_secs > 0.0 || muxed_count == 0 {
+                    pkt.pts_secs
+                } else {
+                    (muxed_count as f64) / (fps as f64)
+                };
+                muxer.write_video(pkt_pts, &pkt.annex_b, pkt.is_keyframe)?;
+                muxed_count += 1;
             }
             Ok(())
         });
@@ -837,12 +868,41 @@ where
         };
 
         let total_video_duration_ms: f64 = (video_frames as f64) * frame_dt_ms;
-        let mixed_pcm: Option<Vec<i16>> = mix_timeline_pcm(
-            config,
-            &scheduled_voices,
-            &decoded_voices,
-            total_video_duration_ms,
-        );
+        let audio_workers: usize = total_cores.clamp(1, 16);
+        let audio_bitrate_bps: u32 = config.resolved_audio_bitrate_bps();
+
+        let audio_handle = if config.include_audio {
+            Some(scope.spawn(
+                move || -> Result<
+                    (
+                        Vec<EncodedAudioPacket>,
+                        Vec<ScheduledVoiceEvent>,
+                        HashMap<String, DecodedAudio>,
+                    ),
+                    RendererError,
+                > {
+                    let mixed_pcm: Option<Vec<i16>> = mix_timeline_pcm(
+                        config,
+                        &scheduled_voices,
+                        &decoded_voices,
+                        total_video_duration_ms,
+                    );
+                    let pkts: Vec<EncodedAudioPacket> = match mixed_pcm {
+                        Some(ref pcm_samples) => encode_interleaved_i16_parallel_with_workers(
+                            pcm_samples,
+                            audio_bitrate_bps,
+                            audio_workers,
+                        )?,
+                        None => Vec::new(),
+                    };
+                    Ok((pkts, scheduled_voices, decoded_voices))
+                },
+            ))
+        } else {
+            scheduled_out = scheduled_voices;
+            decoded_out = decoded_voices;
+            None
+        };
 
         enc_handle.join().unwrap_or_else(|_| {
             Err(RendererError::VideoEncode(
@@ -850,18 +910,29 @@ where
             ))
         })?;
 
-        audio_packets = encode_mixed_audio_track(
-            config,
-            mixed_pcm.as_deref(),
-            total_video_duration_ms,
-            video_frames,
-            total_cores.clamp(1, 16),
-            started,
-            on_progress,
-        )?;
+        if let Some(handle) = audio_handle {
+            emit_progress(
+                on_progress,
+                ExportStage::EncodingAudio,
+                video_frames,
+                video_frames,
+                total_video_duration_ms,
+                started,
+            );
+            let (pkts, sched, dec): (
+                Vec<EncodedAudioPacket>,
+                Vec<ScheduledVoiceEvent>,
+                HashMap<String, DecodedAudio>,
+            ) = handle.join().unwrap_or_else(|_| {
+                Err(RendererError::AudioEncode(
+                    "Audio encode worker thread panicked".to_string(),
+                ))
+            })?;
+            audio_packets = pkts;
+            scheduled_out = sched;
+            decoded_out = dec;
+        }
         video_frames_out = video_frames;
-        scheduled_out = scheduled_voices;
-        decoded_out = decoded_voices;
         Ok(())
     })?;
 

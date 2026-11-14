@@ -47,7 +47,7 @@ wgpu = { version = "30", default-features = false, features = ["std", "parking_l
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 [features]
-default = []
+default = ["native-hw-accel"]
 native-hw-accel = []
 
 [dev-dependencies]
