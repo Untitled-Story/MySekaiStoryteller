@@ -239,7 +239,7 @@ impl FilterPipelines {
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
+                    has_dynamic_offset: true,
                     min_binding_size: None,
                 },
                 count: None,
@@ -314,15 +314,51 @@ impl FilterPipelines {
         }
     }
 
-    /// Runs a sequence of `GpuFilterSpec` filters across an offscreen ping-pong pool of `(view, tex)` slots.
-    /// `pool` must contain at least 4 `Rgba8Unorm` textures of size `(width, height)`.
-    /// Returns the pool index holding the final filtered output (which may be `input_slot` if empty).
-    pub fn apply_chain<'a>(
+    /// Creates a reusable sampled-texture bind group for a render target pool view.
+    pub fn create_tex_bind_group(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        view: &wgpu::TextureView,
+        label: &str,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &self.tex_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        })
+    }
+
+    /// Returns the upper bound on single-pass filter invocations required by `filters`.
+    pub fn estimate_passes(filters: &[GpuFilterSpec]) -> usize {
+        let mut total: usize = 0;
+        for spec in filters {
+            total += match spec {
+                GpuFilterSpec::Blur(p) => (p.quality.max(1) as usize) * 2 + 1,
+                GpuFilterSpec::Bloom(p) => (p.quality.max(1) as usize) * 2 + 1,
+                _ => 1,
+            };
+        }
+        total
+    }
+
+    /// Runs a sequence of `GpuFilterSpec` filters across an offscreen ping-pong pool of `(view, tex_bg)` slots.
+    /// Returns the pool index holding the final filtered output (which may be `input_slot` if all filters were no-ops).
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_chain(
+        &self,
         encoder: &mut wgpu::CommandEncoder,
         views: &[wgpu::TextureView],
+        tex_bgs: &[wgpu::BindGroup],
+        scratch: &mut FilterUniformScratch,
         input_slot: usize,
         scratch_start: usize,
         width: u32,
@@ -332,15 +368,20 @@ impl FilterPipelines {
         if filters.is_empty() {
             return input_slot;
         }
-        let mut current = input_slot;
-        let slot_a = scratch_start;
-        let slot_b = scratch_start + 1;
-        let slot_aux_x = scratch_start + 2;
-        let slot_swap0 = scratch_start + 3;
-        let slot_swap1 = scratch_start + 4;
+        let mut current: usize = input_slot;
+        let slot_a: usize = scratch_start;
+        let slot_b: usize = scratch_start + 1;
+        let slot_aux_x: usize = scratch_start + 2;
+        let slot_swap0: usize = scratch_start + 3;
+        let slot_swap1: usize = scratch_start + 4;
 
         for spec in filters {
-            let next = if current == slot_a { slot_b } else { slot_a };
+            if let GpuFilterSpec::Alpha(alpha) = spec {
+                if (*alpha - 1.0).abs() <= 1e-6 {
+                    continue;
+                }
+            }
+            let next: usize = if current == slot_a { slot_b } else { slot_a };
             match spec {
                 GpuFilterSpec::Alpha(alpha) => {
                     let u = AlphaFilterUniformGpu {
@@ -348,11 +389,10 @@ impl FilterPipelines {
                         _pad: [0.0; 3],
                     };
                     self.run_single_pass(
-                        device,
-                        queue,
                         encoder,
+                        scratch,
                         &self.alpha,
-                        &views[current],
+                        &tex_bgs[current],
                         &views[next],
                         bytemuck::bytes_of(&u),
                         true,
@@ -368,11 +408,10 @@ impl FilterPipelines {
                         brightness: p.brightness,
                     };
                     self.run_single_pass(
-                        device,
-                        queue,
                         encoder,
+                        scratch,
                         &self.adjustment,
-                        &views[current],
+                        &tex_bgs[current],
                         &views[next],
                         bytemuck::bytes_of(&u),
                         true,
@@ -385,11 +424,10 @@ impl FilterPipelines {
                         alpha: p.alpha,
                     };
                     self.run_single_pass(
-                        device,
-                        queue,
                         encoder,
+                        scratch,
                         &self.color_overlay,
-                        &views[current],
+                        &tex_bgs[current],
                         &views[next],
                         bytemuck::bytes_of(&u),
                         true,
@@ -412,11 +450,10 @@ impl FilterPipelines {
                         _pad: [0.0; 3],
                     };
                     self.run_single_pass(
-                        device,
-                        queue,
                         encoder,
+                        scratch,
                         &self.crt,
-                        &views[current],
+                        &tex_bgs[current],
                         &views[next],
                         bytemuck::bytes_of(&u),
                         true,
@@ -433,11 +470,10 @@ impl FilterPipelines {
                         u_dimensions: [width as f32, height as f32],
                     };
                     self.run_single_pass(
-                        device,
-                        queue,
                         encoder,
+                        scratch,
                         &self.old_film,
-                        &views[current],
+                        &tex_bgs[current],
                         &views[next],
                         bytemuck::bytes_of(&u),
                         true,
@@ -445,11 +481,14 @@ impl FilterPipelines {
                     current = next;
                 }
                 GpuFilterSpec::Blur(p) => {
+                    if p.strength.abs() <= 1e-6 {
+                        continue;
+                    }
                     self.apply_blur(
-                        device,
-                        queue,
                         encoder,
                         views,
+                        tex_bgs,
+                        scratch,
                         current,
                         next,
                         slot_aux_x,
@@ -463,10 +502,10 @@ impl FilterPipelines {
                 }
                 GpuFilterSpec::Bloom(p) => {
                     self.apply_bloom(
-                        device,
-                        queue,
                         encoder,
                         views,
+                        tex_bgs,
+                        scratch,
                         current,
                         next,
                         slot_aux_x,
@@ -486,10 +525,10 @@ impl FilterPipelines {
     #[allow(clippy::too_many_arguments)]
     fn apply_blur(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         views: &[wgpu::TextureView],
+        tex_bgs: &[wgpu::BindGroup],
+        scratch: &mut FilterUniformScratch,
         input_slot: usize,
         output_slot: usize,
         aux_x: usize,
@@ -505,11 +544,10 @@ impl FilterPipelines {
                 _pad: [0.0; 3],
             };
             self.run_single_pass(
-                device,
-                queue,
                 encoder,
+                scratch,
                 &self.alpha,
-                &views[input_slot],
+                &tex_bgs[input_slot],
                 &views[output_slot],
                 bytemuck::bytes_of(&u),
                 true,
@@ -517,10 +555,10 @@ impl FilterPipelines {
             return;
         }
         self.run_blur_axis(
-            device,
-            queue,
             encoder,
             views,
+            tex_bgs,
+            scratch,
             input_slot,
             aux_x,
             swap0,
@@ -534,10 +572,10 @@ impl FilterPipelines {
             false,
         );
         self.run_blur_axis(
-            device,
-            queue,
             encoder,
             views,
+            tex_bgs,
+            scratch,
             aux_x,
             output_slot,
             swap0,
@@ -555,10 +593,10 @@ impl FilterPipelines {
     #[allow(clippy::too_many_arguments)]
     fn apply_bloom(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         views: &[wgpu::TextureView],
+        tex_bgs: &[wgpu::BindGroup],
+        scratch: &mut FilterUniformScratch,
         input_slot: usize,
         output_slot: usize,
         aux_x: usize,
@@ -574,21 +612,20 @@ impl FilterPipelines {
             _pad: [0.0; 3],
         };
         self.run_single_pass(
-            device,
-            queue,
             encoder,
+            scratch,
             &self.alpha,
-            &views[input_slot],
+            &tex_bgs[input_slot],
             &views[output_slot],
             bytemuck::bytes_of(&u),
             true,
         );
         // Step 2: Horizontal blur `input -> aux_x`.
         self.run_blur_axis(
-            device,
-            queue,
             encoder,
             views,
+            tex_bgs,
+            scratch,
             input_slot,
             aux_x,
             swap0,
@@ -603,10 +640,10 @@ impl FilterPipelines {
         );
         // Step 3: Vertical blur `aux_x -> output` with Screen blend mode without clearing `output`.
         self.run_blur_axis(
-            device,
-            queue,
             encoder,
             views,
+            tex_bgs,
+            scratch,
             aux_x,
             output_slot,
             swap0,
@@ -624,10 +661,10 @@ impl FilterPipelines {
     #[allow(clippy::too_many_arguments)]
     fn run_blur_axis(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         views: &[wgpu::TextureView],
+        tex_bgs: &[wgpu::BindGroup],
+        scratch: &mut FilterUniformScratch,
         input_slot: usize,
         output_slot: usize,
         swap0: usize,
@@ -669,11 +706,10 @@ impl FilterPipelines {
                 _pad: [0; 3],
             };
             self.run_single_pass(
-                device,
-                queue,
                 encoder,
+                scratch,
                 pipe,
-                &views[flip],
+                &tex_bgs[flip],
                 &views[dst_slot],
                 bytemuck::bytes_of(&u),
                 clear,
@@ -686,45 +722,15 @@ impl FilterPipelines {
     #[allow(clippy::too_many_arguments)]
     fn run_single_pass(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
+        scratch: &mut FilterUniformScratch,
         pipeline: &wgpu::RenderPipeline,
-        src_view: &wgpu::TextureView,
+        tex_bg: &wgpu::BindGroup,
         dst_view: &wgpu::TextureView,
         uniform_bytes: &[u8],
         clear: bool,
     ) {
-        let tex_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("filter_tex_bg"),
-            layout: &self.tex_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-        let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("filter_ubuf"),
-            size: uniform_bytes.len() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        queue.write_buffer(&ubuf, 0, uniform_bytes);
-        let u_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("filter_u_bg"),
-            layout: &self.uniform_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: ubuf.as_entire_binding(),
-            }],
-        });
-
+        let dyn_offset: u32 = scratch.push_uniform(uniform_bytes);
         let load = if clear {
             wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
         } else {
@@ -747,8 +753,104 @@ impl FilterPipelines {
             multiview_mask: None,
         });
         rpass.set_pipeline(pipeline);
-        rpass.set_bind_group(0, &tex_bg, &[]);
-        rpass.set_bind_group(1, &u_bg, &[]);
+        rpass.set_bind_group(0, tex_bg, &[]);
+        rpass.set_bind_group(1, &scratch.u_bg, &[dyn_offset]);
         rpass.draw(0..3, 0..1);
+    }
+}
+
+/// Persistent per-frame uniform buffer + dynamic-offset bind group for `FilterPipelines`.
+pub struct FilterUniformScratch {
+    ubuf: wgpu::Buffer,
+    u_bg: wgpu::BindGroup,
+    uniform_stride: usize,
+    capacity_slots: usize,
+    cpu_bytes: Vec<u8>,
+}
+
+impl FilterUniformScratch {
+    const MIN_BIND_BYTES: u64 = std::mem::size_of::<BlurUniformGpu>() as u64;
+
+    /// Allocates a filter uniform buffer holding `initial_slots` aligned uniform entries.
+    pub fn new(
+        device: &wgpu::Device,
+        filters: &FilterPipelines,
+        uniform_stride: usize,
+        initial_slots: usize,
+    ) -> Self {
+        let slots: usize = initial_slots.max(1);
+        let byte_len: u64 = (slots * uniform_stride) as u64;
+        let ubuf: wgpu::Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("filter_scratch_ubuf"),
+            size: byte_len,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let u_bg: wgpu::BindGroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("filter_scratch_u_bg"),
+            layout: &filters.uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &ubuf,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(Self::MIN_BIND_BYTES),
+                }),
+            }],
+        });
+        Self {
+            ubuf,
+            u_bg,
+            uniform_stride,
+            capacity_slots: slots,
+            cpu_bytes: Vec::with_capacity(slots * uniform_stride),
+        }
+    }
+
+    /// Clears staged uniform bytes and grows the GPU backing buffer if `required_slots` exceeds capacity.
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        filters: &FilterPipelines,
+        required_slots: usize,
+    ) {
+        self.cpu_bytes.clear();
+        if required_slots > self.capacity_slots {
+            let new_slots: usize = required_slots.next_power_of_two().max(self.capacity_slots * 2);
+            self.ubuf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("filter_scratch_ubuf"),
+                size: (new_slots * self.uniform_stride) as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.u_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("filter_scratch_u_bg"),
+                layout: &filters.uniform_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.ubuf,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(Self::MIN_BIND_BYTES),
+                    }),
+                }],
+            });
+            self.capacity_slots = new_slots;
+        }
+    }
+
+    fn push_uniform(&mut self, bytes: &[u8]) -> u32 {
+        let offset: usize = self.cpu_bytes.len();
+        self.cpu_bytes.resize(offset + self.uniform_stride, 0);
+        let copy_len: usize = bytes.len().min(self.uniform_stride);
+        self.cpu_bytes[offset..offset + copy_len].copy_from_slice(&bytes[..copy_len]);
+        offset as u32
+    }
+
+    /// Uploads all staged filter uniforms for the current frame in a single queue write.
+    pub fn flush(&self, queue: &wgpu::Queue) {
+        if !self.cpu_bytes.is_empty() {
+            queue.write_buffer(&self.ubuf, 0, &self.cpu_bytes);
+        }
     }
 }

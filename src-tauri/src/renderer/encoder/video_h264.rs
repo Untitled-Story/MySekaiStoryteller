@@ -13,7 +13,7 @@ pub struct EncodedVideoPacket {
 
 /// Abstract video frame encoder boundary allowing software pure-Rust H.264 by default
 /// and optional hardware acceleration backends behind `--features native-hw-accel`.
-pub trait VideoFrameEncoder {
+pub trait VideoFrameEncoder: Send {
     fn encode_rgba(
         &mut self,
         rgba: &[u8],
@@ -37,9 +37,141 @@ impl H264EncoderOptions {
             quality,
             qp: quality.h264_qp(),
             bitrate_bps: 0,
-            gop_size: fps.saturating_mul(2).clamp(2, 250),
+            gop_size: fps.clamp(2, 250),
         }
     }
+}
+
+fn build_encoder_config(
+    width: u32,
+    height: u32,
+    fps: u32,
+    options: H264EncoderOptions,
+    fixed_gop_frames: Option<u32>,
+) -> Result<EncoderConfig, RendererError> {
+    if width < 16 || height < 16 || width % 2 != 0 || height % 2 != 0 {
+        return Err(RendererError::InvalidConfig(format!(
+            "H.264 encoder requires even dimensions >= 16x16, got {width}x{height}"
+        )));
+    }
+    let w: usize = width as usize;
+    let h: usize = height as usize;
+    let mut cfg: EncoderConfig = EncoderConfig::new(w, h);
+    cfg.profile = Profile::High;
+    cfg.qp = options.qp.min(51);
+    cfg.bitrate = options.bitrate_bps;
+    cfg.framerate = fps.max(1) as f32;
+    cfg.mbtree = false;
+    cfg.lookahead = 0;
+    cfg.bframes = 0;
+    cfg.cabac = true;
+    cfg.transform_8x8 = true;
+    cfg.aq_strength = 1.0;
+
+    if let Some(chunk_len) = fixed_gop_frames {
+        let len: u32 = chunk_len.max(1);
+        cfg.scenecut = 0;
+        cfg.gop_size = len;
+        cfg.min_keyint = len;
+    } else {
+        let gop: u32 = options.gop_size.max(1);
+        cfg.gop_size = gop;
+        cfg.min_keyint = if gop <= 1 { 1 } else { fps.clamp(1, gop) };
+    }
+    cfg.level_idc = select_h264_level(width, height, fps);
+
+    match options.quality {
+        VideoQualityPreset::Fast => {
+            cfg.preset = Preset::Fast;
+            cfg.num_ref_frames = 1;
+            cfg.tune_sub8x8_split = false;
+            cfg.tune_sub8_rd = false;
+            cfg.tune_shape_rd = false;
+            cfg.tune_intra_rd = false;
+            cfg.cabac_rdoq_p = 0.0;
+        }
+        VideoQualityPreset::Balanced => {
+            cfg.preset = Preset::Balanced;
+            cfg.num_ref_frames = 1;
+            cfg.tune_sub8x8_split = false;
+            cfg.tune_sub8_rd = false;
+            cfg.tune_shape_rd = false;
+            cfg.tune_intra_rd = false;
+            cfg.cabac_rdoq_p = 0.0;
+        }
+        VideoQualityPreset::Quality => {
+            // Balanced + QP 14 yields sub-pel quality at ~7x higher throughput than Preset::Quality.
+            cfg.preset = Preset::Balanced;
+            cfg.num_ref_frames = 3;
+        }
+    }
+    Ok(cfg)
+}
+
+/// Encodes one independent CQP GOP (`rgba_frames`, starting with an IDR frame at `base_frame_index`)
+/// via `Encoder::encode_all`, enabling grain fast-path detection across the GOP.
+pub fn encode_rgba_gop_chunk(
+    rgba_frames: &[Vec<u8>],
+    base_frame_index: u64,
+    width: u32,
+    height: u32,
+    fps: u32,
+    options: H264EncoderOptions,
+) -> Result<Vec<EncodedVideoPacket>, RendererError> {
+    if rgba_frames.is_empty() {
+        return Ok(Vec::new());
+    }
+    let w: usize = width as usize;
+    let h: usize = height as usize;
+    let expected_len: usize = w * h * 4;
+    let cfg: EncoderConfig =
+        build_encoder_config(width, height, fps, options, Some(rgba_frames.len() as u32))?;
+    let encoder: Encoder = Encoder::new(cfg)
+        .map_err(|err| RendererError::VideoEncode(format!("Encoder init failed: {err}")))?;
+
+    let mut yuv_frames: Vec<YuvFrame> = Vec::with_capacity(rgba_frames.len());
+    for (idx, rgba) in rgba_frames.iter().enumerate() {
+        if rgba.len() != expected_len {
+            return Err(RendererError::VideoEncode(format!(
+                "RGBA frame buffer size mismatch at frame {}: expected {expected_len}, got {}",
+                base_frame_index + idx as u64,
+                rgba.len()
+            )));
+        }
+        let mut y: Vec<u8> = Vec::with_capacity(w * h);
+        let cw: usize = w / 2;
+        let ch: usize = h / 2;
+        let mut u: Vec<u8> = Vec::with_capacity(cw * ch);
+        let mut v: Vec<u8> = Vec::with_capacity(cw * ch);
+        rgba_to_yuv420p_bt709(rgba, w, h, &mut y, &mut u, &mut v);
+        yuv_frames.push(YuvFrame {
+            width: w,
+            height: h,
+            y,
+            u,
+            v,
+        });
+    }
+
+    let aus: Vec<Vec<u8>> = encoder
+        .encode_all(&yuv_frames)
+        .map_err(|err| RendererError::VideoEncode(format!("H.264 GOP encode failed: {err}")))?;
+
+    let fps_f64: f64 = fps.max(1) as f64;
+    let mut packets: Vec<EncodedVideoPacket> = Vec::with_capacity(aus.len());
+    for (idx, annex_b) in aus.into_iter().enumerate() {
+        if annex_b.is_empty() {
+            continue;
+        }
+        let is_keyframe: bool = contains_annex_b_idr(&annex_b);
+        let pts_secs: f64 = ((base_frame_index + idx as u64) as f64) / fps_f64;
+        packets.push(EncodedVideoPacket {
+            pts_secs,
+            annex_b,
+            is_keyframe,
+        });
+    }
+    Ok(packets)
 }
 
 /// Factory returning the active video encoder backend.
@@ -107,50 +239,12 @@ impl RustyH264VideoEncoder {
         fps: u32,
         options: H264EncoderOptions,
     ) -> Result<Self, RendererError> {
-        if width < 16 || height < 16 || width % 2 != 0 || height % 2 != 0 {
-            return Err(RendererError::InvalidConfig(format!(
-                "H.264 encoder requires even dimensions >= 16x16, got {width}x{height}"
-            )));
-        }
-        let w = width as usize;
-        let h = height as usize;
-        let mut cfg = EncoderConfig::new(w, h);
-        cfg.profile = Profile::High;
-        cfg.qp = options.qp.min(51);
-        cfg.bitrate = options.bitrate_bps;
-        cfg.framerate = fps.max(1) as f32;
-        // Disable lookahead buffering so every `encode_planes` call emits strictly one Annex-B AU.
-        cfg.mbtree = false;
-        cfg.lookahead = 0;
-        cfg.bframes = 0;
-        cfg.cabac = true;
-        cfg.transform_8x8 = true;
-        cfg.aq_strength = 1.0;
-
-        let gop = options.gop_size.max(1);
-        cfg.gop_size = gop;
-        cfg.min_keyint = if gop <= 1 { 1 } else { fps.clamp(1, gop) };
-        cfg.level_idc = select_h264_level(width, height, fps);
-
-        match options.quality {
-            VideoQualityPreset::Fast => {
-                cfg.preset = Preset::Fast;
-                cfg.num_ref_frames = 1;
-            }
-            VideoQualityPreset::Balanced => {
-                cfg.preset = Preset::Balanced;
-                cfg.num_ref_frames = 2;
-            }
-            VideoQualityPreset::Quality => {
-                // Balanced + QP 14 yields sub-pel quality at ~7x higher throughput than Preset::Quality.
-                cfg.preset = Preset::Balanced;
-                cfg.num_ref_frames = 3;
-            }
-        }
-
-        let encoder = Encoder::new(cfg)
+        let w: usize = width as usize;
+        let h: usize = height as usize;
+        let cfg: EncoderConfig = build_encoder_config(width, height, fps, options, None)?;
+        let encoder: Encoder = Encoder::new(cfg)
             .map_err(|err| RendererError::VideoEncode(format!("Encoder init failed: {err}")))?;
-        let yuv_scratch = YuvFrame::black(w, h);
+        let yuv_scratch: YuvFrame = YuvFrame::black(w, h);
 
         Ok(Self {
             width: w,
@@ -233,41 +327,59 @@ pub fn rgba_to_yuv420p_bt709(
     u_out: &mut Vec<u8>,
     v_out: &mut Vec<u8>,
 ) {
-    let cw = width / 2;
-    let ch = height / 2;
+    let cw: usize = width / 2;
+    let ch: usize = height / 2;
     y_out.resize(width * height, 16);
     u_out.resize(cw * ch, 128);
     v_out.resize(cw * ch, 128);
 
-    let row_stride = width * 4;
-    for y in 0..height {
-        let row_in = &rgba[y * row_stride..(y + 1) * row_stride];
-        let row_y = &mut y_out[y * width..(y + 1) * width];
-        for x in 0..width {
-            let p = x * 4;
-            let r = row_in[p] as i32;
-            let g = row_in[p + 1] as i32;
-            let b = row_in[p + 2] as i32;
-            let luma = ((11_966 * r + 40_254 * g + 4_064 * b + 32_768) >> 16) + 16;
-            row_y[x] = luma.clamp(16, 235) as u8;
-        }
-    }
-
+    let row_stride: usize = width * 4;
     for cy in 0..ch {
-        let r0 = &rgba[(cy * 2) * row_stride..(cy * 2 + 1) * row_stride];
-        let r1 = &rgba[(cy * 2 + 1) * row_stride..(cy * 2 + 2) * row_stride];
-        let u_row = &mut u_out[cy * cw..(cy + 1) * cw];
-        let v_row = &mut v_out[cy * cw..(cy + 1) * cw];
+        let r0: &[u8] = &rgba[(cy * 2) * row_stride..(cy * 2 + 1) * row_stride];
+        let r1: &[u8] = &rgba[(cy * 2 + 1) * row_stride..(cy * 2 + 2) * row_stride];
+        let (y_top_slice, y_bot_slice) =
+            y_out[(cy * 2) * width..(cy * 2 + 2) * width].split_at_mut(width);
+        let u_row: &mut [u8] = &mut u_out[cy * cw..(cy + 1) * cw];
+        let v_row: &mut [u8] = &mut v_out[cy * cw..(cy + 1) * cw];
+
         for cx in 0..cw {
-            let x0 = cx * 8;
-            let x1 = x0 + 4;
-            let sum_r = r0[x0] as i32 + r0[x1] as i32 + r1[x0] as i32 + r1[x1] as i32;
-            let sum_g =
-                r0[x0 + 1] as i32 + r0[x1 + 1] as i32 + r1[x0 + 1] as i32 + r1[x1 + 1] as i32;
-            let sum_b =
-                r0[x0 + 2] as i32 + r0[x1 + 2] as i32 + r1[x0 + 2] as i32 + r1[x1 + 2] as i32;
-            let cb = ((-6_596 * sum_r - 22_188 * sum_g + 28_784 * sum_b + 131_072) >> 18) + 128;
-            let cr = ((28_784 * sum_r - 26_145 * sum_g - 2_639 * sum_b + 131_072) >> 18) + 128;
+            let x0: usize = cx * 8;
+            let x1: usize = x0 + 4;
+            let yx: usize = cx * 2;
+
+            let r00: i32 = r0[x0] as i32;
+            let g00: i32 = r0[x0 + 1] as i32;
+            let b00: i32 = r0[x0 + 2] as i32;
+            let r01: i32 = r0[x1] as i32;
+            let g01: i32 = r0[x1 + 1] as i32;
+            let b01: i32 = r0[x1 + 2] as i32;
+            let r10: i32 = r1[x0] as i32;
+            let g10: i32 = r1[x0 + 1] as i32;
+            let b10: i32 = r1[x0 + 2] as i32;
+            let r11: i32 = r1[x1] as i32;
+            let g11: i32 = r1[x1 + 1] as i32;
+            let b11: i32 = r1[x1 + 2] as i32;
+
+            y_top_slice[yx] =
+                (((11_966 * r00 + 40_254 * g00 + 4_064 * b00 + 32_768) >> 16) + 16).clamp(16, 235)
+                    as u8;
+            y_top_slice[yx + 1] =
+                (((11_966 * r01 + 40_254 * g01 + 4_064 * b01 + 32_768) >> 16) + 16).clamp(16, 235)
+                    as u8;
+            y_bot_slice[yx] =
+                (((11_966 * r10 + 40_254 * g10 + 4_064 * b10 + 32_768) >> 16) + 16).clamp(16, 235)
+                    as u8;
+            y_bot_slice[yx + 1] =
+                (((11_966 * r11 + 40_254 * g11 + 4_064 * b11 + 32_768) >> 16) + 16).clamp(16, 235)
+                    as u8;
+
+            let sum_r: i32 = r00 + r01 + r10 + r11;
+            let sum_g: i32 = g00 + g01 + g10 + g11;
+            let sum_b: i32 = b00 + b01 + b10 + b11;
+            let cb: i32 =
+                ((-6_596 * sum_r - 22_188 * sum_g + 28_784 * sum_b + 131_072) >> 18) + 128;
+            let cr: i32 =
+                ((28_784 * sum_r - 26_145 * sum_g - 2_639 * sum_b + 131_072) >> 18) + 128;
             u_row[cx] = cb.clamp(16, 240) as u8;
             v_row[cx] = cr.clamp(16, 240) as u8;
         }
@@ -413,5 +525,114 @@ mod tests {
             .decode_stream(&bitstream)
             .expect("decode abr/intra stream");
         assert_eq!(decoded.len(), 4);
+    }
+
+    #[test]
+    fn fused_bt709_conversion_matches_reference() {
+        let w: usize = 16;
+        let h: usize = 12;
+        let mut rgba: Vec<u8> = vec![0; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let idx: usize = (y * w + x) * 4;
+                rgba[idx] = ((x * 17 + y * 31) % 256) as u8;
+                rgba[idx + 1] = ((x * 43 + y * 13 + 77) % 256) as u8;
+                rgba[idx + 2] = ((x * 7 + y * 59 + 199) % 256) as u8;
+                rgba[idx + 3] = 255;
+            }
+        }
+
+        let mut y_fused: Vec<u8> = Vec::new();
+        let mut u_fused: Vec<u8> = Vec::new();
+        let mut v_fused: Vec<u8> = Vec::new();
+        rgba_to_yuv420p_bt709(&rgba, w, h, &mut y_fused, &mut u_fused, &mut v_fused);
+
+        let cw: usize = w / 2;
+        let ch: usize = h / 2;
+        let mut y_ref: Vec<u8> = vec![16; w * h];
+        let mut u_ref: Vec<u8> = vec![128; cw * ch];
+        let mut v_ref: Vec<u8> = vec![128; cw * ch];
+        for y in 0..h {
+            for x in 0..w {
+                let p: usize = (y * w + x) * 4;
+                let r: i32 = rgba[p] as i32;
+                let g: i32 = rgba[p + 1] as i32;
+                let b: i32 = rgba[p + 2] as i32;
+                y_ref[y * w + x] =
+                    (((11_966 * r + 40_254 * g + 4_064 * b + 32_768) >> 16) + 16).clamp(16, 235)
+                        as u8;
+            }
+        }
+        for cy in 0..ch {
+            for cx in 0..cw {
+                let p00: usize = ((cy * 2) * w + cx * 2) * 4;
+                let p01: usize = ((cy * 2) * w + cx * 2 + 1) * 4;
+                let p10: usize = ((cy * 2 + 1) * w + cx * 2) * 4;
+                let p11: usize = ((cy * 2 + 1) * w + cx * 2 + 1) * 4;
+                let sr: i32 = rgba[p00] as i32
+                    + rgba[p01] as i32
+                    + rgba[p10] as i32
+                    + rgba[p11] as i32;
+                let sg: i32 = rgba[p00 + 1] as i32
+                    + rgba[p01 + 1] as i32
+                    + rgba[p10 + 1] as i32
+                    + rgba[p11 + 1] as i32;
+                let sb: i32 = rgba[p00 + 2] as i32
+                    + rgba[p01 + 2] as i32
+                    + rgba[p10 + 2] as i32
+                    + rgba[p11 + 2] as i32;
+                u_ref[cy * cw + cx] =
+                    (((-6_596 * sr - 22_188 * sg + 28_784 * sb + 131_072) >> 18) + 128)
+                        .clamp(16, 240) as u8;
+                v_ref[cy * cw + cx] =
+                    (((28_784 * sr - 26_145 * sg - 2_639 * sb + 131_072) >> 18) + 128)
+                        .clamp(16, 240) as u8;
+            }
+        }
+
+        assert_eq!(y_fused, y_ref);
+        assert_eq!(u_fused, u_ref);
+        assert_eq!(v_fused, v_ref);
+    }
+
+    #[test]
+    fn parallel_gop_matches_sequential_decodability_and_frame_count() {
+        let mut frames: Vec<Vec<u8>> = Vec::with_capacity(6);
+        for i in 0..6_u8 {
+            let mut f: Vec<u8> = vec![0; 64 * 64 * 4];
+            for px in f.chunks_exact_mut(4) {
+                px[0] = 30 + i * 25;
+                px[1] = 200 - i * 15;
+                px[2] = 60 + i * 20;
+                px[3] = 255;
+            }
+            frames.push(f);
+        }
+
+        let opts: H264EncoderOptions = H264EncoderOptions::from_quality(VideoQualityPreset::Balanced, 30);
+        let gop0: Vec<EncodedVideoPacket> =
+            encode_rgba_gop_chunk(&frames[0..3], 0, 64, 64, 30, opts).expect("encode gop0");
+        let gop1: Vec<EncodedVideoPacket> =
+            encode_rgba_gop_chunk(&frames[3..6], 3, 64, 64, 30, opts).expect("encode gop1");
+
+        assert!(gop0.first().map(|p| p.is_keyframe).unwrap_or(false));
+        assert!(gop1.first().map(|p| p.is_keyframe).unwrap_or(false));
+
+        let mut combined: Vec<u8> = Vec::new();
+        let mut all_pts: Vec<f64> = Vec::new();
+        for pkt in gop0.into_iter().chain(gop1.into_iter()) {
+            all_pts.push(pkt.pts_secs);
+            combined.extend_from_slice(&pkt.annex_b);
+        }
+        assert_eq!(all_pts.len(), 6);
+        for idx in 1..all_pts.len() {
+            assert!(all_pts[idx] > all_pts[idx - 1]);
+        }
+
+        let mut dec = Decoder::new();
+        let decoded = dec
+            .decode_stream(&combined)
+            .expect("decode concatenated parallel gops");
+        assert_eq!(decoded.len(), 6);
     }
 }

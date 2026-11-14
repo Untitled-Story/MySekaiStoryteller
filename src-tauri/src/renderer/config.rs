@@ -219,7 +219,7 @@ impl VideoExportConfig {
 
     pub fn resolved_gop_frames(&self) -> u32 {
         self.gop_frames
-            .unwrap_or_else(|| self.fps.saturating_mul(2).clamp(2, 250))
+            .unwrap_or_else(|| self.fps.clamp(2, 250))
     }
 
     pub fn resolved_audio_bitrate_bps(&self) -> u32 {
@@ -317,7 +317,7 @@ mod tests {
         assert!(legacy.include_audio);
         assert_eq!(legacy.audio_volume_percent, 100);
         assert_eq!(legacy.background_color, "#000000");
-        assert_eq!(legacy.resolved_gop_frames(), 48);
+        assert_eq!(legacy.resolved_gop_frames(), 24);
         assert!(legacy.validate().is_ok());
 
         let mut custom = VideoExportConfig {

@@ -12,7 +12,7 @@ use crate::renderer::vfx::{GpuFilterSpec, HologramBeamRenderData, TrianglePartic
 
 use super::filters::{
     live2d_additive_blend, live2d_mask_setup_blend, live2d_multiplicative_blend, pixi_add_blend,
-    pixi_normal_blend, FilterPipelines,
+    pixi_normal_blend, FilterPipelines, FilterUniformScratch,
 };
 
 const WGSL_SHADERS: &str = include_str!("shaders.wgsl");
@@ -66,14 +66,40 @@ struct Live2dDrawUniformGpu {
 pub struct GpuTextureAsset {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
+    pub quad_bg: wgpu::BindGroup,
     pub width: u32,
     pub height: u32,
 }
 
 impl GpuTextureAsset {
+    fn create_quad_bg(
+        device: &wgpu::Device,
+        quad_tex_bgl: &wgpu::BindGroupLayout,
+        sampler_clamp: &wgpu::Sampler,
+        view: &wgpu::TextureView,
+        label: &str,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: quad_tex_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler_clamp),
+                },
+            ],
+        })
+    }
+
     fn from_premul(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        quad_tex_bgl: &wgpu::BindGroupLayout,
+        sampler_clamp: &wgpu::Sampler,
         img: &PremulImage,
         label: &str,
     ) -> Self {
@@ -113,15 +139,24 @@ impl GpuTextureAsset {
             },
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let quad_bg = Self::create_quad_bg(device, quad_tex_bgl, sampler_clamp, &view, label);
         Self {
             texture,
             view,
+            quad_bg,
             width,
             height,
         }
     }
 
-    fn create_render_target(device: &wgpu::Device, width: u32, height: u32, label: &str) -> Self {
+    fn create_render_target(
+        device: &wgpu::Device,
+        quad_tex_bgl: &wgpu::BindGroupLayout,
+        sampler_clamp: &wgpu::Sampler,
+        width: u32,
+        height: u32,
+        label: &str,
+    ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: wgpu::Extent3d {
@@ -139,9 +174,11 @@ impl GpuTextureAsset {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let quad_bg = Self::create_quad_bg(device, quad_tex_bgl, sampler_clamp, &view, label);
         Self {
             texture,
             view,
+            quad_bg,
             width,
             height,
         }
@@ -191,6 +228,221 @@ impl Default for CachedTextTexture {
     }
 }
 
+struct ModelGpuCache {
+    textures: Vec<GpuTextureAsset>,
+    ibuf: wgpu::Buffer,
+    mesh_ranges: Vec<(i32, u32, u32)>,
+    total_verts: usize,
+    mask_tbgs: Vec<wgpu::BindGroup>,
+    draw_tbgs: Vec<wgpu::BindGroup>,
+}
+
+struct FrameScratch {
+    quad_vbuf: wgpu::Buffer,
+    quad_cap_verts: usize,
+    quad_verts: Vec<QuadVertex>,
+
+    l2d_vbuf: wgpu::Buffer,
+    l2d_cap_verts: usize,
+    l2d_verts: Vec<Live2dVertex>,
+
+    l2d_mask_ubuf: wgpu::Buffer,
+    l2d_mask_ubg: wgpu::BindGroup,
+    l2d_mask_cap_slots: usize,
+    l2d_mask_raw: Vec<u8>,
+
+    l2d_draw_ubuf: wgpu::Buffer,
+    l2d_draw_ubg: wgpu::BindGroup,
+    l2d_draw_cap_slots: usize,
+    l2d_draw_raw: Vec<u8>,
+
+    filter_scratch: FilterUniformScratch,
+    uniform_stride: usize,
+}
+
+impl FrameScratch {
+    fn new(
+        device: &wgpu::Device,
+        filters: &FilterPipelines,
+        live2d_mask_ubgl: &wgpu::BindGroupLayout,
+        live2d_draw_ubgl: &wgpu::BindGroupLayout,
+        uniform_stride: usize,
+    ) -> Self {
+        let quad_cap_verts: usize = 8192;
+        let quad_vbuf: wgpu::Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scratch_quad_vbuf"),
+            size: (quad_cap_verts * std::mem::size_of::<QuadVertex>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let l2d_cap_verts: usize = 131_072;
+        let l2d_vbuf: wgpu::Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scratch_l2d_vbuf"),
+            size: (l2d_cap_verts * std::mem::size_of::<Live2dVertex>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let l2d_mask_cap_slots: usize = 512;
+        let (l2d_mask_ubuf, l2d_mask_ubg) = Self::create_dynamic_ubuf(
+            device,
+            live2d_mask_ubgl,
+            "scratch_l2d_mask_ubuf",
+            l2d_mask_cap_slots * uniform_stride,
+            std::mem::size_of::<Live2dMaskUniformGpu>() as u64,
+        );
+
+        let l2d_draw_cap_slots: usize = 4096;
+        let (l2d_draw_ubuf, l2d_draw_ubg) = Self::create_dynamic_ubuf(
+            device,
+            live2d_draw_ubgl,
+            "scratch_l2d_draw_ubuf",
+            l2d_draw_cap_slots * uniform_stride,
+            std::mem::size_of::<Live2dDrawUniformGpu>() as u64,
+        );
+
+        let filter_scratch: FilterUniformScratch =
+            FilterUniformScratch::new(device, filters, uniform_stride, 256);
+
+        Self {
+            quad_vbuf,
+            quad_cap_verts,
+            quad_verts: Vec::with_capacity(quad_cap_verts),
+            l2d_vbuf,
+            l2d_cap_verts,
+            l2d_verts: Vec::with_capacity(l2d_cap_verts),
+            l2d_mask_ubuf,
+            l2d_mask_ubg,
+            l2d_mask_cap_slots,
+            l2d_mask_raw: Vec::with_capacity(l2d_mask_cap_slots * uniform_stride),
+            l2d_draw_ubuf,
+            l2d_draw_ubg,
+            l2d_draw_cap_slots,
+            l2d_draw_raw: Vec::with_capacity(l2d_draw_cap_slots * uniform_stride),
+            filter_scratch,
+            uniform_stride,
+        }
+    }
+
+    fn create_dynamic_ubuf(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        label: &str,
+        byte_len: usize,
+        bind_size: u64,
+    ) -> (wgpu::Buffer, wgpu::BindGroup) {
+        let ubuf: wgpu::Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: byte_len as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let ubg: wgpu::BindGroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &ubuf,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(bind_size),
+                }),
+            }],
+        });
+        (ubuf, ubg)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        filters: &FilterPipelines,
+        live2d_mask_ubgl: &wgpu::BindGroupLayout,
+        live2d_draw_ubgl: &wgpu::BindGroupLayout,
+        req_quad_verts: usize,
+        req_l2d_verts: usize,
+        req_mask_slots: usize,
+        req_draw_slots: usize,
+        req_filter_slots: usize,
+    ) {
+        self.quad_verts.clear();
+        self.l2d_verts.clear();
+        self.l2d_mask_raw.clear();
+        self.l2d_draw_raw.clear();
+        self.filter_scratch.prepare(device, filters, req_filter_slots);
+
+        if req_quad_verts > self.quad_cap_verts {
+            let new_cap: usize = req_quad_verts.next_power_of_two();
+            self.quad_vbuf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("scratch_quad_vbuf"),
+                size: (new_cap * std::mem::size_of::<QuadVertex>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.quad_cap_verts = new_cap;
+        }
+        if req_l2d_verts > self.l2d_cap_verts {
+            let new_cap: usize = req_l2d_verts.next_power_of_two();
+            self.l2d_vbuf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("scratch_l2d_vbuf"),
+                size: (new_cap * std::mem::size_of::<Live2dVertex>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.l2d_cap_verts = new_cap;
+        }
+        if req_mask_slots > self.l2d_mask_cap_slots {
+            let new_slots: usize = req_mask_slots.next_power_of_two();
+            let (ubuf, ubg) = Self::create_dynamic_ubuf(
+                device,
+                live2d_mask_ubgl,
+                "scratch_l2d_mask_ubuf",
+                new_slots * self.uniform_stride,
+                std::mem::size_of::<Live2dMaskUniformGpu>() as u64,
+            );
+            self.l2d_mask_ubuf = ubuf;
+            self.l2d_mask_ubg = ubg;
+            self.l2d_mask_cap_slots = new_slots;
+        }
+        if req_draw_slots > self.l2d_draw_cap_slots {
+            let new_slots: usize = req_draw_slots.next_power_of_two();
+            let (ubuf, ubg) = Self::create_dynamic_ubuf(
+                device,
+                live2d_draw_ubgl,
+                "scratch_l2d_draw_ubuf",
+                new_slots * self.uniform_stride,
+                std::mem::size_of::<Live2dDrawUniformGpu>() as u64,
+            );
+            self.l2d_draw_ubuf = ubuf;
+            self.l2d_draw_ubg = ubg;
+            self.l2d_draw_cap_slots = new_slots;
+        }
+    }
+
+    fn flush(&self, queue: &wgpu::Queue) {
+        if !self.quad_verts.is_empty() {
+            queue.write_buffer(&self.quad_vbuf, 0, bytemuck::cast_slice(&self.quad_verts));
+        }
+        if !self.l2d_verts.is_empty() {
+            queue.write_buffer(&self.l2d_vbuf, 0, bytemuck::cast_slice(&self.l2d_verts));
+        }
+        if !self.l2d_mask_raw.is_empty() {
+            queue.write_buffer(&self.l2d_mask_ubuf, 0, &self.l2d_mask_raw);
+        }
+        if !self.l2d_draw_raw.is_empty() {
+            queue.write_buffer(&self.l2d_draw_ubuf, 0, &self.l2d_draw_raw);
+        }
+        self.filter_scratch.flush(queue);
+    }
+}
+
+struct InFlightReadback {
+    slot: usize,
+    submission_index: wgpu::SubmissionIndex,
+    rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+}
+
 pub struct GpuSceneRenderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -215,20 +467,25 @@ pub struct GpuSceneRenderer {
     live2d_draw_tbgl: wgpu::BindGroupLayout,
     live2d_pipes: [[wgpu::RenderPipeline; 2]; 3], // [Normal|Add|Mult][cull|nocull]
 
-    // Render target pool & readback buffer
+    // Render target pool & double-buffered readback state
     pool_textures: Vec<wgpu::Texture>,
     pool_views: Vec<wgpu::TextureView>,
+    pool_quad_bgs: Vec<wgpu::BindGroup>,
+    pool_filter_bgs: Vec<wgpu::BindGroup>,
     mask_atlas: GpuTextureAsset,
-    readback_buf: wgpu::Buffer,
+    readback_bufs: [wgpu::Buffer; 2],
+    scratches: [Option<FrameScratch>; 2],
+    next_slot: usize,
+    in_flight: Option<InFlightReadback>,
     padded_bytes_per_row: u32,
 
-    // Cached static/dynamic scene textures
+    // Cached static/dynamic scene textures and model geometry
     ui_text_bg: GpuTextureAsset,
     ui_text_underline: GpuTextureAsset,
     ui_telop: GpuTextureAsset,
     ui_hologram: GpuTextureAsset,
     backgrounds: HashMap<String, GpuTextureAsset>,
-    model_textures: HashMap<String, Vec<GpuTextureAsset>>,
+    model_caches: HashMap<String, ModelGpuCache>,
     cached_body: CachedTextTexture,
     cached_speaker: CachedTextTexture,
     cached_telop: CachedTextTexture,
@@ -278,13 +535,6 @@ impl GpuSceneRenderer {
             ..Default::default()
         });
 
-        let white_img = PremulImage {
-            width: 1,
-            height: 1,
-            data: vec![255, 255, 255, 255],
-        };
-        let white_tex = GpuTextureAsset::from_premul(&device, &queue, &white_img, "white_1x1");
-
         // Quad pipelines
         let quad_tex_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("quad_tex_bgl"),
@@ -307,6 +557,20 @@ impl GpuSceneRenderer {
                 },
             ],
         });
+
+        let white_img = PremulImage {
+            width: 1,
+            height: 1,
+            data: vec![255, 255, 255, 255],
+        };
+        let white_tex = GpuTextureAsset::from_premul(
+            &device,
+            &queue,
+            &quad_tex_bgl,
+            &sampler_clamp,
+            &white_img,
+            "white_1x1",
+        );
         let quad_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("quad_layout"),
             bind_group_layouts: &[Some(&quad_tex_bgl)],
@@ -547,47 +811,103 @@ impl GpuSceneRenderer {
             ],
         ];
 
-        // Allocate render target pool
+        // Allocate render target pool and pre-cached quad/filter bind groups
         let mut pool_textures = Vec::with_capacity(POOL_SIZE);
         let mut pool_views = Vec::with_capacity(POOL_SIZE);
+        let mut pool_quad_bgs = Vec::with_capacity(POOL_SIZE);
+        let mut pool_filter_bgs = Vec::with_capacity(POOL_SIZE);
         for i in 0..POOL_SIZE {
             let rt = GpuTextureAsset::create_render_target(
                 &device,
+                &quad_tex_bgl,
+                &sampler_clamp,
                 stage_width,
                 stage_height,
                 &format!("rt_slot_{i}"),
             );
+            pool_filter_bgs.push(filters.create_tex_bind_group(
+                &device,
+                &rt.view,
+                &format!("rt_flt_bg_{i}"),
+            ));
+            pool_quad_bgs.push(rt.quad_bg);
             pool_views.push(rt.view);
             pool_textures.push(rt.texture);
         }
 
         let mask_atlas = GpuTextureAsset::create_render_target(
             &device,
+            &quad_tex_bgl,
+            &sampler_clamp,
             MASK_ATLAS_SIZE,
             MASK_ATLAS_SIZE,
             "live2d_mask_atlas",
         );
 
         let padded_bytes_per_row = align_to(stage_width * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let readback_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("frame_readback_buf"),
-            size: (padded_bytes_per_row as u64) * (stage_height as u64),
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let readback_size: u64 = (padded_bytes_per_row as u64) * (stage_height as u64);
+        let make_readback = |label: &str| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: readback_size,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        let readback_bufs: [wgpu::Buffer; 2] = [
+            make_readback("frame_readback_buf_0"),
+            make_readback("frame_readback_buf_1"),
+        ];
+        let scratches: [Option<FrameScratch>; 2] = [
+            Some(FrameScratch::new(
+                &device,
+                &filters,
+                &live2d_mask_ubgl,
+                &live2d_draw_ubgl,
+                uniform_stride,
+            )),
+            Some(FrameScratch::new(
+                &device,
+                &filters,
+                &live2d_mask_ubgl,
+                &live2d_draw_ubgl,
+                uniform_stride,
+            )),
+        ];
 
         let ui_bitmaps = BuiltinUiBitmaps::render_for_stage(stage_width, stage_height)?;
-        let ui_text_bg =
-            GpuTextureAsset::from_premul(&device, &queue, &ui_bitmaps.text_background, "ui_txt_bg");
+        let ui_text_bg = GpuTextureAsset::from_premul(
+            &device,
+            &queue,
+            &quad_tex_bgl,
+            &sampler_clamp,
+            &ui_bitmaps.text_background,
+            "ui_txt_bg",
+        );
         let ui_text_underline = GpuTextureAsset::from_premul(
             &device,
             &queue,
+            &quad_tex_bgl,
+            &sampler_clamp,
             &ui_bitmaps.text_underline,
             "ui_underline",
         );
-        let ui_telop = GpuTextureAsset::from_premul(&device, &queue, &ui_bitmaps.telop, "ui_telop");
-        let ui_hologram =
-            GpuTextureAsset::from_premul(&device, &queue, &ui_bitmaps.hologram, "ui_hologram");
+        let ui_telop = GpuTextureAsset::from_premul(
+            &device,
+            &queue,
+            &quad_tex_bgl,
+            &sampler_clamp,
+            &ui_bitmaps.telop,
+            "ui_telop",
+        );
+        let ui_hologram = GpuTextureAsset::from_premul(
+            &device,
+            &queue,
+            &quad_tex_bgl,
+            &sampler_clamp,
+            &ui_bitmaps.hologram,
+            "ui_hologram",
+        );
 
         Ok(Self {
             device,
@@ -610,15 +930,20 @@ impl GpuSceneRenderer {
             live2d_pipes,
             pool_textures,
             pool_views,
+            pool_quad_bgs,
+            pool_filter_bgs,
             mask_atlas,
-            readback_buf,
+            readback_bufs,
+            scratches,
+            next_slot: 0,
+            in_flight: None,
             padded_bytes_per_row,
             ui_text_bg,
             ui_text_underline,
             ui_telop,
             ui_hologram,
             backgrounds: HashMap::new(),
-            model_textures: HashMap::new(),
+            model_caches: HashMap::new(),
             cached_body: CachedTextTexture::default(),
             cached_speaker: CachedTextTexture::default(),
             cached_telop: CachedTextTexture::default(),
@@ -634,41 +959,249 @@ impl GpuSceneRenderer {
             return Ok(());
         }
         let img = load_image_premul(path)?;
-        let tex =
-            GpuTextureAsset::from_premul(&self.device, &self.queue, &img, &format!("bg_{key}"));
+        let tex = GpuTextureAsset::from_premul(
+            &self.device,
+            &self.queue,
+            &self.quad_tex_bgl,
+            &self.sampler_clamp,
+            &img,
+            &format!("bg_{key}"),
+        );
         self.backgrounds.insert(key.to_string(), tex);
         Ok(())
     }
 
     pub fn register_live2d_model(&mut self, key: &str, model: &Live2DModelInstance) {
-        if self.model_textures.contains_key(key) {
+        if self.model_caches.contains_key(key) {
             return;
         }
-        let mut list = Vec::with_capacity(model.textures().len());
+        let mut textures: Vec<GpuTextureAsset> = Vec::with_capacity(model.textures().len());
         for (i, decoded) in model.textures().iter().enumerate() {
             let premul = PremulImage::from_straight_rgba(
                 decoded.width(),
                 decoded.height(),
                 decoded.rgba().to_vec(),
             );
-            list.push(GpuTextureAsset::from_premul(
+            textures.push(GpuTextureAsset::from_premul(
                 &self.device,
                 &self.queue,
+                &self.quad_tex_bgl,
+                &self.sampler_clamp,
                 &premul,
                 &format!("l2d_{key}_{i}"),
             ));
         }
-        self.model_textures.insert(key.to_string(), list);
+
+        let meshes = model.meshes();
+        let mut total_verts: usize = 0;
+        let mut all_indices: Vec<u16> = Vec::new();
+        let mut mesh_ranges: Vec<(i32, u32, u32)> = Vec::with_capacity(meshes.len());
+        for mesh in meshes {
+            let base_v: i32 = total_verts as i32;
+            total_verts += mesh.vertices().len();
+            let idx_start: u32 = all_indices.len() as u32;
+            all_indices.extend_from_slice(mesh.indices());
+            let idx_count: u32 = mesh.indices().len() as u32;
+            mesh_ranges.push((base_v, idx_start, idx_count));
+        }
+
+        let idx_byte_len: usize = align_to((all_indices.len().max(2) * 2) as u32, 4) as usize;
+        let ibuf: wgpu::Buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("l2d_ibo"),
+            size: idx_byte_len as u64,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        if !all_indices.is_empty() {
+            let raw_idx: &[u8] = bytemuck::cast_slice(&all_indices);
+            let mut padded_idx: Vec<u8> = raw_idx.to_vec();
+            while padded_idx.len() % 4 != 0 {
+                padded_idx.push(0);
+            }
+            self.queue.write_buffer(&ibuf, 0, &padded_idx);
+        }
+
+        let mask_tbgs: Vec<wgpu::BindGroup> = textures
+            .iter()
+            .map(|t| {
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("l2d_mask_tbg"),
+                    layout: &self.live2d_mask_tbgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&t.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                        },
+                    ],
+                })
+            })
+            .collect();
+
+        let draw_tbgs: Vec<wgpu::BindGroup> = textures
+            .iter()
+            .map(|t| {
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("l2d_draw_tbg"),
+                    layout: &self.live2d_draw_tbgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&t.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                        },
+                    ],
+                })
+            })
+            .collect();
+
+        self.model_caches.insert(
+            key.to_string(),
+            ModelGpuCache {
+                textures,
+                ibuf,
+                mesh_ranges,
+                total_verts,
+                mask_tbgs,
+                draw_tbgs,
+            },
+        );
     }
 
-    /// Renders one complete composited frame and returns tight `stage_width * stage_height * 4` RGBA8 bytes.
+    /// Renders one complete composited frame synchronously and returns tight RGBA8 bytes.
     pub fn render_frame(
         &mut self,
         input: &GpuRenderFrameInput<'_>,
         text_renderer: &mut StoryTextRenderer,
     ) -> Result<Vec<u8>, RendererError> {
-        let sw = self.stage_width as f32;
-        let sh = self.stage_height as f32;
+        let mut rgba: Vec<u8> = Vec::new();
+        self.render_frame_into(input, text_renderer, &mut rgba)?;
+        Ok(rgba)
+    }
+
+    /// Renders one complete composited frame synchronously into `rgba_out`.
+    pub fn render_frame_into(
+        &mut self,
+        input: &GpuRenderFrameInput<'_>,
+        text_renderer: &mut StoryTextRenderer,
+        rgba_out: &mut Vec<u8>,
+    ) -> Result<(), RendererError> {
+        // Flush any previously queued pipelined frame so synchronous callers observe deterministic state.
+        if self.in_flight.is_some() {
+            let mut discarded: Vec<u8> = Vec::new();
+            let _ = self.finish_pending_frame_into(&mut discarded)?;
+        }
+        self.submit_frame_internal(input, text_renderer)?;
+        let _ = self.finish_pending_frame_into(rgba_out)?;
+        Ok(())
+    }
+
+    /// Submits `input` on the active scratch/readback slot and, if a previous frame was already
+    /// in-flight on the paired slot, completes its readback into `prev_rgba_out` (returning `Ok(true)`).
+    pub fn submit_and_drain_previous_into(
+        &mut self,
+        input: &GpuRenderFrameInput<'_>,
+        text_renderer: &mut StoryTextRenderer,
+        prev_rgba_out: &mut Vec<u8>,
+    ) -> Result<bool, RendererError> {
+        if self
+            .in_flight
+            .as_ref()
+            .is_some_and(|pending| pending.slot == self.next_slot)
+        {
+            let _ = self.finish_pending_frame_into(prev_rgba_out)?;
+        }
+        let previous: Option<InFlightReadback> = self.in_flight.take();
+        self.submit_frame_internal(input, text_renderer)?;
+        let newly_submitted: Option<InFlightReadback> = self.in_flight.take();
+        if let Some(prev) = previous {
+            self.drain_readback_into(prev, prev_rgba_out)?;
+            self.in_flight = newly_submitted;
+            Ok(true)
+        } else {
+            self.in_flight = newly_submitted;
+            Ok(false)
+        }
+    }
+
+    /// Completes the trailing in-flight pipelined frame into `rgba_out`, returning `Ok(false)` if none exists.
+    pub fn finish_pending_frame_into(
+        &mut self,
+        rgba_out: &mut Vec<u8>,
+    ) -> Result<bool, RendererError> {
+        let Some(pending) = self.in_flight.take() else {
+            return Ok(false);
+        };
+        self.drain_readback_into(pending, rgba_out)?;
+        Ok(true)
+    }
+
+    fn drain_readback_into(
+        &self,
+        pending: InFlightReadback,
+        rgba_out: &mut Vec<u8>,
+    ) -> Result<(), RendererError> {
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: Some(pending.submission_index),
+            timeout: None,
+        });
+        let map_res: Result<(), wgpu::BufferAsyncError> = match pending.rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+                pending
+                    .rx
+                    .recv()
+                    .map_err(|_| RendererError::Gpu("GPU readback channel closed".to_string()))?
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                return Err(RendererError::Gpu("GPU readback channel closed".to_string()));
+            }
+        };
+        map_res.map_err(|err| RendererError::Gpu(format!("GPU buffer map failed: {err}")))?;
+
+        let buf: &wgpu::Buffer = &self.readback_bufs[pending.slot];
+        let slice = buf.slice(..);
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|err| RendererError::Gpu(format!("GPU buffer map range failed: {err}")))?;
+        let row_bytes: usize = (self.stage_width * 4) as usize;
+        let stride: usize = self.padded_bytes_per_row as usize;
+        let height: usize = self.stage_height as usize;
+        let total_bytes: usize = row_bytes * height;
+        rgba_out.resize(total_bytes, 0);
+        if stride == row_bytes {
+            rgba_out.copy_from_slice(&mapped[..total_bytes]);
+        } else {
+            for row in 0..height {
+                let src_start: usize = row * stride;
+                let dst_start: usize = row * row_bytes;
+                rgba_out[dst_start..dst_start + row_bytes]
+                    .copy_from_slice(&mapped[src_start..src_start + row_bytes]);
+            }
+        }
+        drop(mapped);
+        buf.unmap();
+        Ok(())
+    }
+
+    fn submit_frame_internal(
+        &mut self,
+        input: &GpuRenderFrameInput<'_>,
+        text_renderer: &mut StoryTextRenderer,
+    ) -> Result<(), RendererError> {
+        let sw: f32 = self.stage_width as f32;
+        let sh: f32 = self.stage_height as f32;
 
         // Pre-update dynamic UI text textures cleanly outside active command encoder borrows.
         if input.dialogue_visible && input.dialogue_body_alpha > 0.0 {
@@ -685,311 +1218,354 @@ impl GpuSceneRenderer {
             self.ensure_text_texture(text_renderer, TextSlot::Telop, input.telop_text)?;
         }
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("frame_encoder"),
-            });
-
-        // 1. Clear `stage_root` transparent and draw background (`background` layer).
-        self.clear_rt(&mut encoder, SLOT_STAGE_ROOT, wgpu::Color::TRANSPARENT);
-        if let Some(bg_key) = input.background_key {
-            if let Some(bg) = self.backgrounds.get(bg_key) {
-                let scale = if (bg.width as f32 / bg.height.max(1) as f32) > (sw / sh) {
-                    sh / bg.height.max(1) as f32
-                } else {
-                    sw / bg.width.max(1) as f32
-                };
-                let draw_w = bg.width as f32 * scale;
-                let draw_h = bg.height as f32 * scale;
-                let x = (sw - draw_w) * 0.5;
-                let y = (sh - draw_h) * 0.5;
-                let verts = stage_quad_verts(x, y, draw_w, draw_h, sw, sh, [1.0; 4]);
-                self.draw_quads(
-                    &mut encoder,
-                    SLOT_STAGE_ROOT,
-                    &bg.view,
-                    &verts,
-                    false,
-                    false,
-                );
-            }
-        }
-
-        // 2. Render each visible Live2D model + child VFX + parent filters onto `stage_root`.
+        // Compute upper bounds for persistent per-slot buffers before recording passes.
+        let mut req_l2d_verts: usize = 0;
+        let mut req_draw_slots: usize = 0;
+        let mut req_quad_verts: usize = 64;
+        let mut req_filter_slots: usize = FilterPipelines::estimate_passes(input.stage_filters)
+            + FilterPipelines::estimate_passes(input.screen_filters)
+            + 8;
         for model_in in input.models {
             if !model_in.model.stage.visible || model_in.model.stage.alpha <= 0.0 {
                 continue;
             }
-            self.render_single_model(&mut encoder, model_in)?;
+            if let Some(cache) = self.model_caches.get(&model_in.model.key) {
+                req_l2d_verts += cache.total_verts;
+                req_draw_slots += cache.mesh_ranges.len();
+            }
+            req_quad_verts += model_in.particles.len() * 3 + model_in.hologram_beams.len() * 18 + 6;
+            req_filter_slots += FilterPipelines::estimate_passes(model_in.parent_filters) + 1;
+            for beam in model_in.hologram_beams {
+                req_filter_slots += FilterPipelines::estimate_passes(&beam.filters);
+            }
         }
+        let req_mask_slots: usize = req_draw_slots.saturating_mul(2).max(512);
 
-        // 3. Apply Stage filters (`stageRoot.filters`) into `presentation_root`.
-        let stage_filtered_slot = self.filters.apply_chain(
+        let slot: usize = self.next_slot;
+        let mut scratch: FrameScratch = self
+            .scratches[slot]
+            .take()
+            .ok_or_else(|| RendererError::Gpu("Frame scratch missing for slot".to_string()))?;
+        scratch.prepare(
             &self.device,
-            &self.queue,
-            &mut encoder,
-            &self.pool_views,
-            SLOT_STAGE_ROOT,
-            SCRATCH_START,
-            self.stage_width,
-            self.stage_height,
-            input.stage_filters,
+            &self.filters,
+            &self.live2d_mask_ubgl,
+            &self.live2d_draw_ubgl,
+            req_quad_verts,
+            req_l2d_verts,
+            req_mask_slots,
+            req_draw_slots,
+            req_filter_slots,
         );
-        if stage_filtered_slot != SLOT_PRESENTATION_ROOT {
-            let verts = full_ndc_quad([1.0; 4]);
-            self.draw_quads(
-                &mut encoder,
-                SLOT_PRESENTATION_ROOT,
-                &self.pool_views[stage_filtered_slot],
-                &verts,
-                false,
-                true,
-            );
-        }
 
-        // 4. Draw `ui` layer (Dialogue + Telop) into `presentation_root`.
-        if input.dialogue_visible {
-            if input.dialogue_bg_alpha > 0.0 {
-                let a = input.dialogue_bg_alpha;
-                let verts = stage_quad_verts(0.0, 0.0, sw, sh, sw, sh, [a; 4]);
-                self.draw_quads(
-                    &mut encoder,
-                    SLOT_PRESENTATION_ROOT,
-                    &self.ui_text_bg.view,
-                    &verts,
-                    false,
-                    false,
-                );
-            }
-            if input.dialogue_underline_alpha > 0.0 {
-                let a = input.dialogue_underline_alpha;
-                let uw = self.ui_text_underline.width as f32;
-                let uh = self.ui_text_underline.height as f32;
-                let ux = sw / 10.0;
-                let uy = sh / 1.3;
-                let verts = stage_quad_verts(ux, uy, uw, uh, sw, sh, [a; 4]);
-                self.draw_quads(
-                    &mut encoder,
-                    SLOT_PRESENTATION_ROOT,
-                    &self.ui_text_underline.view,
-                    &verts,
-                    false,
-                    false,
-                );
-            }
-            if input.dialogue_body_alpha > 0.0 {
-                if let Some((tex, ox, oy)) = &self.cached_body.surface {
-                    let a = input.dialogue_body_alpha;
-                    let verts = stage_quad_verts(
-                        sw / 8.0 + ox,
-                        sh / 1.27 + oy,
-                        tex.width as f32,
-                        tex.height as f32,
-                        sw,
-                        sh,
-                        [a; 4],
-                    );
+        let record_result: Result<(), RendererError> = (|| {
+            let mut encoder =
+                self.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("frame_encoder"),
+                    });
+
+            // 1. Clear `stage_root` transparent and draw background (`background` layer).
+            self.clear_rt(&mut encoder, SLOT_STAGE_ROOT, wgpu::Color::TRANSPARENT);
+            if let Some(bg_key) = input.background_key {
+                if let Some(bg) = self.backgrounds.get(bg_key) {
+                    let scale = if (bg.width as f32 / bg.height.max(1) as f32) > (sw / sh) {
+                        sh / bg.height.max(1) as f32
+                    } else {
+                        sw / bg.width.max(1) as f32
+                    };
+                    let draw_w = bg.width as f32 * scale;
+                    let draw_h = bg.height as f32 * scale;
+                    let x = (sw - draw_w) * 0.5;
+                    let y = (sh - draw_h) * 0.5;
+                    let verts = stage_quad_verts(x, y, draw_w, draw_h, sw, sh, [1.0; 4]);
                     self.draw_quads(
                         &mut encoder,
-                        SLOT_PRESENTATION_ROOT,
-                        &tex.view,
+                        &mut scratch,
+                        SLOT_STAGE_ROOT,
+                        &bg.quad_bg,
                         &verts,
                         false,
                         false,
                     );
                 }
             }
-            if input.dialogue_speaker_alpha > 0.0 {
-                if let Some((tex, ox, oy)) = &self.cached_speaker.surface {
-                    let a = input.dialogue_speaker_alpha;
-                    let verts = stage_quad_verts(
-                        sw / 9.0 + ox,
-                        sh / 1.3 - sw / 42.0 + oy,
-                        tex.width as f32,
-                        tex.height as f32,
-                        sw,
-                        sh,
-                        [a; 4],
-                    );
+
+            // 2. Render each visible Live2D model + child VFX + parent filters onto `stage_root`.
+            for model_in in input.models {
+                if !model_in.model.stage.visible || model_in.model.stage.alpha <= 0.0 {
+                    continue;
+                }
+                self.render_single_model(&mut encoder, &mut scratch, model_in)?;
+            }
+
+            // 3. Apply Stage filters (`stageRoot.filters`) into `presentation_root`.
+            let stage_filtered_slot = self.filters.apply_chain(
+                &mut encoder,
+                &self.pool_views,
+                &self.pool_filter_bgs,
+                &mut scratch.filter_scratch,
+                SLOT_STAGE_ROOT,
+                SCRATCH_START,
+                self.stage_width,
+                self.stage_height,
+                input.stage_filters,
+            );
+            if stage_filtered_slot != SLOT_PRESENTATION_ROOT {
+                let verts = full_ndc_quad([1.0; 4]);
+                self.draw_quads(
+                    &mut encoder,
+                    &mut scratch,
+                    SLOT_PRESENTATION_ROOT,
+                    &self.pool_quad_bgs[stage_filtered_slot],
+                    &verts,
+                    false,
+                    true,
+                );
+            }
+
+            // 4. Draw `ui` layer (Dialogue + Telop) into `presentation_root`.
+            if input.dialogue_visible {
+                if input.dialogue_bg_alpha > 0.0 {
+                    let a = input.dialogue_bg_alpha;
+                    let verts = stage_quad_verts(0.0, 0.0, sw, sh, sw, sh, [a; 4]);
                     self.draw_quads(
                         &mut encoder,
+                        &mut scratch,
                         SLOT_PRESENTATION_ROOT,
-                        &tex.view,
+                        &self.ui_text_bg.quad_bg,
                         &verts,
                         false,
                         false,
                     );
                 }
+                if input.dialogue_underline_alpha > 0.0 {
+                    let a = input.dialogue_underline_alpha;
+                    let uw = self.ui_text_underline.width as f32;
+                    let uh = self.ui_text_underline.height as f32;
+                    let ux = sw / 10.0;
+                    let uy = sh / 1.3;
+                    let verts = stage_quad_verts(ux, uy, uw, uh, sw, sh, [a; 4]);
+                    self.draw_quads(
+                        &mut encoder,
+                        &mut scratch,
+                        SLOT_PRESENTATION_ROOT,
+                        &self.ui_text_underline.quad_bg,
+                        &verts,
+                        false,
+                        false,
+                    );
+                }
+                if input.dialogue_body_alpha > 0.0 {
+                    if let Some((tex, ox, oy)) = &self.cached_body.surface {
+                        let a = input.dialogue_body_alpha;
+                        let verts = stage_quad_verts(
+                            sw / 8.0 + ox,
+                            sh / 1.27 + oy,
+                            tex.width as f32,
+                            tex.height as f32,
+                            sw,
+                            sh,
+                            [a; 4],
+                        );
+                        self.draw_quads(
+                            &mut encoder,
+                            &mut scratch,
+                            SLOT_PRESENTATION_ROOT,
+                            &tex.quad_bg,
+                            &verts,
+                            false,
+                            false,
+                        );
+                    }
+                }
+                if input.dialogue_speaker_alpha > 0.0 {
+                    if let Some((tex, ox, oy)) = &self.cached_speaker.surface {
+                        let a = input.dialogue_speaker_alpha;
+                        let verts = stage_quad_verts(
+                            sw / 9.0 + ox,
+                            sh / 1.3 - sw / 42.0 + oy,
+                            tex.width as f32,
+                            tex.height as f32,
+                            sw,
+                            sh,
+                            [a; 4],
+                        );
+                        self.draw_quads(
+                            &mut encoder,
+                            &mut scratch,
+                            SLOT_PRESENTATION_ROOT,
+                            &tex.quad_bg,
+                            &verts,
+                            false,
+                            false,
+                        );
+                    }
+                }
             }
-        }
 
-        if input.telop_visible && input.telop_alpha > 0.0 {
-            self.clear_rt(&mut encoder, SLOT_TELOP_RT, wgpu::Color::TRANSPARENT);
-            let tw = self.ui_telop.width as f32;
-            let th = self.ui_telop.height as f32;
-            let bg_verts = stage_quad_verts(
-                sw * 0.5 - tw * 0.5 + input.telop_x_offset,
-                sh * 0.5 - th * 0.5,
-                tw,
-                th,
-                sw,
-                sh,
-                [1.0; 4],
-            );
-            self.draw_quads(
-                &mut encoder,
-                SLOT_TELOP_RT,
-                &self.ui_telop.view,
-                &bg_verts,
-                false,
-                false,
-            );
-            if let Some((tex, ox, oy)) = &self.cached_telop.surface {
-                let t_verts = stage_quad_verts(
-                    sw * 0.5 - 10.0 + input.telop_x_offset + ox,
-                    sh * 0.5 + sh / 300.0 + oy,
-                    tex.width as f32,
-                    tex.height as f32,
+            if input.telop_visible && input.telop_alpha > 0.0 {
+                self.clear_rt(&mut encoder, SLOT_TELOP_RT, wgpu::Color::TRANSPARENT);
+                let tw = self.ui_telop.width as f32;
+                let th = self.ui_telop.height as f32;
+                let bg_verts = stage_quad_verts(
+                    sw * 0.5 - tw * 0.5 + input.telop_x_offset,
+                    sh * 0.5 - th * 0.5,
+                    tw,
+                    th,
                     sw,
                     sh,
                     [1.0; 4],
                 );
                 self.draw_quads(
                     &mut encoder,
+                    &mut scratch,
                     SLOT_TELOP_RT,
-                    &tex.view,
-                    &t_verts,
+                    &self.ui_telop.quad_bg,
+                    &bg_verts,
+                    false,
+                    false,
+                );
+                if let Some((tex, ox, oy)) = &self.cached_telop.surface {
+                    let t_verts = stage_quad_verts(
+                        sw * 0.5 - 10.0 + input.telop_x_offset + ox,
+                        sh * 0.5 + sh / 300.0 + oy,
+                        tex.width as f32,
+                        tex.height as f32,
+                        sw,
+                        sh,
+                        [1.0; 4],
+                    );
+                    self.draw_quads(
+                        &mut encoder,
+                        &mut scratch,
+                        SLOT_TELOP_RT,
+                        &tex.quad_bg,
+                        &t_verts,
+                        false,
+                        false,
+                    );
+                }
+                let alpha_verts = full_ndc_quad([input.telop_alpha; 4]);
+                self.draw_quads(
+                    &mut encoder,
+                    &mut scratch,
+                    SLOT_PRESENTATION_ROOT,
+                    &self.pool_quad_bgs[SLOT_TELOP_RT],
+                    &alpha_verts,
                     false,
                     false,
                 );
             }
-            let alpha_verts = full_ndc_quad([input.telop_alpha; 4]);
-            self.draw_quads(
+
+            // 5. Apply Screen filters (`presentationRoot.filters`).
+            let screen_filtered_slot = self.filters.apply_chain(
                 &mut encoder,
+                &self.pool_views,
+                &self.pool_filter_bgs,
+                &mut scratch.filter_scratch,
                 SLOT_PRESENTATION_ROOT,
-                &self.pool_views[SLOT_TELOP_RT],
-                &alpha_verts,
-                false,
-                false,
+                SCRATCH_START,
+                self.stage_width,
+                self.stage_height,
+                input.screen_filters,
             );
-        }
 
-        // 5. Apply Screen filters (`presentationRoot.filters`).
-        let screen_filtered_slot = self.filters.apply_chain(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &self.pool_views,
-            SLOT_PRESENTATION_ROOT,
-            SCRATCH_START,
-            self.stage_width,
-            self.stage_height,
-            input.screen_filters,
-        );
-
-        // 6. Composite `presentation_root` over backdrop color + `fade_overlay` into `final_output_rt`.
-        let bg = input.background_clear;
-        self.clear_rt(
-            &mut encoder,
-            SLOT_FINAL_OUTPUT,
-            wgpu::Color {
-                r: (bg[0] * bg[3]) as f64,
-                g: (bg[1] * bg[3]) as f64,
-                b: (bg[2] * bg[3]) as f64,
-                a: bg[3] as f64,
-            },
-        );
-        let pres_verts = full_ndc_quad([1.0; 4]);
-        self.draw_quads(
-            &mut encoder,
-            SLOT_FINAL_OUTPUT,
-            &self.pool_views[screen_filtered_slot],
-            &pres_verts,
-            false,
-            false,
-        );
-
-        if input.fade_visible && input.fade_alpha > 0.0 {
-            let a = input.fade_alpha;
-            let fade_col = [
-                input.fade_color[0] * a,
-                input.fade_color[1] * a,
-                input.fade_color[2] * a,
-                a,
-            ];
-            let fade_verts = full_ndc_quad(fade_col);
-            self.draw_quads(
+            // 6. Composite `presentation_root` over backdrop color + `fade_overlay` into `final_output_rt`.
+            let bg = input.background_clear;
+            self.clear_rt(
                 &mut encoder,
                 SLOT_FINAL_OUTPUT,
-                &self.white_tex.view,
-                &fade_verts,
+                wgpu::Color {
+                    r: (bg[0] * bg[3]) as f64,
+                    g: (bg[1] * bg[3]) as f64,
+                    b: (bg[2] * bg[3]) as f64,
+                    a: bg[3] as f64,
+                },
+            );
+            let pres_verts = full_ndc_quad([1.0; 4]);
+            self.draw_quads(
+                &mut encoder,
+                &mut scratch,
+                SLOT_FINAL_OUTPUT,
+                &self.pool_quad_bgs[screen_filtered_slot],
+                &pres_verts,
                 false,
                 false,
             );
-        }
 
-        // 7. Copy `final_output_rt` to readback buffer.
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.pool_textures[SLOT_FINAL_OUTPUT],
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &self.readback_buf,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.padded_bytes_per_row),
-                    rows_per_image: Some(self.stage_height),
+            if input.fade_visible && input.fade_alpha > 0.0 {
+                let a = input.fade_alpha;
+                let fade_col = [
+                    input.fade_color[0] * a,
+                    input.fade_color[1] * a,
+                    input.fade_color[2] * a,
+                    a,
+                ];
+                let fade_verts = full_ndc_quad(fade_col);
+                self.draw_quads(
+                    &mut encoder,
+                    &mut scratch,
+                    SLOT_FINAL_OUTPUT,
+                    &self.white_tex.quad_bg,
+                    &fade_verts,
+                    false,
+                    false,
+                );
+            }
+
+            // 7. Copy `final_output_rt` to the current slot's readback buffer.
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.pool_textures[SLOT_FINAL_OUTPUT],
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
                 },
-            },
-            wgpu::Extent3d {
-                width: self.stage_width,
-                height: self.stage_height,
-                depth_or_array_layers: 1,
-            },
-        );
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &self.readback_bufs[slot],
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(self.padded_bytes_per_row),
+                        rows_per_image: Some(self.stage_height),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: self.stage_width,
+                    height: self.stage_height,
+                    depth_or_array_layers: 1,
+                },
+            );
 
-        self.queue.submit(Some(encoder.finish()));
+            scratch.flush(&self.queue);
+            let submission_index: wgpu::SubmissionIndex = self.queue.submit(Some(encoder.finish()));
 
-        // Map & strip row padding into tight RGBA8 output.
-        let slice = self.readback_buf.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res| {
-            let _ = tx.send(res);
-        });
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        rx.recv()
-            .map_err(|_| RendererError::Gpu("GPU readback channel closed".to_string()))?
-            .map_err(|err| RendererError::Gpu(format!("GPU buffer map failed: {err}")))?;
+            let slice = self.readback_bufs[slot].slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |res| {
+                let _ = tx.send(res);
+            });
+            self.next_slot = slot ^ 1;
+            self.in_flight = Some(InFlightReadback {
+                slot,
+                submission_index,
+                rx,
+            });
+            Ok(())
+        })();
 
-        let mapped = slice
-            .get_mapped_range()
-            .map_err(|err| RendererError::Gpu(format!("GPU buffer map range failed: {err}")))?;
-        let row_bytes = (self.stage_width * 4) as usize;
-        let stride = self.padded_bytes_per_row as usize;
-        let mut rgba = vec![0u8; row_bytes * self.stage_height as usize];
-        for row in 0..self.stage_height as usize {
-            let src_start = row * stride;
-            let dst_start = row * row_bytes;
-            rgba[dst_start..dst_start + row_bytes]
-                .copy_from_slice(&mapped[src_start..src_start + row_bytes]);
-        }
-        drop(mapped);
-        self.readback_buf.unmap();
-
-        Ok(rgba)
+        self.scratches[slot] = Some(scratch);
+        record_result
     }
 
     fn render_single_model(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        scratch: &mut FrameScratch,
         model_in: &GpuRenderModelInput<'_>,
     ) -> Result<(), RendererError> {
         let model = model_in.model;
-        let textures = self.model_textures.get(&model.key).ok_or_else(|| {
+        let cache: &ModelGpuCache = self.model_caches.get(&model.key).ok_or_else(|| {
             RendererError::MissingAsset(format!(
                 "Live2D GPU textures not registered for '{}'",
                 model.key
@@ -998,49 +1574,21 @@ impl GpuSceneRenderer {
         let meshes = model.meshes();
         let (infos, plan) = model.build_clipping_plan()?;
 
-        // Concatenate all vertices & indices of all meshes of this model into shared GPU buffers.
-        let mut all_verts: Vec<Live2dVertex> = Vec::new();
-        let mut all_indices: Vec<u16> = Vec::new();
-        let mut mesh_ranges: Vec<(i32, u32, u32)> = Vec::with_capacity(meshes.len());
+        if cache.total_verts == 0 || cache.mesh_ranges.is_empty() {
+            return Ok(());
+        }
+
+        // Stage deformed vertex coordinates into this slot's shared GPU vertex buffer.
+        let model_v_base: i32 = scratch.l2d_verts.len() as i32;
         for mesh in meshes {
-            let base_v = all_verts.len() as i32;
             for v in mesh.vertices() {
-                all_verts.push(Live2dVertex {
+                scratch.l2d_verts.push(Live2dVertex {
                     pos: v.position(),
                     uv: v.uv(),
                 });
             }
-            let idx_start = all_indices.len() as u32;
-            all_indices.extend_from_slice(mesh.indices());
-            let idx_count = mesh.indices().len() as u32;
-            mesh_ranges.push((base_v, idx_start, idx_count));
         }
-
-        if all_verts.is_empty() || all_indices.is_empty() {
-            return Ok(());
-        }
-
-        let vbuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("l2d_vbuf"),
-            size: (all_verts.len() * std::mem::size_of::<Live2dVertex>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.queue
-            .write_buffer(&vbuf, 0, bytemuck::cast_slice(&all_verts));
-
-        let ibuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("l2d_ibo"),
-            size: align_to((all_indices.len() * 2) as u32, 4) as u64,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let raw_idx: &[u8] = bytemuck::cast_slice(&all_indices);
-        let mut padded_idx = raw_idx.to_vec();
-        while padded_idx.len() % 4 != 0 {
-            padded_idx.push(0);
-        }
-        self.queue.write_buffer(&ibuf, 0, &padded_idx);
+        let mesh_ranges: &[(i32, u32, u32)] = &cache.mesh_ranges;
 
         // Build drawable -> clipping context index lookup table.
         let mut drawable_ctx: Vec<Option<usize>> = vec![None; meshes.len()];
@@ -1055,6 +1603,7 @@ impl GpuSceneRenderer {
         // 1. Mask pass (if any clipping contexts exist).
         if !plan.contexts().is_empty() {
             let mut mask_calls: Vec<(usize, bool, usize)> = Vec::new();
+            let mask_u_base: usize = scratch.l2d_mask_raw.len();
             for ctx in plan.contexts() {
                 let Some(layout) = ctx.layout() else { continue };
                 let Some(clip_mat) = ctx.matrix_for_mask() else {
@@ -1073,111 +1622,34 @@ impl GpuSceneRenderer {
                         continue;
                     }
                     let m_idx = clip_idx_i32 as usize;
-                    if m_idx >= meshes.len() {
+                    if m_idx >= meshes.len() || m_idx >= mesh_ranges.len() {
                         continue;
                     }
                     let tex_i = meshes[m_idx].texture_index();
-                    if tex_i < 0 || (tex_i as usize) >= textures.len() {
+                    if tex_i < 0 || (tex_i as usize) >= cache.textures.len() {
                         continue;
                     }
-                    let (_, _, count) = mesh_ranges[m_idx];
-                    if count == 0 {
+                    if mesh_ranges[m_idx].2 == 0 {
                         continue;
                     }
-                    mask_calls.push((m_idx, false, 0));
-                    let _ = (clip_mat, u_rect, ch_flag);
+                    let u = Live2dMaskUniformGpu {
+                        clip_matrix: *clip_mat.as_slice(),
+                        base_color: u_rect,
+                        channel_flag: ch_flag,
+                    };
+                    let off: usize = scratch.l2d_mask_raw.len();
+                    scratch.l2d_mask_raw.resize(off + self.uniform_stride, 0);
+                    scratch.l2d_mask_raw[off..off + std::mem::size_of::<Live2dMaskUniformGpu>()]
+                        .copy_from_slice(bytemuck::bytes_of(&u));
+                    mask_calls.push((
+                        m_idx,
+                        (meshes[m_idx].drawable_flags() & 0x04) != 0,
+                        tex_i as usize,
+                    ));
                 }
             }
 
             if !mask_calls.is_empty() {
-                let mut mask_u_bytes = vec![0u8; mask_calls.len() * self.uniform_stride];
-                let mut write_slot = 0usize;
-                for ctx in plan.contexts() {
-                    let Some(layout) = ctx.layout() else { continue };
-                    let Some(clip_mat) = ctx.matrix_for_mask() else {
-                        continue;
-                    };
-                    let b = layout.bounds();
-                    let u_rect = [
-                        b.x() * 2.0 - 1.0,
-                        b.y() * 2.0 - 1.0,
-                        (b.x() + b.width()) * 2.0 - 1.0,
-                        (b.y() + b.height()) * 2.0 - 1.0,
-                    ];
-                    let ch_flag = layout.channel_flag();
-                    for &clip_idx_i32 in ctx.masks() {
-                        if clip_idx_i32 < 0 {
-                            continue;
-                        }
-                        let m_idx = clip_idx_i32 as usize;
-                        if m_idx >= meshes.len() {
-                            continue;
-                        }
-                        let tex_i = meshes[m_idx].texture_index();
-                        if tex_i < 0 || (tex_i as usize) >= textures.len() {
-                            continue;
-                        }
-                        if mesh_ranges[m_idx].2 == 0 {
-                            continue;
-                        }
-                        let u = Live2dMaskUniformGpu {
-                            clip_matrix: *clip_mat.as_slice(),
-                            base_color: u_rect,
-                            channel_flag: ch_flag,
-                        };
-                        let off = write_slot * self.uniform_stride;
-                        mask_u_bytes[off..off + std::mem::size_of::<Live2dMaskUniformGpu>()]
-                            .copy_from_slice(bytemuck::bytes_of(&u));
-                        mask_calls[write_slot] = (
-                            m_idx,
-                            (meshes[m_idx].drawable_flags() & 0x04) != 0,
-                            tex_i as usize,
-                        );
-                        write_slot += 1;
-                    }
-                }
-
-                let ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("l2d_mask_ubuf"),
-                    size: mask_u_bytes.len() as u64,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                self.queue.write_buffer(&ubuf, 0, &mask_u_bytes);
-                let u_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("l2d_mask_ubg"),
-                    layout: &self.live2d_mask_ubgl,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &ubuf,
-                            offset: 0,
-                            size: wgpu::BufferSize::new(
-                                std::mem::size_of::<Live2dMaskUniformGpu>() as u64,
-                            ),
-                        }),
-                    }],
-                });
-                let tex_bgs: Vec<wgpu::BindGroup> = textures
-                    .iter()
-                    .map(|t| {
-                        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some("l2d_mask_tbg"),
-                            layout: &self.live2d_mask_tbgl,
-                            entries: &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: wgpu::BindingResource::TextureView(&t.view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
-                                },
-                            ],
-                        })
-                    })
-                    .collect();
-
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("l2d_mask_pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1194,19 +1666,20 @@ impl GpuSceneRenderer {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                rpass.set_vertex_buffer(0, vbuf.slice(..));
-                rpass.set_index_buffer(ibuf.slice(..), wgpu::IndexFormat::Uint16);
-                for (slot, &(m_idx, double_sided, tex_i)) in mask_calls.iter().enumerate() {
+                rpass.set_vertex_buffer(0, scratch.l2d_vbuf.slice(..));
+                rpass.set_index_buffer(cache.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+                for (slot_idx, &(m_idx, double_sided, tex_i)) in mask_calls.iter().enumerate() {
                     let pipe = if double_sided {
                         &self.live2d_mask_pipe_nocull
                     } else {
                         &self.live2d_mask_pipe_cull
                     };
                     let (base_v, idx_start, idx_count) = mesh_ranges[m_idx];
+                    let dyn_off: u32 = (mask_u_base + slot_idx * self.uniform_stride) as u32;
                     rpass.set_pipeline(pipe);
-                    rpass.set_bind_group(0, &u_bg, &[(slot * self.uniform_stride) as u32]);
-                    rpass.set_bind_group(1, &tex_bgs[tex_i], &[]);
-                    rpass.draw_indexed(idx_start..idx_start + idx_count, base_v, 0..1);
+                    rpass.set_bind_group(0, &scratch.l2d_mask_ubg, &[dyn_off]);
+                    rpass.set_bind_group(1, &cache.mask_tbgs[tex_i], &[]);
+                    rpass.draw_indexed(idx_start..idx_start + idx_count, model_v_base + base_v, 0..1);
                 }
             }
         }
@@ -1222,11 +1695,11 @@ impl GpuSceneRenderer {
             blend_idx: usize,
             cull_idx: usize,
         }
-        let mut draw_calls = Vec::with_capacity(draw_order.len());
-        let mut draw_uniforms_raw = vec![0u8; draw_order.len().max(1) * self.uniform_stride];
+        let mut draw_calls: Vec<DrawCallMeta> = Vec::with_capacity(draw_order.len());
+        let draw_u_base: usize = scratch.l2d_draw_raw.len();
 
         for &d_idx in &draw_order {
-            if d_idx >= meshes.len() || d_idx >= infos.len() {
+            if d_idx >= meshes.len() || d_idx >= infos.len() || d_idx >= mesh_ranges.len() {
                 continue;
             }
             let info = &infos[d_idx];
@@ -1234,7 +1707,7 @@ impl GpuSceneRenderer {
                 continue;
             }
             let tex_i = info.texture_index();
-            if tex_i < 0 || (tex_i as usize) >= textures.len() {
+            if tex_i < 0 || (tex_i as usize) >= cache.textures.len() {
                 continue;
             }
             if mesh_ranges[d_idx].2 == 0 {
@@ -1267,9 +1740,9 @@ impl GpuSceneRenderer {
                 mask_mode,
                 _pad: [0; 3],
             };
-            let call_i = draw_calls.len();
-            let off = call_i * self.uniform_stride;
-            draw_uniforms_raw[off..off + std::mem::size_of::<Live2dDrawUniformGpu>()]
+            let off: usize = scratch.l2d_draw_raw.len();
+            scratch.l2d_draw_raw.resize(off + self.uniform_stride, 0);
+            scratch.l2d_draw_raw[off..off + std::mem::size_of::<Live2dDrawUniformGpu>()]
                 .copy_from_slice(bytemuck::bytes_of(&u));
 
             let blend_idx = match mesh.blend_mode() {
@@ -1291,54 +1764,6 @@ impl GpuSceneRenderer {
         }
 
         if !draw_calls.is_empty() {
-            let used_bytes = draw_calls.len() * self.uniform_stride;
-            let ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("l2d_draw_ubuf"),
-                size: used_bytes as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            self.queue
-                .write_buffer(&ubuf, 0, &draw_uniforms_raw[..used_bytes]);
-
-            let u_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("l2d_draw_ubg"),
-                layout: &self.live2d_draw_ubgl,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &ubuf,
-                        offset: 0,
-                        size: wgpu::BufferSize::new(
-                            std::mem::size_of::<Live2dDrawUniformGpu>() as u64
-                        ),
-                    }),
-                }],
-            });
-            let draw_tbgs: Vec<wgpu::BindGroup> = textures
-                .iter()
-                .map(|t| {
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("l2d_draw_tbg"),
-                        layout: &self.live2d_draw_tbgl,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&t.view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
-                            },
-                        ],
-                    })
-                })
-                .collect();
-
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("l2d_draw_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1355,14 +1780,15 @@ impl GpuSceneRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            rpass.set_vertex_buffer(0, vbuf.slice(..));
-            rpass.set_index_buffer(ibuf.slice(..), wgpu::IndexFormat::Uint16);
-            for (slot, meta) in draw_calls.iter().enumerate() {
+            rpass.set_vertex_buffer(0, scratch.l2d_vbuf.slice(..));
+            rpass.set_index_buffer(cache.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+            for (slot_idx, meta) in draw_calls.iter().enumerate() {
                 let (base_v, idx_start, idx_count) = mesh_ranges[meta.mesh_idx];
+                let dyn_off: u32 = (draw_u_base + slot_idx * self.uniform_stride) as u32;
                 rpass.set_pipeline(&self.live2d_pipes[meta.blend_idx][meta.cull_idx]);
-                rpass.set_bind_group(0, &u_bg, &[(slot * self.uniform_stride) as u32]);
-                rpass.set_bind_group(1, &draw_tbgs[meta.tex_idx], &[]);
-                rpass.draw_indexed(idx_start..idx_start + idx_count, base_v, 0..1);
+                rpass.set_bind_group(0, &scratch.l2d_draw_ubg, &[dyn_off]);
+                rpass.set_bind_group(1, &cache.draw_tbgs[meta.tex_idx], &[]);
+                rpass.draw_indexed(idx_start..idx_start + idx_count, model_v_base + base_v, 0..1);
             }
         }
 
@@ -1377,8 +1803,9 @@ impl GpuSceneRenderer {
             if !tri_verts.is_empty() {
                 self.draw_triangle_list(
                     encoder,
+                    scratch,
                     SLOT_MODEL_RT,
-                    &self.white_tex.view,
+                    &self.white_tex.quad_bg,
                     &tri_verts,
                     true,
                 );
@@ -1405,17 +1832,18 @@ impl GpuSceneRenderer {
             ));
             self.draw_triangle_list(
                 encoder,
+                scratch,
                 SLOT_BEAM_RT,
-                &self.ui_hologram.view,
+                &self.ui_hologram.quad_bg,
                 &beam_verts,
                 false,
             );
 
             let filtered_beam_slot = self.filters.apply_chain(
-                &self.device,
-                &self.queue,
                 encoder,
                 &self.pool_views,
+                &self.pool_filter_bgs,
+                &mut scratch.filter_scratch,
                 SLOT_BEAM_RT,
                 SCRATCH_START,
                 self.stage_width,
@@ -1425,39 +1853,55 @@ impl GpuSceneRenderer {
             let beam_comp_verts = full_ndc_quad([1.0; 4]);
             self.draw_quads(
                 encoder,
+                scratch,
                 SLOT_MODEL_RT,
-                &self.pool_views[filtered_beam_slot],
+                &self.pool_quad_bgs[filtered_beam_slot],
                 &beam_comp_verts,
                 false,
                 false,
             );
         }
 
-        // 5. Run model filter chain (`[AlphaFilter(model.alpha), ...parent_filters]`) and composite onto `SLOT_STAGE_ROOT`.
-        let mut model_filters = Vec::with_capacity(1 + model_in.parent_filters.len());
-        model_filters.push(GpuFilterSpec::Alpha(model.stage.alpha));
-        model_filters.extend_from_slice(model_in.parent_filters);
+        // 5. Composite onto `SLOT_STAGE_ROOT`, folding `AlphaFilter` into the composite quad when no
+        // parent filters are attached to avoid an extra full-screen pass.
+        if model_in.parent_filters.is_empty() {
+            let comp_verts = full_ndc_quad([model.stage.alpha; 4]);
+            self.draw_quads(
+                encoder,
+                scratch,
+                SLOT_STAGE_ROOT,
+                &self.pool_quad_bgs[SLOT_MODEL_RT],
+                &comp_verts,
+                false,
+                false,
+            );
+        } else {
+            let mut model_filters = Vec::with_capacity(1 + model_in.parent_filters.len());
+            model_filters.push(GpuFilterSpec::Alpha(model.stage.alpha));
+            model_filters.extend_from_slice(model_in.parent_filters);
 
-        let filtered_model_slot = self.filters.apply_chain(
-            &self.device,
-            &self.queue,
-            encoder,
-            &self.pool_views,
-            SLOT_MODEL_RT,
-            SCRATCH_START,
-            self.stage_width,
-            self.stage_height,
-            &model_filters,
-        );
-        let comp_verts = full_ndc_quad([1.0; 4]);
-        self.draw_quads(
-            encoder,
-            SLOT_STAGE_ROOT,
-            &self.pool_views[filtered_model_slot],
-            &comp_verts,
-            false,
-            false,
-        );
+            let filtered_model_slot = self.filters.apply_chain(
+                encoder,
+                &self.pool_views,
+                &self.pool_filter_bgs,
+                &mut scratch.filter_scratch,
+                SLOT_MODEL_RT,
+                SCRATCH_START,
+                self.stage_width,
+                self.stage_height,
+                &model_filters,
+            );
+            let comp_verts = full_ndc_quad([1.0; 4]);
+            self.draw_quads(
+                encoder,
+                scratch,
+                SLOT_STAGE_ROOT,
+                &self.pool_quad_bgs[filtered_model_slot],
+                &comp_verts,
+                false,
+                false,
+            );
+        }
 
         Ok(())
     }
@@ -1495,7 +1939,14 @@ impl GpuSceneRenderer {
         };
         let rendered: Option<RenderedTextSurface> = text_renderer.render_text(text, style)?;
         let gpu_surface = rendered.map(|s| {
-            let tex = GpuTextureAsset::from_premul(&self.device, &self.queue, &s.image, "ui_text");
+            let tex = GpuTextureAsset::from_premul(
+                &self.device,
+                &self.queue,
+                &self.quad_tex_bgl,
+                &self.sampler_clamp,
+                &s.image,
+                "ui_text",
+            );
             (tex, s.offset_x, s.offset_y)
         });
         let target = match slot {
@@ -1530,59 +1981,35 @@ impl GpuSceneRenderer {
     fn draw_quads(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        scratch: &mut FrameScratch,
         dst_slot: usize,
-        tex_view: &wgpu::TextureView,
+        tex_bg: &wgpu::BindGroup,
         verts: &[QuadVertex; 4],
         additive: bool,
         clear_first: bool,
     ) {
-        let mut tri = Vec::with_capacity(6);
-        tri.push(verts[0]);
-        tri.push(verts[1]);
-        tri.push(verts[2]);
-        tri.push(verts[0]);
-        tri.push(verts[2]);
-        tri.push(verts[3]);
+        let tri: [QuadVertex; 6] = [verts[0], verts[1], verts[2], verts[0], verts[2], verts[3]];
         if clear_first {
             self.clear_rt(encoder, dst_slot, wgpu::Color::TRANSPARENT);
         }
-        self.draw_triangle_list(encoder, dst_slot, tex_view, &tri, additive);
+        self.draw_triangle_list(encoder, scratch, dst_slot, tex_bg, &tri, additive);
     }
 
     fn draw_triangle_list(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        scratch: &mut FrameScratch,
         dst_slot: usize,
-        tex_view: &wgpu::TextureView,
+        tex_bg: &wgpu::BindGroup,
         verts: &[QuadVertex],
         additive: bool,
     ) {
         if verts.is_empty() {
             return;
         }
-        let vbuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tri_vbuf"),
-            size: (verts.len() * std::mem::size_of::<QuadVertex>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.queue
-            .write_buffer(&vbuf, 0, bytemuck::cast_slice(verts));
-
-        let tex_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("quad_tbg"),
-            layout: &self.quad_tex_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(tex_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
-                },
-            ],
-        });
+        let v_start: u32 = scratch.quad_verts.len() as u32;
+        scratch.quad_verts.extend_from_slice(verts);
+        let v_end: u32 = scratch.quad_verts.len() as u32;
 
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("tri_pass"),
@@ -1605,9 +2032,9 @@ impl GpuSceneRenderer {
         } else {
             &self.quad_pipe_normal
         });
-        rpass.set_bind_group(0, &tex_bg, &[]);
-        rpass.set_vertex_buffer(0, vbuf.slice(..));
-        rpass.draw(0..verts.len() as u32, 0..1);
+        rpass.set_bind_group(0, tex_bg, &[]);
+        rpass.set_vertex_buffer(0, scratch.quad_vbuf.slice(..));
+        rpass.draw(v_start..v_end, 0..1);
     }
 }
 
@@ -1875,5 +2302,80 @@ mod tests {
             non_black_pixels > 50_000,
             "Expected significant rendered model & UI coverage, got {non_black_pixels}"
         );
+    }
+
+    #[test]
+    fn pipelined_double_buffer_matches_sync_render() {
+        let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../tests/models/01ichika_normal_3.0_f_t04/01ichika_normal_3.0_f_t04.model3.json",
+        );
+        let mut model = Live2DModelInstance::load("ichika", &model_path, 42).expect("load model");
+        let scale = (720.0 / model.original_height()) * 2.1;
+        model.stage.pos_x = 640.0;
+        model.stage.pos_y = 720.0 * 0.8;
+        model.stage.scale = scale;
+        model.stage.anchor_x = 0.5;
+        model.stage.anchor_y = 0.5;
+        model.stage.alpha = 0.85;
+        model.stage.visible = true;
+        model.accumulate_delta_ms(16.0);
+        model.commit_frame_update();
+
+        let mut gpu = GpuSceneRenderer::new(1280, 720).expect("init headless wgpu");
+        gpu.register_live2d_model("ichika", &model);
+        let mut text_renderer =
+            StoryTextRenderer::new(&PlaybackFontConfig::Default, None).expect("font");
+
+        let input_a = GpuRenderFrameInput {
+            background_key: None,
+            models: &[GpuRenderModelInput {
+                model: &model,
+                parent_filters: &[],
+                particles: &[],
+                hologram_beams: &[],
+            }],
+            stage_filters: &[],
+            screen_filters: &[],
+            dialogue_visible: true,
+            dialogue_bg_alpha: 1.0,
+            dialogue_underline_alpha: 1.0,
+            dialogue_body_text: "测试双缓冲渲染一致性 A",
+            dialogue_body_alpha: 1.0,
+            dialogue_speaker_text: "星乃一歌",
+            dialogue_speaker_alpha: 1.0,
+            telop_visible: false,
+            telop_text: "",
+            telop_alpha: 0.0,
+            telop_x_offset: 0.0,
+            fade_visible: false,
+            fade_color: [0.0; 4],
+            fade_alpha: 0.0,
+            background_clear: [0.0, 0.0, 0.0, 1.0],
+        };
+        let input_b = GpuRenderFrameInput {
+            dialogue_body_text: "测试双缓冲渲染一致性 B",
+            fade_visible: true,
+            fade_color: [0.1, 0.2, 0.3, 1.0],
+            fade_alpha: 0.25,
+            ..input_a
+        };
+
+        let sync_a: Vec<u8> = gpu.render_frame(&input_a, &mut text_renderer).expect("sync a");
+        let sync_b: Vec<u8> = gpu.render_frame(&input_b, &mut text_renderer).expect("sync b");
+
+        let mut out_a: Vec<u8> = Vec::new();
+        let mut out_b: Vec<u8> = Vec::new();
+        assert!(!gpu
+            .submit_and_drain_previous_into(&input_a, &mut text_renderer, &mut out_a)
+            .expect("submit a"));
+        assert!(gpu
+            .submit_and_drain_previous_into(&input_b, &mut text_renderer, &mut out_a)
+            .expect("submit b drain a"));
+        assert!(gpu
+            .finish_pending_frame_into(&mut out_b)
+            .expect("flush b"));
+
+        assert_eq!(out_a, sync_a);
+        assert_eq!(out_b, sync_b);
     }
 }

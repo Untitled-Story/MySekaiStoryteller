@@ -1,16 +1,17 @@
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::sync::{mpsc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use super::audio::{decode_audio_file, mix_timeline_audio, DecodedAudio, ScheduledVoiceEvent};
 use super::clock::DeterministicClock;
 use super::config::VideoExportConfig;
 use super::dispatcher::{SceneDriver, StoryRunner};
 use super::encoder::{
-    create_video_encoder_with_options, AudioTrackEncoder, H264EncoderOptions, Mp4MuxerWriter,
-    OxideAacAudioEncoder,
+    create_video_encoder_with_options, encode_interleaved_i16_parallel, encode_rgba_gop_chunk,
+    EncodedAudioPacket, EncodedVideoPacket, H264EncoderOptions, Mp4MuxerWriter,
 };
 use super::error::RendererError;
 use super::scene_impl::StorySceneState;
@@ -128,118 +129,53 @@ where
         config.fps,
         config.include_audio,
     )?;
-    let mut video_encoder = create_video_encoder_with_options(
-        config.width,
-        config.height,
-        config.fps,
-        H264EncoderOptions {
-            quality: config.quality,
-            qp: config.resolved_video_qp(),
-            bitrate_bps: config.resolved_video_bitrate_bps(),
-            gop_size: config.resolved_gop_frames(),
-        },
-    )?;
+    let h264_opts = H264EncoderOptions {
+        quality: config.quality,
+        qp: config.resolved_video_qp(),
+        bitrate_bps: config.resolved_video_bitrate_bps(),
+        gop_size: config.resolved_gop_frames(),
+    };
 
-    let mut scene = StorySceneState::new_with_voices(input, config, seed_used, predecoded_voices)?;
-    let mut runner = StoryRunner::new(input.story.clone());
-    runner.initialize(&mut scene)?;
-
-    let mut video_frames: u64 = 0;
-
-    // Frame 0 (`pts = 0.0`) after synchronous initialization.
-    {
-        let rgba = scene.render_current_frame()?;
-        for pkt in video_encoder.encode_rgba(&rgba, 0.0)? {
-            muxer.write_video(pkt.pts_secs, &pkt.annex_b, pkt.is_keyframe)?;
-        }
-        video_frames += 1;
-        emit_progress(
-            &mut on_progress,
-            ExportStage::Rendering,
-            video_frames,
+    let (video_frames, scheduled_voices, decoded_voices, audio_packets): (
+        u64,
+        Vec<ScheduledVoiceEvent>,
+        HashMap<String, DecodedAudio>,
+        Vec<EncodedAudioPacket>,
+    ) = if h264_opts.bitrate_bps == 0 {
+        run_parallel_gop_pipeline(
+            input,
+            config,
+            seed_used,
+            predecoded_voices,
             estimated_total_frames,
-            0.0,
+            frame_dt_ms,
+            h264_opts,
+            &mut muxer,
+            cancel,
             &started,
-        );
-    }
-
-    let trailing_ms = config.trailing_hold_ms as f64;
-    let mut hold_elapsed_ms = 0.0_f64;
-
-    while video_frames < MAX_EXPORT_FRAMES {
-        check_cancel(cancel)?;
-        if runner.is_fully_idle() {
-            if hold_elapsed_ms + 1e-6 >= trailing_ms {
-                break;
-            }
-            let step_ms = frame_dt_ms.min(trailing_ms - hold_elapsed_ms);
-            let substeps = DeterministicClock::substeps_for_frame(step_ms);
-            let sub_ms = step_ms / substeps as f64;
-            for s in 0..substeps {
-                let t = runner.now_ms() + sub_ms * ((s + 1) as f64);
-                scene.tick_scene(sub_ms, t);
-            }
-            hold_elapsed_ms += step_ms;
-        } else {
-            runner.step_frame(frame_dt_ms, &mut scene)?;
-        }
-
-        let pts_secs = (video_frames as f64) / (config.fps as f64);
-        let rgba = scene.render_current_frame()?;
-        for pkt in video_encoder.encode_rgba(&rgba, pts_secs)? {
-            muxer.write_video(pkt.pts_secs, &pkt.annex_b, pkt.is_keyframe)?;
-        }
-        video_frames += 1;
-        emit_progress(
             &mut on_progress,
-            ExportStage::Rendering,
-            video_frames,
-            estimated_total_frames.max(video_frames),
-            video_frames as f64 * frame_dt_ms,
+        )?
+    } else {
+        run_streaming_abr_pipeline(
+            input,
+            config,
+            seed_used,
+            predecoded_voices,
+            estimated_total_frames,
+            frame_dt_ms,
+            h264_opts,
+            &mut muxer,
+            cancel,
             &started,
-        );
-    }
-
-    for pkt in video_encoder.finish()? {
-        let pts_secs = (video_frames as f64) / (config.fps as f64);
-        muxer.write_video(pts_secs, &pkt.annex_b, pkt.is_keyframe)?;
-    }
+            &mut on_progress,
+        )?
+    };
+    let _ = (&scheduled_voices, &decoded_voices);
 
     check_cancel(cancel)?;
     let total_video_duration_ms = (video_frames as f64) * frame_dt_ms;
 
     let audio_frame_count: u64 = if config.include_audio {
-        emit_progress(
-            &mut on_progress,
-            ExportStage::EncodingAudio,
-            video_frames,
-            video_frames,
-            total_video_duration_ms,
-            &started,
-        );
-
-        let gain_mult = config.audio_gain_multiplier();
-        let scaled_voices: Vec<ScheduledVoiceEvent> = scene
-            .scheduled_voices()
-            .iter()
-            .map(|ev| ScheduledVoiceEvent {
-                start_ms: ev.start_ms,
-                voice_key: ev.voice_key.clone(),
-                gain: ev.gain * gain_mult,
-            })
-            .collect();
-
-        let pcm = mix_timeline_audio(
-            &scaled_voices,
-            scene.decoded_voices(),
-            total_video_duration_ms,
-        );
-        let mut audio_encoder =
-            OxideAacAudioEncoder::with_bitrate(config.resolved_audio_bitrate_bps())?;
-        let mut audio_packets = audio_encoder.encode_interleaved_i16(&pcm)?;
-        audio_packets.extend(audio_encoder.finish()?);
-
-        check_cancel(cancel)?;
         emit_progress(
             &mut on_progress,
             ExportStage::Muxing,
@@ -249,7 +185,7 @@ where
             &started,
         );
 
-        let count = audio_packets.len() as u64;
+        let count: u64 = audio_packets.len() as u64;
         for pkt in &audio_packets {
             muxer.write_audio(pkt.pts_secs, &pkt.adts_frame)?;
         }
@@ -341,29 +277,646 @@ fn emit_progress<F: FnMut(ExportProgress)>(
     });
 }
 
+struct GopJob {
+    seq_idx: usize,
+    base_frame_index: u64,
+    frames: Vec<Vec<u8>>,
+}
+
+struct GopQueueState {
+    pending: VecDeque<GopJob>,
+    active_gops: usize,
+    closed: bool,
+    aborted: bool,
+}
+
+struct BoundedGopQueue {
+    state: Mutex<GopQueueState>,
+    cv: Condvar,
+    max_in_flight: usize,
+    free_frames: Mutex<Vec<Vec<u8>>>,
+    max_cached_frames: usize,
+}
+
+impl BoundedGopQueue {
+    fn new(max_in_flight: usize, gop_size: usize) -> Self {
+        Self {
+            state: Mutex::new(GopQueueState {
+                pending: VecDeque::new(),
+                active_gops: 0,
+                closed: false,
+                aborted: false,
+            }),
+            cv: Condvar::new(),
+            max_in_flight: max_in_flight.max(1),
+            free_frames: Mutex::new(Vec::new()),
+            max_cached_frames: (max_in_flight + 1).saturating_mul(gop_size.max(1)),
+        }
+    }
+
+    fn take_frame_buffer(&self) -> Vec<u8> {
+        let mut pool = self.free_frames.lock().expect("free_frames lock poisoned");
+        pool.pop().unwrap_or_default()
+    }
+
+    fn recycle_frames(&self, frames: Vec<Vec<u8>>) {
+        let mut pool = self.free_frames.lock().expect("free_frames lock poisoned");
+        for frame in frames {
+            if pool.len() >= self.max_cached_frames {
+                break;
+            }
+            pool.push(frame);
+        }
+    }
+
+    fn push(&self, job: GopJob, cancel: Option<&AtomicBool>) -> Result<(), RendererError> {
+        let mut st = self.state.lock().expect("gop queue lock poisoned");
+        while st.active_gops >= self.max_in_flight && !st.aborted {
+            if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+                st.aborted = true;
+                self.cv.notify_all();
+                return Err(RendererError::Cancelled);
+            }
+            let (guard, _) = self
+                .cv
+                .wait_timeout(st, Duration::from_millis(25))
+                .expect("gop queue lock poisoned");
+            st = guard;
+        }
+        if st.aborted {
+            return Err(RendererError::VideoEncode(
+                "H.264 GOP pipeline aborted".to_string(),
+            ));
+        }
+        st.active_gops += 1;
+        st.pending.push_back(job);
+        self.cv.notify_all();
+        Ok(())
+    }
+
+    fn pop(&self) -> Option<GopJob> {
+        let mut st = self.state.lock().expect("gop queue lock poisoned");
+        loop {
+            if st.aborted {
+                return None;
+            }
+            if let Some(job) = st.pending.pop_front() {
+                return Some(job);
+            }
+            if st.closed {
+                return None;
+            }
+            st = self.cv.wait(st).expect("gop queue lock poisoned");
+        }
+    }
+
+    fn complete_one(&self) {
+        let mut st = self.state.lock().expect("gop queue lock poisoned");
+        st.active_gops = st.active_gops.saturating_sub(1);
+        self.cv.notify_all();
+    }
+
+    fn close(&self) {
+        let mut st = self.state.lock().expect("gop queue lock poisoned");
+        st.closed = true;
+        self.cv.notify_all();
+    }
+
+    fn abort(&self) {
+        let mut st = self.state.lock().expect("gop queue lock poisoned");
+        st.aborted = true;
+        st.pending.clear();
+        self.cv.notify_all();
+    }
+}
+
+fn drive_pipelined_scene_frames<F, OnFrame>(
+    input: &ProjectRenderInput,
+    config: &VideoExportConfig,
+    seed_used: u64,
+    predecoded_voices: HashMap<String, DecodedAudio>,
+    estimated_total_frames: u64,
+    frame_dt_ms: f64,
+    cancel: Option<&AtomicBool>,
+    started: &Instant,
+    on_progress: &mut F,
+    mut on_rgba_frame: OnFrame,
+) -> Result<(u64, Vec<ScheduledVoiceEvent>, HashMap<String, DecodedAudio>), RendererError>
+where
+    F: FnMut(ExportProgress),
+    OnFrame: FnMut(u64, &mut Vec<u8>) -> Result<(), RendererError>,
+{
+    let mut scene = StorySceneState::new_with_voices(input, config, seed_used, predecoded_voices)?;
+    let mut runner = StoryRunner::new(input.story.clone());
+    runner.initialize(&mut scene)?;
+
+    let mut completed_rgba: Vec<u8> = Vec::new();
+    let _ = scene.submit_and_drain_previous_frame_into(&mut completed_rgba)?;
+    let mut submitted_frames: u64 = 1;
+    let mut retired_frames: u64 = 0;
+
+    let trailing_ms: f64 = config.trailing_hold_ms as f64;
+    let mut hold_elapsed_ms: f64 = 0.0;
+
+    while submitted_frames < MAX_EXPORT_FRAMES {
+        check_cancel(cancel)?;
+        if runner.is_fully_idle() {
+            if hold_elapsed_ms + 1e-6 >= trailing_ms {
+                break;
+            }
+            let step_ms: f64 = frame_dt_ms.min(trailing_ms - hold_elapsed_ms);
+            let substeps: u32 = DeterministicClock::substeps_for_frame(step_ms);
+            let sub_ms: f64 = step_ms / substeps as f64;
+            for s in 0..substeps {
+                let t: f64 = runner.now_ms() + sub_ms * ((s + 1) as f64);
+                scene.tick_scene(sub_ms, t);
+            }
+            hold_elapsed_ms += step_ms;
+        } else {
+            runner.step_frame(frame_dt_ms, &mut scene)?;
+        }
+
+        if scene.submit_and_drain_previous_frame_into(&mut completed_rgba)? {
+            on_rgba_frame(retired_frames, &mut completed_rgba)?;
+            retired_frames += 1;
+            emit_progress(
+                on_progress,
+                ExportStage::Rendering,
+                retired_frames,
+                estimated_total_frames.max(retired_frames),
+                retired_frames as f64 * frame_dt_ms,
+                started,
+            );
+        }
+        submitted_frames += 1;
+    }
+
+    if scene.finish_pending_frame_into(&mut completed_rgba)? {
+        on_rgba_frame(retired_frames, &mut completed_rgba)?;
+        retired_frames += 1;
+        emit_progress(
+            on_progress,
+            ExportStage::Rendering,
+            retired_frames,
+            estimated_total_frames.max(retired_frames),
+            retired_frames as f64 * frame_dt_ms,
+            started,
+        );
+    }
+
+    let (scheduled_voices, decoded_voices) = scene.into_audio_timeline();
+    Ok((retired_frames, scheduled_voices, decoded_voices))
+}
+
+fn mix_and_encode_audio_track(
+    config: &VideoExportConfig,
+    scheduled_voices: &[ScheduledVoiceEvent],
+    decoded_voices: &HashMap<String, DecodedAudio>,
+    total_video_duration_ms: f64,
+    video_frames: u64,
+    started: &Instant,
+    on_progress: &mut impl FnMut(ExportProgress),
+) -> Result<Vec<EncodedAudioPacket>, RendererError> {
+    if !config.include_audio {
+        return Ok(Vec::new());
+    }
+    emit_progress(
+        on_progress,
+        ExportStage::EncodingAudio,
+        video_frames,
+        video_frames,
+        total_video_duration_ms,
+        started,
+    );
+    let gain_mult: f32 = config.audio_gain_multiplier();
+    let scaled_voices: Vec<ScheduledVoiceEvent> = scheduled_voices
+        .iter()
+        .map(|ev| ScheduledVoiceEvent {
+            start_ms: ev.start_ms,
+            voice_key: ev.voice_key.clone(),
+            gain: ev.gain * gain_mult,
+        })
+        .collect();
+    let pcm: Vec<i16> = mix_timeline_audio(&scaled_voices, decoded_voices, total_video_duration_ms);
+    encode_interleaved_i16_parallel(&pcm, config.resolved_audio_bitrate_bps())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_parallel_gop_pipeline<F>(
+    input: &ProjectRenderInput,
+    config: &VideoExportConfig,
+    seed_used: u64,
+    predecoded_voices: HashMap<String, DecodedAudio>,
+    estimated_total_frames: u64,
+    frame_dt_ms: f64,
+    h264_opts: H264EncoderOptions,
+    muxer: &mut Mp4MuxerWriter,
+    cancel: Option<&AtomicBool>,
+    started: &Instant,
+    on_progress: &mut F,
+) -> Result<
+    (
+        u64,
+        Vec<ScheduledVoiceEvent>,
+        HashMap<String, DecodedAudio>,
+        Vec<EncodedAudioPacket>,
+    ),
+    RendererError,
+>
+where
+    F: FnMut(ExportProgress),
+{
+    let gop_size: usize = h264_opts.gop_size.max(1) as usize;
+    let worker_count: usize = std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(1))
+        .unwrap_or(1)
+        .clamp(1, 8);
+    let queue: BoundedGopQueue = BoundedGopQueue::new(worker_count + 1, gop_size);
+    let (res_tx, res_rx) = mpsc::channel::<(usize, Result<Vec<EncodedVideoPacket>, RendererError>)>();
+
+    let width: u32 = config.width;
+    let height: u32 = config.height;
+    let fps: u32 = config.fps;
+
+    let mut audio_packets: Vec<EncodedAudioPacket> = Vec::new();
+    let mut video_frames_out: u64 = 0;
+    let mut scheduled_out: Vec<ScheduledVoiceEvent> = Vec::new();
+    let mut decoded_out: HashMap<String, DecodedAudio> = HashMap::new();
+
+    std::thread::scope(|scope| -> Result<(), RendererError> {
+        let mut worker_handles = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            let queue_ref: &BoundedGopQueue = &queue;
+            let tx: mpsc::Sender<(usize, Result<Vec<EncodedVideoPacket>, RendererError>)> =
+                res_tx.clone();
+            worker_handles.push(scope.spawn(move || {
+                while let Some(job) = queue_ref.pop() {
+                    let seq_idx: usize = job.seq_idx;
+                    let enc_res: Result<Vec<EncodedVideoPacket>, RendererError> =
+                        encode_rgba_gop_chunk(
+                            &job.frames,
+                            job.base_frame_index,
+                            width,
+                            height,
+                            fps,
+                            h264_opts,
+                        );
+                    queue_ref.recycle_frames(job.frames);
+                    queue_ref.complete_one();
+                    if enc_res.is_err() {
+                        queue_ref.abort();
+                    }
+                    let _ = tx.send((seq_idx, enc_res));
+                }
+            }));
+        }
+        drop(res_tx);
+
+        let queue_for_mux: &BoundedGopQueue = &queue;
+        let mux_handle = scope.spawn(move || -> Result<(), RendererError> {
+            let mut next_seq: usize = 0;
+            let mut reordered: BTreeMap<usize, Vec<EncodedVideoPacket>> = BTreeMap::new();
+            while let Ok((seq_idx, enc_res)) = res_rx.recv() {
+                let packets: Vec<EncodedVideoPacket> = match enc_res {
+                    Ok(pkts) => pkts,
+                    Err(err) => {
+                        queue_for_mux.abort();
+                        return Err(err);
+                    }
+                };
+                reordered.insert(seq_idx, packets);
+                while let Some(ready_pkts) = reordered.remove(&next_seq) {
+                    for pkt in ready_pkts {
+                        if let Err(err) =
+                            muxer.write_video(pkt.pts_secs, &pkt.annex_b, pkt.is_keyframe)
+                        {
+                            queue_for_mux.abort();
+                            return Err(err);
+                        }
+                    }
+                    next_seq += 1;
+                }
+            }
+            Ok(())
+        });
+
+        let mut gop_frames: Vec<Vec<u8>> = Vec::with_capacity(gop_size);
+        let mut gop_base_frame: u64 = 0;
+        let mut next_seq_idx: usize = 0;
+
+        let render_res: Result<(u64, Vec<ScheduledVoiceEvent>, HashMap<String, DecodedAudio>), RendererError> =
+            drive_pipelined_scene_frames(
+                input,
+                config,
+                seed_used,
+                predecoded_voices,
+                estimated_total_frames,
+                frame_dt_ms,
+                cancel,
+                started,
+                on_progress,
+                |frame_idx, rgba_buf| {
+                    let mut owned_slot: Vec<u8> = queue.take_frame_buffer();
+                    std::mem::swap(&mut owned_slot, rgba_buf);
+                    if gop_frames.is_empty() {
+                        gop_base_frame = frame_idx;
+                    }
+                    gop_frames.push(owned_slot);
+                    if gop_frames.len() >= gop_size {
+                        let batch: Vec<Vec<u8>> =
+                            std::mem::replace(&mut gop_frames, Vec::with_capacity(gop_size));
+                        let seq: usize = next_seq_idx;
+                        next_seq_idx += 1;
+                        queue.push(
+                            GopJob {
+                                seq_idx: seq,
+                                base_frame_index: gop_base_frame,
+                                frames: batch,
+                            },
+                            cancel,
+                        )?;
+                    }
+                    Ok(())
+                },
+            );
+
+        let (video_frames, scheduled_voices, decoded_voices) = match render_res {
+            Ok(vals) => vals,
+            Err(err) => {
+                queue.abort();
+                for h in worker_handles {
+                    let _ = h.join();
+                }
+                let _ = mux_handle.join();
+                return Err(err);
+            }
+        };
+
+        if !gop_frames.is_empty() {
+            let seq: usize = next_seq_idx;
+            if let Err(err) = queue.push(
+                GopJob {
+                    seq_idx: seq,
+                    base_frame_index: gop_base_frame,
+                    frames: gop_frames,
+                },
+                cancel,
+            ) {
+                queue.abort();
+                for h in worker_handles {
+                    let _ = h.join();
+                }
+                let _ = mux_handle.join();
+                return Err(err);
+            }
+        }
+        queue.close();
+
+        // Mix and AAC-encode audio concurrently while workers finish trailing H.264 GOPs.
+        let total_video_duration_ms: f64 = (video_frames as f64) * frame_dt_ms;
+        let audio_res: Result<Vec<EncodedAudioPacket>, RendererError> = mix_and_encode_audio_track(
+            config,
+            &scheduled_voices,
+            &decoded_voices,
+            total_video_duration_ms,
+            video_frames,
+            started,
+            on_progress,
+        );
+
+        for h in worker_handles {
+            let _ = h.join();
+        }
+        mux_handle.join().unwrap_or_else(|_| {
+            Err(RendererError::VideoEncode(
+                "Video mux thread panicked".to_string(),
+            ))
+        })?;
+
+        audio_packets = audio_res?;
+        video_frames_out = video_frames;
+        scheduled_out = scheduled_voices;
+        decoded_out = decoded_voices;
+        Ok(())
+    })?;
+
+    Ok((video_frames_out, scheduled_out, decoded_out, audio_packets))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_streaming_abr_pipeline<F>(
+    input: &ProjectRenderInput,
+    config: &VideoExportConfig,
+    seed_used: u64,
+    predecoded_voices: HashMap<String, DecodedAudio>,
+    estimated_total_frames: u64,
+    frame_dt_ms: f64,
+    h264_opts: H264EncoderOptions,
+    muxer: &mut Mp4MuxerWriter,
+    cancel: Option<&AtomicBool>,
+    started: &Instant,
+    on_progress: &mut F,
+) -> Result<
+    (
+        u64,
+        Vec<ScheduledVoiceEvent>,
+        HashMap<String, DecodedAudio>,
+        Vec<EncodedAudioPacket>,
+    ),
+    RendererError,
+>
+where
+    F: FnMut(ExportProgress),
+{
+    let mut video_encoder =
+        create_video_encoder_with_options(config.width, config.height, config.fps, h264_opts)?;
+    let (frame_tx, frame_rx) = mpsc::sync_channel::<(u64, Vec<u8>)>(4);
+    let free_frames: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+    let fps: u32 = config.fps;
+
+    let mut video_frames_out: u64 = 0;
+    let mut scheduled_out: Vec<ScheduledVoiceEvent> = Vec::new();
+    let mut decoded_out: HashMap<String, DecodedAudio> = HashMap::new();
+    let mut audio_packets: Vec<EncodedAudioPacket> = Vec::new();
+
+    std::thread::scope(|scope| -> Result<(), RendererError> {
+        let free_ref: &Mutex<Vec<Vec<u8>>> = &free_frames;
+        let enc_handle = scope.spawn(move || -> Result<(), RendererError> {
+            let mut encoded_count: u64 = 0;
+            while let Ok((frame_idx, rgba)) = frame_rx.recv() {
+                let pts_secs: f64 = (frame_idx as f64) / (fps as f64);
+                let pkts: Vec<EncodedVideoPacket> = video_encoder.encode_rgba(&rgba, pts_secs)?;
+                {
+                    let mut pool = free_ref.lock().expect("abr free_frames poisoned");
+                    if pool.len() < 4 {
+                        pool.push(rgba);
+                    }
+                }
+                for pkt in pkts {
+                    muxer.write_video(pkt.pts_secs, &pkt.annex_b, pkt.is_keyframe)?;
+                }
+                encoded_count += 1;
+            }
+            for pkt in video_encoder.finish()? {
+                let pts_secs: f64 = (encoded_count as f64) / (fps as f64);
+                muxer.write_video(pts_secs, &pkt.annex_b, pkt.is_keyframe)?;
+            }
+            Ok(())
+        });
+
+        let render_res: Result<(u64, Vec<ScheduledVoiceEvent>, HashMap<String, DecodedAudio>), RendererError> =
+            drive_pipelined_scene_frames(
+                input,
+                config,
+                seed_used,
+                predecoded_voices,
+                estimated_total_frames,
+                frame_dt_ms,
+                cancel,
+                started,
+                on_progress,
+                |frame_idx, rgba_buf| {
+                    let mut owned: Vec<u8> = {
+                        let mut pool = free_frames.lock().expect("abr free_frames poisoned");
+                        pool.pop().unwrap_or_default()
+                    };
+                    std::mem::swap(&mut owned, rgba_buf);
+                    frame_tx.send((frame_idx, owned)).map_err(|_| {
+                        RendererError::VideoEncode("ABR encoder thread terminated early".to_string())
+                    })
+                },
+            );
+        drop(frame_tx);
+
+        let (video_frames, scheduled_voices, decoded_voices) = match render_res {
+            Ok(vals) => vals,
+            Err(err) => {
+                let _ = enc_handle.join();
+                return Err(err);
+            }
+        };
+
+        let total_video_duration_ms: f64 = (video_frames as f64) * frame_dt_ms;
+        let audio_res: Result<Vec<EncodedAudioPacket>, RendererError> = mix_and_encode_audio_track(
+            config,
+            &scheduled_voices,
+            &decoded_voices,
+            total_video_duration_ms,
+            video_frames,
+            started,
+            on_progress,
+        );
+
+        enc_handle.join().unwrap_or_else(|_| {
+            Err(RendererError::VideoEncode(
+                "ABR video encoder thread panicked".to_string(),
+            ))
+        })?;
+        audio_packets = audio_res?;
+        video_frames_out = video_frames;
+        scheduled_out = scheduled_voices;
+        decoded_out = decoded_voices;
+        Ok(())
+    })?;
+
+    Ok((video_frames_out, scheduled_out, decoded_out, audio_packets))
+}
+
+fn collect_voice_keys(
+    snippets: &[SnippetData],
+    seen: &mut HashSet<String>,
+    out: &mut Vec<String>,
+) {
+    for snippet in snippets {
+        match snippet {
+            SnippetData::Talk { data, .. } => {
+                if let (Some(_), Some(voice_key)) = (&data.model, &data.voice) {
+                    if seen.insert(voice_key.clone()) {
+                        out.push(voice_key.clone());
+                    }
+                }
+            }
+            SnippetData::Parallel { snippets: inner, .. } => {
+                collect_voice_keys(inner, seen, out);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn predecode_story_voices(
     input: &ProjectRenderInput,
     cancel: Option<&AtomicBool>,
 ) -> Result<HashMap<String, DecodedAudio>, RendererError> {
-    let mut keys = Vec::new();
-    let mut seen = HashSet::new();
-    for snippet in &input.story.snippets {
-        if let SnippetData::Talk { data, .. } = snippet {
-            if let (Some(_), Some(voice_key)) = (&data.model, &data.voice) {
-                if seen.insert(voice_key.clone()) {
-                    keys.push(voice_key.clone());
+    let mut keys: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    collect_voice_keys(&input.story.snippets, &mut seen, &mut keys);
+
+    if keys.len() <= 1 {
+        let mut map: HashMap<String, DecodedAudio> = HashMap::with_capacity(keys.len());
+        for key in keys {
+            check_cancel(cancel)?;
+            let path: PathBuf = input.resolve_voice_path(&key)?;
+            let decoded: DecodedAudio = decode_audio_file(&path)?;
+            map.insert(key, decoded);
+        }
+        return Ok(map);
+    }
+
+    let worker_count: usize = std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(1))
+        .unwrap_or(1)
+        .clamp(1, 8)
+        .min(keys.len());
+    let next_idx: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let results: Mutex<HashMap<String, DecodedAudio>> =
+        Mutex::new(HashMap::with_capacity(keys.len()));
+
+    let worker_res: Result<(), RendererError> = std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            let keys_ref: &[String] = &keys;
+            let idx_ref: &std::sync::atomic::AtomicUsize = &next_idx;
+            let results_ref: &Mutex<HashMap<String, DecodedAudio>> = &results;
+            handles.push(scope.spawn(move || -> Result<(), RendererError> {
+                loop {
+                    check_cancel(cancel)?;
+                    let idx: usize = idx_ref.fetch_add(1, Ordering::Relaxed);
+                    let Some(key) = keys_ref.get(idx) else {
+                        break;
+                    };
+                    let path: PathBuf = input.resolve_voice_path(key)?;
+                    let decoded: DecodedAudio = decode_audio_file(&path)?;
+                    results_ref
+                        .lock()
+                        .expect("voice map lock poisoned")
+                        .insert(key.clone(), decoded);
                 }
+                Ok(())
+            }));
+        }
+        let mut first_err: Option<RendererError> = None;
+        for h in handles {
+            match h.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) if first_err.is_none() => first_err = Some(e),
+                Ok(Err(_)) => {}
+                Err(_) if first_err.is_none() => {
+                    first_err = Some(RendererError::AudioDecode(
+                        "Voice decode worker panicked".to_string(),
+                    ));
+                }
+                Err(_) => {}
             }
         }
-    }
-    let mut map = HashMap::with_capacity(keys.len());
-    for key in keys {
-        check_cancel(cancel)?;
-        let path = input.resolve_voice_path(&key)?;
-        let decoded = decode_audio_file(&path)?;
-        map.insert(key, decoded);
-    }
-    Ok(map)
+        if let Some(err) = first_err {
+            Err(err)
+        } else {
+            Ok(())
+        }
+    });
+    worker_res?;
+    Ok(results.into_inner().expect("voice map lock poisoned"))
 }
 
 fn estimate_story_duration_ms(

@@ -127,8 +127,45 @@ impl<'a> StorySceneState<'a> {
         &self.decoded_voices
     }
 
+    /// Consumes the scene state and returns the collected voice events and decoded voice buffers.
+    pub fn into_audio_timeline(self) -> (Vec<ScheduledVoiceEvent>, HashMap<String, DecodedAudio>) {
+        (self.scheduled_voices, self.decoded_voices)
+    }
+
     /// Commits zero-dt parameter changes onto attached Live2D meshes and composites the current frame to RGBA8.
     pub fn render_current_frame(&mut self) -> Result<Vec<u8>, RendererError> {
+        self.with_prepared_frame(|gpu, text_renderer, frame_input| {
+            gpu.render_frame(frame_input, text_renderer)
+        })
+    }
+
+    /// Submits the current frame onto the active double-buffered GPU slot and, when a previous frame
+    /// was in-flight, completes its readback into `prev_rgba_out` (returning `Ok(true)`).
+    pub fn submit_and_drain_previous_frame_into(
+        &mut self,
+        prev_rgba_out: &mut Vec<u8>,
+    ) -> Result<bool, RendererError> {
+        self.with_prepared_frame(|gpu, text_renderer, frame_input| {
+            gpu.submit_and_drain_previous_into(frame_input, text_renderer, prev_rgba_out)
+        })
+    }
+
+    /// Completes the final trailing in-flight GPU frame readback into `rgba_out`.
+    pub fn finish_pending_frame_into(
+        &mut self,
+        rgba_out: &mut Vec<u8>,
+    ) -> Result<bool, RendererError> {
+        self.gpu.finish_pending_frame_into(rgba_out)
+    }
+
+    fn with_prepared_frame<R>(
+        &mut self,
+        render_fn: impl FnOnce(
+            &mut GpuSceneRenderer,
+            &mut StoryTextRenderer,
+            &GpuRenderFrameInput<'_>,
+        ) -> Result<R, RendererError>,
+    ) -> Result<R, RendererError> {
         for key in &self.model_order {
             if let Some(entry) = self.models.get_mut(key) {
                 if entry.instance.stage.visible && entry.instance.stage.alpha > 0.0 {
@@ -196,7 +233,7 @@ impl<'a> StorySceneState<'a> {
             background_clear: self.background_clear,
         };
 
-        self.gpu.render_frame(&frame_input, &mut self.text_renderer)
+        render_fn(&mut self.gpu, &mut self.text_renderer, &frame_input)
     }
 
     fn ensure_model_loaded(&mut self, model_key: &str) -> Result<(), RendererError> {
@@ -512,7 +549,7 @@ impl<'a> SceneDriver for StorySceneState<'a> {
             if let Some(entry) = self.models.get_mut(model_key) {
                 entry.instance.set_mouth_sync(mouth_open);
                 entry.instance.accumulate_delta_ms(delta_ms as f32);
-                entry.instance.commit_frame_update();
+                entry.instance.commit_simulation_step(false);
             }
         }
     }

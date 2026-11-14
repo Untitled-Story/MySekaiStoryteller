@@ -228,23 +228,26 @@ impl Live2DModelInstance {
 
     /// Runs `Cubism4InternalModel.update(dt, now)` matching `cubism.es.js:11928-11957`.
     pub fn commit_frame_update(&mut self) {
-        let dt_ms = self.pending_delta_ms;
-        self.pending_delta_ms = 0.0;
-        let dt = dt_ms / 1000.0;
-        self.elapsed_seconds += dt;
-        let now = self.elapsed_seconds;
+        self.commit_simulation_step(true);
+    }
 
-        let eye_ids = self.eye_blink_ids.clone();
-        let lip_ids = self.lip_sync_ids.clone();
+    /// Advances motions, expressions, blink, breath, lip-sync, physics, and pose,
+    /// optionally skipping `update_meshes()` on intermediate substeps that are not rendered.
+    pub fn commit_simulation_step(&mut self, update_meshes: bool) {
+        let dt_ms: f32 = self.pending_delta_ms;
+        self.pending_delta_ms = 0.0;
+        let dt: f32 = dt_ms / 1000.0;
+        self.elapsed_seconds += dt;
+        let now: f32 = self.elapsed_seconds;
+
         let repeat_flags = &self.repeat_flags;
 
         // 1. Update parallel motions onto current parameters (`updateMotions` before `saveParameters`).
-        let mut motion_updated = false;
+        let mut motion_updated: bool = false;
         let runtime = self.runtime_model.runtime_mut();
         for track in &mut self.parallel_tracks {
             motion_updated |= track.update_parameters(runtime, now, repeat_flags);
         }
-        let _ = (eye_ids, lip_ids);
 
         // 2. `model.saveParameters()`.
         let param_values = runtime.parameter_values();
@@ -284,7 +287,9 @@ impl Live2DModelInstance {
         }
 
         // 9. `model.update()` -> regenerate deformed vertices / opacity / colors.
-        runtime.update_meshes();
+        if update_meshes {
+            runtime.update_meshes();
+        }
 
         // 10. `model.loadParameters()`.
         for (idx, &saved) in self.saved_parameters.iter().enumerate() {
