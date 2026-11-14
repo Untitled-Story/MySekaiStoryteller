@@ -14,19 +14,44 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+audioadapter-buffers = "5.2"
+base64 = "0.22"
+bytemuck = { version = "1.22", features = ["derive"] }
+cosmic-text = { version = "0.19", default-features = false, features = ["std", "swash"] }
 http = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 log = "0.4"
 mime_guess = "2"
+mocari = { version = "0.4", default-features = false }
+muxide = { version = "0.5", default-features = false }
+oxideav-aac = "0.1"
 percent-encoding = "2"
+pollster = "0.4"
+rand = "0.9"
+rand_chacha = "0.9"
+resvg = { version = "0.50", default-features = false, features = ["svgz", "raster-images"] }
+rubato = "5.1"
+rusty_h264-common = { version = "0.17", default-features = false, features = ["std"] }
+rusty_h264-encoder = { version = "0.17", default-features = false, features = ["std", "global-alloc"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+symphonia = { version = "0.6", features = ["all"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
+tiny-skia = "0.12"
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "gles", "wgsl"] }
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
+
+[features]
+default = []
+native-hw-accel = []
+
+[dev-dependencies]
+rusty_h264-decoder = { version = "0.17", default-features = false, features = ["std", "global-alloc"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"

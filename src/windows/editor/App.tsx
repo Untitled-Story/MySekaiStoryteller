@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CirclePlay,
   Clapperboard,
+  Film,
   FileJson,
   FileArchive,
   LoaderCircle,
@@ -34,6 +35,7 @@ import {
 } from '@/components/ui/AlertDialog'
 import { Button } from '@/components/ui/Button'
 import { Toast, type ToastVariant } from '@/components/ui/Toast'
+import { ExportVideoDialog } from '@/components/export/ExportVideoDialog'
 import {
   Dialog,
   DialogContent,
@@ -216,6 +218,7 @@ export default function App({
   const [storySaveError, setStorySaveError] = useState<string | null>(null)
   const [projectMutationInProgress, setProjectMutationInProgress] = useState<boolean>(false)
   const [exportingProject, setExportingProject] = useState<boolean>(false)
+  const [exportVideoOpen, setExportVideoOpen] = useState<boolean>(false)
   const [editorNotice, setEditorNotice] = useState<EditorNotice | null>(null)
   const [registerModelOpen, setRegisterModelOpen] = useState<boolean>(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -1379,6 +1382,18 @@ export default function App({
           <Button
             type="button"
             variant="outline"
+            size="icon"
+            className={phoneLayout ? 'size-10 shrink-0' : compactChrome ? 'size-9' : 'size-8'}
+            aria-label={t('videoExport.action')}
+            title={t('videoExport.action')}
+            disabled={exportingProject || editorSaving}
+            onClick={(): void => setExportVideoOpen(true)}
+          >
+            <Film className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
             size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
             className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
             data-tour="editor-preview-button"
@@ -1593,6 +1608,15 @@ export default function App({
             throw error
           }
         }}
+      />
+      <ExportVideoDialog
+        open={exportVideoOpen}
+        projectName={loadedProject.previewInput.projectName}
+        onOpenChange={setExportVideoOpen}
+        onPrepareExport={flushEditorWrites}
+        onNotice={(message: string, variant: ToastVariant): void =>
+          setEditorNotice({ id: Date.now(), message, variant })
+        }
       />
     </main>
   )

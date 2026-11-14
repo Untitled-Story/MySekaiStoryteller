@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/Card'
-import { Clock, Edit3, Play, Trash2, FileEdit, MoreHorizontal } from 'lucide-react'
+import { Clock, Edit3, Film, Play, Trash2, FileEdit, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { timeAgo } from '@/windows/main/utils/time'
 import type { ProjectMetadata } from '@/project/metadata'
@@ -31,6 +31,8 @@ import {
   DialogFooter
 } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
+import { Toast, type ToastVariant } from '@/components/ui/Toast'
+import { ExportVideoDialog } from '@/components/export/ExportVideoDialog'
 import { useTranslation } from 'react-i18next'
 
 interface ProjectCardProps {
@@ -43,6 +45,12 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps):
   const { t } = useTranslation()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showRenameDialog, setShowRenameDialog] = useState(false)
+  const [showExportVideoDialog, setShowExportVideoDialog] = useState<boolean>(false)
+  const [exportNotice, setExportNotice] = useState<{
+    id: number
+    message: string
+    variant: ToastVariant
+  } | null>(null)
   const [newName, setNewName] = useState(metadata.title)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
@@ -207,6 +215,10 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps):
             <FileEdit className="w-4 h-4 mr-2" />
             {t('common.rename')}
           </ContextMenuItem>
+          <ContextMenuItem onClick={(): void => setShowExportVideoDialog(true)}>
+            <Film className="w-4 h-4 mr-2" />
+            {t('videoExport.action')}
+          </ContextMenuItem>
           <ContextMenuItem variant="destructive" onClick={() => setShowDeleteDialog(true)}>
             <Trash2 className="w-4 h-4 mr-2" />
             {t('common.delete')}
@@ -263,6 +275,25 @@ export function ProjectCard({ metadata, onDelete, onRename }: ProjectCardProps):
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ExportVideoDialog
+        open={showExportVideoDialog}
+        projectName={metadata.title}
+        onOpenChange={setShowExportVideoDialog}
+        onNotice={(message: string, variant: ToastVariant): void =>
+          setExportNotice({ id: Date.now(), message, variant })
+        }
+      />
+
+      {exportNotice && (
+        <Toast
+          key={exportNotice.id}
+          message={exportNotice.message}
+          variant={exportNotice.variant}
+          closeLabel={t('common.close')}
+          onDismiss={(): void => setExportNotice(null)}
+        />
+      )}
     </>
   )
 }

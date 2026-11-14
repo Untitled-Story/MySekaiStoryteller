@@ -16,6 +16,7 @@ import {
   Trash2,
   Clock,
   Download,
+  Film,
   Upload
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
@@ -31,6 +32,7 @@ import { deleteProject, renameProject } from '@/project/api'
 import { timeAgo } from '@/windows/main/utils/time'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { exportProjectArchive, requestProjectImport } from '@/project/archive'
+import { ExportVideoDialog } from '@/components/export/ExportVideoDialog'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -82,6 +84,7 @@ export default function ProjectsPage(): JSX.Element {
   const [newName, setNewName] = useState('')
   const [isRenaming, setIsRenaming] = useState(false)
   const [exportingProject, setExportingProject] = useState<string | null>(null)
+  const [videoExportTarget, setVideoExportTarget] = useState<string | null>(null)
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null)
 
   const filtered = useMemo(() => {
@@ -377,6 +380,10 @@ export default function ProjectsPage(): JSX.Element {
                       ? t('projectArchive.exporting')
                       : t('projectArchive.export')}
                   </ContextMenuItem>
+                  <ContextMenuItem onClick={(): void => setVideoExportTarget(metadata.title)}>
+                    <Film className="w-4 h-4 mr-2" />
+                    {t('videoExport.action')}
+                  </ContextMenuItem>
                   <ContextMenuItem
                     variant="destructive"
                     onClick={() => setDeleteTarget(metadata.title)}
@@ -455,6 +462,17 @@ export default function ProjectsPage(): JSX.Element {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ExportVideoDialog
+        open={videoExportTarget !== null}
+        projectName={videoExportTarget}
+        onOpenChange={(open: boolean): void => {
+          if (!open) setVideoExportTarget(null)
+        }}
+        onNotice={(message: string, variant: ToastVariant): void =>
+          setExportNotice({ id: Date.now(), message, variant })
+        }
+      />
 
       {exportNotice && (
         <Toast

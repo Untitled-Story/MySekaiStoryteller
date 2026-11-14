@@ -34,7 +34,7 @@ pub struct ProjectMetadata {
     pub assets_summary: Option<AssetsSummary>,
 }
 
-fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let settings = get_settings(app.clone());
     if let Some(dir) = settings
         .and_then(|s| s.workspace_dir)
@@ -268,7 +268,7 @@ fn resolve_project_file(project_path: &Path, relative_path: &str) -> Result<Path
     Ok(project_path.join(normalized))
 }
 
-fn project_path(app: &AppHandle, project_name: &str) -> Result<PathBuf, String> {
+pub(crate) fn project_path(app: &AppHandle, project_name: &str) -> Result<PathBuf, String> {
     validate_project_name(project_name)?;
     let dir = projects_dir(app)?;
     let path = dir.join(project_name);
