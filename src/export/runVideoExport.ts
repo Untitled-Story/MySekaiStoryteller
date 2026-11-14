@@ -16,6 +16,7 @@ import {
 import { isMobileRuntime } from '@/lib/platform'
 import { installPixiWebGLStateCache, isSoftwareWebGLRenderer } from '@/lib/glStateCache'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
+import { suspendInteractivePixiTickers } from '@/lib/pixiTickerControl'
 import type { SnippetData, StoryData } from '@/story/schema'
 import {
   OfflineSpeechCoordinator,
@@ -125,11 +126,12 @@ export async function runVideoExport(params: RunVideoExportParams): Promise<Vide
   const app: Application = new Application()
   const softwareWebGL: boolean = isSoftwareWebGLRenderer()
   const useAntialias: boolean = !softwareWebGL && config.width * config.height < 2560 * 1440
-  const progressIntervalMs: number = softwareWebGL || mobileRuntime ? 250 : 80
-  const uiYieldIntervalMs: number = softwareWebGL || mobileRuntime ? 120 : 48
+  const progressIntervalMs: number = softwareWebGL || mobileRuntime ? 400 : 100
+  const uiYieldIntervalMs: number = softwareWebGL || mobileRuntime ? 250 : 64
   let runtime: StoryRuntime | null = null
   let pipeline: ExportPipeline | null = null
   let renderTarget: RenderTexture | null = null
+  const restoreTickers: () => void = suspendInteractivePixiTickers()
 
   try {
     await ensureSekaiLive2DReady()
@@ -357,7 +359,8 @@ export async function runVideoExport(params: RunVideoExportParams): Promise<Vide
         await settleDispatcher(clock, () => storyFinished, signal)
         if (storyError) throw storyError
 
-        await scene.waitForVisualEffectsReady()
+        const vfxReady: Promise<void> | void = scene.waitForVisualEffectsReady()
+        if (vfxReady) await vfxReady
         scene.stepVisualEffects(subMs)
         stepAttachedModels(runtime.models.values(), subMs)
       }
@@ -451,6 +454,7 @@ export async function runVideoExport(params: RunVideoExportParams): Promise<Vide
     } catch {
       // Ignore cleanup errors if init failed partway
     }
+    restoreTickers()
   }
 }
 
@@ -605,7 +609,7 @@ async function settleDispatcher(
   isFinished: () => boolean,
   signal?: AbortSignal
 ): Promise<void> {
-  await flushMicrotasks(6)
+  await flushMicrotasks(2)
   let zeroTaskYields: number = 0
   while (!isFinished() && clock.activeTaskCount === 0) {
     throwIfAborted(signal)

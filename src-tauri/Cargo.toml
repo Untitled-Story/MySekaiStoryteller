@@ -31,3 +31,6 @@ zip = { version = "2.4", default-features = false, features = ["deflate"] }
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-webdriver-automation = "0.1.3"

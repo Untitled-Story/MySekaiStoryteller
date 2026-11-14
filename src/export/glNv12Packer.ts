@@ -669,7 +669,6 @@ export class GlFramePacker {
     gl.colorMask(true, true, true, true)
     // Invalidate previous FBO contents via clear before drawing so Apple Silicon Metal TBDR
     // starts the render pass with MTLLoadActionClear instead of reloading prior tile data.
-    gl.viewport(0, 0, this.fboWidth, this.fboHeight)
     gl.clear(gl.COLOR_BUFFER_BIT)
 
     gl.bindVertexArray(this.quadVao)
@@ -682,6 +681,7 @@ export class GlFramePacker {
       gl.useProgram(this.uvProgram)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     } else {
+      gl.viewport(0, 0, this.fboWidth, this.fboHeight)
       gl.useProgram(this.program)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     }

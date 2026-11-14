@@ -62,6 +62,11 @@ pub fn run() {
             .plugin(tauri_plugin_global_shortcut::Builder::new().build());
     }
 
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    {
+        builder = builder.plugin(tauri_plugin_webdriver_automation::init());
+    }
+
     builder = builder
         .setup(|app| {
             log::info!(

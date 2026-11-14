@@ -5,7 +5,9 @@ import { LoaderCircle, Pause, Play, RotateCcw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/style'
 import { describeError as describeLogError, logger } from '@/lib/logger'
+import { installPixiWebGLStateCache } from '@/lib/glStateCache'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
+import { registerInteractivePixiApp } from '@/lib/pixiTickerControl'
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { ProjectAssets } from '@/project/assets'
 import type { AppSettings, RenderPrecision } from '@/settings/types'
@@ -90,6 +92,7 @@ export function EditorPreview({
     let disposed = false
     let app: Application | null = null
     let appInitialized = false
+    let unregisterApp: (() => void) | null = null
     let runtime: StoryRuntime | null = null
     let preloadedModels: StoryModelInstance[] = []
     let resourcesDestroyed = false
@@ -110,6 +113,8 @@ export function EditorPreview({
     function destroyResources(): void {
       if (resourcesDestroyed) return
       resourcesDestroyed = true
+      unregisterApp?.()
+      unregisterApp = null
       logger.debug('editor.preview_engine_disposed', {
         projectName: input.projectName,
         durationMs: Math.round(performance.now() - startedAt)
@@ -152,6 +157,8 @@ export function EditorPreview({
           resolution: resolveRenderPrecision(input.settings),
           backgroundAlpha: 0
         })
+        installPixiWebGLStateCache(previewApp.renderer)
+        unregisterApp = registerInteractivePixiApp(previewApp)
         appInitialized = true
         if (disposed) return
         stageElement.replaceChildren(previewApp.canvas)

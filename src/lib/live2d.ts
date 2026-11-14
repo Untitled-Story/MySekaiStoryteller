@@ -1,5 +1,6 @@
 import { extensions, type Ticker } from 'pixi.js'
 import type { Live2DFactoryOptions, Live2DModel } from 'untitled-pixi-live2d-engine'
+import { installLive2DPerformancePatches } from './live2dPerfPatch'
 
 type Live2DEngine = typeof import('untitled-pixi-live2d-engine')
 
@@ -42,6 +43,7 @@ export async function ensureSekaiLive2DReady(cubismMemorySizeMB = 32): Promise<L
 
   live2DEnginePromise ??= import('untitled-pixi-live2d-engine').then(async (engine) => {
     extensions.add(engine.Live2DPlugin)
+    installLive2DPerformancePatches(engine)
     live2DEngine = engine
     return engine
   })

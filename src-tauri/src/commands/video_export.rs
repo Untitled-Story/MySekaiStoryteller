@@ -29,9 +29,9 @@ const MIN_HEIGHT: u32 = 240;
 const MIN_FPS: f64 = 1.0;
 const MAX_FPS: f64 = 240.0;
 #[cfg(desktop)]
-const FFMPEG_PIPE_QUEUE_CAPACITY: usize = 8;
+const FFMPEG_PIPE_QUEUE_CAPACITY: usize = 12;
 #[cfg(desktop)]
-const WRITER_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+const WRITER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(desktop)]
 const STDERR_CAPTURE_LIMIT_BYTES: usize = 64 * 1024;
 
@@ -1138,7 +1138,7 @@ fn select_ffmpeg_encoder(
     }
 
     for candidate in candidates {
-        if has_sw(candidate) || (!prefer_hardware && has_hw(candidate)) {
+        if has_sw(candidate) {
             return Some((*candidate).to_string());
         }
     }
@@ -1277,7 +1277,7 @@ fn build_ffmpeg_video_args(
         "libx264" | "libx265" => {
             let preset = if encoder == "libx264" {
                 if total_pixels >= 3840 * 2160 && request.fps >= 90.0 {
-                    "superfast"
+                    "ultrafast"
                 } else if high_throughput {
                     "veryfast"
                 } else {
@@ -1508,6 +1508,9 @@ mod tests {
         let selected = select_ffmpeg_encoder("hevc", true, false, &hw, &sw);
         assert_eq!(selected.as_deref(), Some("hevc_videotoolbox"));
 
+        let sw_selected = select_ffmpeg_encoder("h264", false, false, &hw, &sw);
+        assert_eq!(sw_selected.as_deref(), Some("libx264"));
+
         let req = sample_request();
         let args =
             build_ffmpeg_video_args(&req, "hevc_videotoolbox", Path::new("/tmp/v.mp4")).unwrap();
@@ -1522,7 +1525,7 @@ mod tests {
 
         let x264_args =
             build_ffmpeg_video_args(&req, "libx264", Path::new("/tmp/v_x264.mp4")).unwrap();
-        assert!(x264_args.windows(2).any(|w| w == ["-preset", "superfast"]));
+        assert!(x264_args.windows(2).any(|w| w == ["-preset", "ultrafast"]));
         assert!(x264_args.windows(2).any(|w| w == ["-pix_fmt", "yuv420p"]));
     }
 

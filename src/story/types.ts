@@ -141,7 +141,7 @@ export type StorySceneApi = {
   restoreState(state: StorySceneState): Promise<void>
   waitForPendingActions(): Promise<void>
   stepVisualEffects(deltaMs: number): void
-  waitForVisualEffectsReady(): Promise<void>
+  waitForVisualEffectsReady(): Promise<void> | void
   setLayoutMode(mode: LayoutModeData): Promise<void>
   setBackground(backgroundKey: string): Promise<void>
   showModel(options: StoryModelAppearOptions): Promise<void>

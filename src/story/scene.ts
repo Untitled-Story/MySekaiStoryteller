@@ -290,7 +290,7 @@ export function createStoryScene({
     stepVisualEffects(deltaMs: number): void {
       visualEffectManager.stepMs(deltaMs)
     },
-    waitForVisualEffectsReady(): Promise<void> {
+    waitForVisualEffectsReady(): Promise<void> | void {
       return visualEffectManager.waitUntilReady()
     },
     async restoreState(state: StorySceneState): Promise<void> {

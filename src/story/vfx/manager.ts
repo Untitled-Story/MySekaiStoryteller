@@ -151,14 +151,20 @@ export class StoryVisualEffectManager {
     this.updateAll(deltaMs * 0.06)
   }
 
-  async waitUntilReady(): Promise<void> {
-    const pending: Promise<void>[] = []
+  waitUntilReady(): Promise<void> | void {
+    if (this.effects.size === 0) return
+    let pending: Promise<void>[] | null = null
     for (const managed of this.effects.values()) {
       for (const effect of managed.effects) {
-        if (effect.ready) pending.push(effect.ready)
+        if (effect.ready) {
+          if (!pending) pending = []
+          pending.push(effect.ready)
+        }
       }
     }
-    await Promise.all(pending)
+    if (pending) {
+      return Promise.all(pending).then((): void => undefined)
+    }
   }
 
   private async animateProgress(

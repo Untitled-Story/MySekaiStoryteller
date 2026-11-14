@@ -14,7 +14,9 @@ import {
 import { closePlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import { cn } from '@/lib/style'
+import { installPixiWebGLStateCache } from '@/lib/glStateCache'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
+import { registerInteractivePixiApp } from '@/lib/pixiTickerControl'
 import {
   createStoryRuntime,
   destroyStoryRuntime,
@@ -288,6 +290,7 @@ export default function App({
     let app: Application | null = null
     let appInitialized = false
     let appDestroyed = false
+    let unregisterApp: (() => void) | null = null
     let mountedCanvas: HTMLCanvasElement | null = null
     let dispatcher: StoryDispatcher | null = null
     let runtime: StoryRuntime | null = null
@@ -322,6 +325,8 @@ export default function App({
     function destroyInitializedApp(): void {
       if (!app || !appInitialized || appDestroyed) return
       appDestroyed = true
+      unregisterApp?.()
+      unregisterApp = null
       app.destroy(true, { children: true })
     }
 
@@ -339,6 +344,8 @@ export default function App({
         resolution: resolveRenderPrecision(currentStoryInput.settings),
         backgroundAlpha: 0
       })
+      installPixiWebGLStateCache(playerApp.renderer)
+      unregisterApp = registerInteractivePixiApp(playerApp)
 
       appInitialized = true
       mountedCanvas = playerApp.canvas
