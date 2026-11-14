@@ -55,7 +55,10 @@ class BlurEffect extends FilterEffectBase<BlurFilter> {
 }
 
 class OldFilmEffect extends FilterEffectBase<OldFilmFilter> {
-  constructor(private readonly config: EffectByType<'OldFilm'>) {
+  constructor(
+    private readonly config: EffectByType<'OldFilm'>,
+    private readonly random: () => number
+  ) {
     super(
       new OldFilmFilter({
         ...config,
@@ -76,12 +79,15 @@ class OldFilmEffect extends FilterEffectBase<OldFilmFilter> {
 
   override update(delta: number): void {
     void delta
-    if (this.enabled) this.filter.seed = Math.random()
+    if (this.enabled) this.filter.seed = this.random()
   }
 }
 
 class CrtEffect extends FilterEffectBase<CRTFilter> {
-  constructor(private readonly config: EffectByType<'CRT'>) {
+  constructor(
+    private readonly config: EffectByType<'CRT'>,
+    private readonly random: () => number
+  ) {
     super(
       new CRTFilter({
         ...config,
@@ -104,7 +110,7 @@ class CrtEffect extends FilterEffectBase<CRTFilter> {
   override update(delta: number): void {
     if (!this.enabled) return
     this.filter.time += delta * 0.01
-    this.filter.seed = Math.random()
+    this.filter.seed = this.random()
   }
 }
 
@@ -124,11 +130,11 @@ export const createGrayscaleEffect: StoryVisualEffectFactory = (_context, config
 export const createBlurEffect: StoryVisualEffectFactory = (_context, config) =>
   new BlurEffect(requireConfig(config, 'Blur'))
 
-export const createOldFilmEffect: StoryVisualEffectFactory = (_context, config) =>
-  new OldFilmEffect(requireConfig(config, 'OldFilm'))
+export const createOldFilmEffect: StoryVisualEffectFactory = (context, config) =>
+  new OldFilmEffect(requireConfig(config, 'OldFilm'), context.random)
 
-export const createCrtEffect: StoryVisualEffectFactory = (_context, config) =>
-  new CrtEffect(requireConfig(config, 'CRT'))
+export const createCrtEffect: StoryVisualEffectFactory = (context, config) =>
+  new CrtEffect(requireConfig(config, 'CRT'), context.random)
 
 export const createColorOverlayEffect: StoryVisualEffectFactory = (_context, config) =>
   new ColorOverlayEffect(requireConfig(config, 'ColorOverlay'))

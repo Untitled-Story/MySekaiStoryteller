@@ -14,6 +14,8 @@ export type StoryVisualEffectManagerOptions = {
   registry: StoryVisualEffectRegistry
   resolveTarget(target: EffectTargetData): StoryVisualEffectTarget
   animateLinear(animation: (progress: number) => void, timeMs: number): Promise<void>
+  offlineMode?: boolean
+  random?: () => number
 }
 
 export type StoryApplyVisualEffectOptions = {
@@ -39,15 +41,28 @@ export class StoryVisualEffectManager {
   private readonly registry: StoryVisualEffectRegistry
   private readonly resolveTarget: (target: EffectTargetData) => StoryVisualEffectTarget
   private readonly animateLinear: StoryVisualEffectManagerOptions['animateLinear']
+  private readonly offlineMode: boolean
+  private readonly random: () => number
   private destroyed = false
 
-  constructor({ pixi, registry, resolveTarget, animateLinear }: StoryVisualEffectManagerOptions) {
+  constructor({
+    pixi,
+    registry,
+    resolveTarget,
+    animateLinear,
+    offlineMode = false,
+    random = Math.random
+  }: StoryVisualEffectManagerOptions) {
     this.pixi = pixi
     this.ticker = pixi.app.ticker
     this.registry = registry
     this.resolveTarget = resolveTarget
     this.animateLinear = animateLinear
-    this.ticker.add(this.update)
+    this.offlineMode = offlineMode
+    this.random = random
+    if (!this.offlineMode) {
+      this.ticker.add(this.update)
+    }
   }
 
   async apply({
@@ -73,7 +88,8 @@ export class StoryVisualEffectManager {
       app: this.pixi.app,
       pixi: this.pixi,
       target,
-      animateLinear: this.animateLinear
+      animateLinear: this.animateLinear,
+      random: this.random
     }
     const effects: StoryVisualEffect[] = registrations.map(
       (registration: StoryVisualEffectFactoryRegistration): StoryVisualEffect =>
@@ -81,6 +97,13 @@ export class StoryVisualEffectManager {
     )
     const managed: ManagedVisualEffect = { effectId, target, effects, progress: 0 }
     this.effects.set(effectId, managed)
+
+    if (this.offlineMode) {
+      await Promise.all(
+        effects.map((effect: StoryVisualEffect): Promise<void> => effect.ready ?? Promise.resolve())
+      )
+      if (this.destroyed) return
+    }
 
     for (const effect of effects) {
       attachEffect(target.container, effect)
@@ -114,11 +137,28 @@ export class StoryVisualEffectManager {
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true
-    this.ticker.remove(this.update)
+    if (!this.offlineMode) {
+      this.ticker.remove(this.update)
+    }
     for (const effect of this.effects.values()) {
       destroyManagedEffect(effect)
     }
     this.effects.clear()
+  }
+
+  stepMs(deltaMs: number): void {
+    if (this.destroyed) return
+    this.updateAll(deltaMs * 0.06)
+  }
+
+  async waitUntilReady(): Promise<void> {
+    const pending: Promise<void>[] = []
+    for (const managed of this.effects.values()) {
+      for (const effect of managed.effects) {
+        if (effect.ready) pending.push(effect.ready)
+      }
+    }
+    await Promise.all(pending)
   }
 
   private async animateProgress(

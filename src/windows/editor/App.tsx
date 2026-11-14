@@ -13,6 +13,7 @@ import {
   Clapperboard,
   FileJson,
   FileArchive,
+  Film,
   LoaderCircle,
   Package,
   Play,
@@ -33,6 +34,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/AlertDialog'
 import { Button } from '@/components/ui/Button'
+import { VideoExportDialog, type VideoExportProjectData } from '@/components/VideoExportDialog'
 import { Toast, type ToastVariant } from '@/components/ui/Toast'
 import {
   Dialog,
@@ -218,6 +220,7 @@ export default function App({
   const [exportingProject, setExportingProject] = useState<boolean>(false)
   const [editorNotice, setEditorNotice] = useState<EditorNotice | null>(null)
   const [registerModelOpen, setRegisterModelOpen] = useState<boolean>(false)
+  const [videoExportOpen, setVideoExportOpen] = useState<boolean>(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const inputMergeTimerRef = useRef<number | null>(null)
   const storySaveTimerRef = useRef<number | null>(null)
@@ -1243,6 +1246,7 @@ export default function App({
       onActiveSnippetIdsChange={setActiveSnippetIds}
       onPreviewFromBeginning={(): void => requestPreview(null, false)}
       compact={compactChrome}
+      suspended={videoExportOpen}
     />
   )
 
@@ -1375,6 +1379,18 @@ export default function App({
             ) : (
               <Package className="size-4" />
             )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className={phoneLayout ? 'size-10 shrink-0' : compactChrome ? 'size-9' : 'size-8'}
+            aria-label={t('videoExport.exportVideo')}
+            title={t('videoExport.exportVideo')}
+            disabled={exportingProject || editorSaving}
+            onClick={(): void => setVideoExportOpen(true)}
+          >
+            <Film className="size-4" />
           </Button>
           <Button
             type="button"
@@ -1594,6 +1610,28 @@ export default function App({
           }
         }}
       />
+      {previewInput && (
+        <VideoExportDialog
+          open={videoExportOpen}
+          onOpenChange={setVideoExportOpen}
+          projectName={previewInput.projectName}
+          loadProjectData={async (): Promise<VideoExportProjectData> => {
+            await flushEditorWrites()
+            const latestSettings: AppSettings | null = await getSettings().catch(
+              (): AppSettings | null => previewInput.settings
+            )
+            return {
+              projectName: previewInput.projectName,
+              story: storyRef.current as StoryData,
+              assets: assetsRef.current,
+              modelRegistry: previewInput.modelRegistry,
+              dataPath: previewInput.dataPath,
+              projectPath: previewInput.projectPath,
+              settings: latestSettings ?? previewInput.settings
+            }
+          }}
+        />
+      )}
     </main>
   )
 }

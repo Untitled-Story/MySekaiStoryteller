@@ -1,7 +1,7 @@
 mod commands;
 mod protocol;
 
-use commands::{diagnostics, file_open, project, settings, window};
+use commands::{diagnostics, file_open, project, settings, video_export, window};
 use log::LevelFilter;
 #[cfg(desktop)]
 use std::path::PathBuf;
@@ -45,7 +45,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(file_open::PendingProjectImports::default());
+        .manage(file_open::PendingProjectImports::default())
+        .manage(video_export::VideoExportSessions::default());
 
     #[cfg(desktop)]
     {
@@ -150,6 +151,13 @@ pub fn run() {
             project::assets::delete_project_asset,
             project::story::get_project_story,
             project::story::set_project_story,
+            video_export::probe_ffmpeg_capabilities,
+            video_export::export_start_session,
+            video_export::export_write_chunk,
+            video_export::export_push_video_batch,
+            video_export::export_upload_wav,
+            video_export::export_finish_session,
+            video_export::export_abort_session,
             window::open_editor,
             window::open_player,
         ]);

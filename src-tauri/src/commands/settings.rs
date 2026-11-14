@@ -125,6 +125,13 @@ pub enum PlaybackFontSettings {
     System { family: String },
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ffmpeg_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -140,6 +147,8 @@ pub struct AppSettings {
     pub onboarding: OnboardingSettings,
     #[serde(default)]
     pub interaction: InteractionSettings,
+    #[serde(default)]
+    pub export: ExportSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_dir: Option<String>,
 }
@@ -398,5 +407,26 @@ mod tests {
         assert!(settings.shortcuts.player.reload.alt);
         assert_eq!(settings.shortcuts.player.enter_fullscreen.key, "F11");
         assert_eq!(settings.shortcuts.editor.save.key, "s");
+        assert_eq!(settings.export.ffmpeg_path, None);
+    }
+
+    #[test]
+    fn export_settings_round_trip() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{
+                "export": {
+                    "ffmpegPath": "/opt/homebrew/bin/ffmpeg"
+                }
+            }"#,
+        )
+        .expect("settings should parse");
+
+        assert_eq!(
+            settings.export.ffmpeg_path.as_deref(),
+            Some("/opt/homebrew/bin/ffmpeg")
+        );
+        let serialized: String =
+            serde_json::to_string(&settings).expect("settings should serialize");
+        assert!(serialized.contains("\"ffmpegPath\":\"/opt/homebrew/bin/ffmpeg\""));
     }
 }

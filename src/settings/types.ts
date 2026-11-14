@@ -55,6 +55,10 @@ export type InteractionSettings = {
   fullscreenMode: boolean
 }
 
+export type ExportSettings = {
+  ffmpegPath?: string
+}
+
 export type AppSettings = {
   language: AppLanguage
   appearance: AppearanceSettings
@@ -62,5 +66,6 @@ export type AppSettings = {
   shortcuts: ShortcutSettings
   onboarding: OnboardingSettings
   interaction: InteractionSettings
+  export?: ExportSettings
   workspaceDir?: string
 }

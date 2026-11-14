@@ -7,27 +7,46 @@ type ClockTask = {
   cancel(): void
 }
 
+export type StoryPlaybackClockOptions = {
+  offlineMode?: boolean
+}
+
 export class StoryPlaybackClock {
   private readonly app: Application
+  private readonly offlineMode: boolean
   private readonly tasks: Set<ClockTask> = new Set()
   private readonly resumeWaiters: Set<() => void> = new Set()
   private readonly tick = (ticker: Ticker): void => this.advance(ticker.elapsedMS)
   private paused = false
   private destroyed = false
+  private totalElapsedMs = 0
 
-  constructor(app: Application) {
+  constructor(app: Application, options: StoryPlaybackClockOptions = {}) {
     this.app = app
-    this.app.ticker.add(this.tick)
+    this.offlineMode = options.offlineMode ?? false
+    if (!this.offlineMode) {
+      this.app.ticker.add(this.tick)
+    }
   }
 
   get isPaused(): boolean {
     return this.paused
   }
 
+  get elapsedTimeMs(): number {
+    return this.totalElapsedMs
+  }
+
+  get activeTaskCount(): number {
+    return this.tasks.size
+  }
+
   pause(): void {
     if (this.destroyed || this.paused) return
 
     this.paused = true
+    if (this.offlineMode) return
+
     pauseSekaiLive2DSounds(this)
     this.app.render()
     this.app.ticker.stop()
@@ -37,8 +56,10 @@ export class StoryPlaybackClock {
     if (this.destroyed || !this.paused) return
 
     this.paused = false
-    this.app.ticker.start()
-    resumeSekaiLive2DSounds(this)
+    if (!this.offlineMode) {
+      this.app.ticker.start()
+      resumeSekaiLive2DSounds(this)
+    }
     for (const resolve of this.resumeWaiters) {
       resolve()
     }
@@ -113,8 +134,10 @@ export class StoryPlaybackClock {
   interrupt(): void {
     if (this.destroyed) return
     this.paused = false
-    this.app.ticker.start()
-    resumeSekaiLive2DSounds(this)
+    if (!this.offlineMode) {
+      this.app.ticker.start()
+      resumeSekaiLive2DSounds(this)
+    }
 
     for (const task of [...this.tasks]) {
       task.cancel()
@@ -132,14 +155,23 @@ export class StoryPlaybackClock {
 
     this.interrupt()
     this.destroyed = true
-    this.app.ticker.remove(this.tick)
+    if (!this.offlineMode) {
+      this.app.ticker.remove(this.tick)
+    }
+  }
+
+  step(deltaMs: number): void {
+    this.advance(deltaMs)
   }
 
   private advance(rawDeltaMs: number): void {
     if (this.destroyed || this.paused) return
 
     // A resumed browser ticker can report the entire paused interval. Cap it to prevent jumps.
-    const deltaMs = Math.min(Math.max(rawDeltaMs, 0), 20)
+    const deltaMs = this.offlineMode
+      ? Math.max(rawDeltaMs, 0)
+      : Math.min(Math.max(rawDeltaMs, 0), 20)
+    this.totalElapsedMs += deltaMs
     for (const task of [...this.tasks]) {
       task.tick(deltaMs)
     }

@@ -10,6 +10,7 @@ export type PreloadStoryModelsOptions = {
   dataPath: string
   assets: ProjectAssets
   modelRegistry: ModelRegistry
+  autoUpdate?: boolean
 }
 
 export class StoryModelPreloadError extends Error {
@@ -37,14 +38,18 @@ export async function preloadStoryModels({
   app,
   dataPath,
   assets,
-  modelRegistry
+  modelRegistry,
+  autoUpdate = true
 }: PreloadStoryModelsOptions): Promise<StoryModelInstance[]> {
   return Promise.all(
     Object.keys(assets.models).map(async (modelKey) => {
       const resolved = resolveModelUrl(dataPath, assets, modelRegistry, modelKey)
 
       try {
-        const model = await loadSekaiLive2DModel(resolved.url, { ticker: app.ticker })
+        const model = await loadSekaiLive2DModel(resolved.url, {
+          ticker: autoUpdate ? app.ticker : undefined,
+          autoUpdate
+        })
 
         return {
           key: modelKey,

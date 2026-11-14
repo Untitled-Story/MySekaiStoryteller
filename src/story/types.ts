@@ -122,6 +122,15 @@ export type StoryRemoveEffectOptions = {
   duration: number
 }
 
+export type StorySpeakContext = {
+  model: StoryModelInstance['model']
+  modelKey: string
+  voiceKey: string
+  voiceUrl: string
+}
+
+export type StorySpeakHandler = (context: StorySpeakContext) => Promise<void>
+
 export type StorySceneApi = {
   readonly layers: StoryLayers
   readonly pixi: StoryPixiAccessApi
@@ -131,6 +140,8 @@ export type StorySceneApi = {
   invalidateState(): void
   restoreState(state: StorySceneState): Promise<void>
   waitForPendingActions(): Promise<void>
+  stepVisualEffects(deltaMs: number): void
+  waitForVisualEffectsReady(): Promise<void>
   setLayoutMode(mode: LayoutModeData): Promise<void>
   setBackground(backgroundKey: string): Promise<void>
   showModel(options: StoryModelAppearOptions): Promise<void>

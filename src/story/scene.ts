@@ -21,6 +21,7 @@ import type {
   StoryPixiAccessApi,
   StoryRemoveEffectOptions,
   StorySceneApi,
+  StorySpeakHandler,
   StoryTelopOptions
 } from './types'
 import {
@@ -56,6 +57,9 @@ export type CreateStorySceneOptions = {
   resolveVoiceUrl(voiceKey: string): ResolvedAsset<VoiceAsset>
   visualEffects?: StoryVisualEffectRegistry
   fontFamily?: string
+  offlineMode?: boolean
+  random?: () => number
+  speakModel?: StorySpeakHandler
 }
 
 const LAYER_Z_INDEX: Record<StoryLayerName, number> = {
@@ -198,9 +202,13 @@ export function createStoryScene({
   resolveBackgroundUrl,
   resolveVoiceUrl,
   visualEffects = createBuiltinVisualEffectRegistry(),
-  fontFamily = DEFAULT_PLAYBACK_FONT_FAMILY
+  fontFamily = DEFAULT_PLAYBACK_FONT_FAMILY,
+  offlineMode = false,
+  random,
+  speakModel
 }: CreateStorySceneOptions): StorySceneApi {
   app.stage.sortableChildren = true
+  const alphaFilterResolution: number = Math.max(1, app.renderer.resolution)
 
   const layers: StoryLayers = {
     background: createSceneLayer('background'),
@@ -259,7 +267,9 @@ export function createStoryScene({
     pixi,
     registry: visualEffects,
     resolveTarget: resolveEffectTarget,
-    animateLinear
+    animateLinear,
+    offlineMode,
+    random
   })
 
   return {
@@ -277,6 +287,12 @@ export function createStoryScene({
     invalidateState(): void {
       restoredState = null
     },
+    stepVisualEffects(deltaMs: number): void {
+      visualEffectManager.stepMs(deltaMs)
+    },
+    waitForVisualEffectsReady(): Promise<void> {
+      return visualEffectManager.waitUntilReady()
+    },
     async restoreState(state: StorySceneState): Promise<void> {
       const previousFastForwarding: boolean = fastForwarding
       fastForwarding = true
@@ -287,7 +303,7 @@ export function createStoryScene({
           for (const instance of models.values()) {
             stopModelMotions(instance.model)
             resetModelParameters(instance.model)
-            ensureAlphaFilter(instance.model).alpha = 0
+            setAlphaFilterValue(ensureAlphaFilter(instance.model), 0)
             instance.model.visible = false
             instance.model.removeFromParent()
           }
@@ -442,7 +458,7 @@ export function createStoryScene({
 
       if (fastForwarding) {
         await applyModelLastFrame(model, options.motion, options.facial)
-        ensureAlphaFilter(model).alpha = 1
+        setAlphaFilterValue(ensureAlphaFilter(model), 1)
         return
       }
 
@@ -466,7 +482,7 @@ export function createStoryScene({
     async clearModel(options: StoryModelClearOptions): Promise<void> {
       const { model } = getModel(options.modelKey)
       if (fastForwarding) {
-        ensureAlphaFilter(model).alpha = 0
+        setAlphaFilterValue(ensureAlphaFilter(model), 0)
         await setLayoutHologram(options.modelKey, false)
         model.visible = false
         model.removeFromParent()
@@ -550,7 +566,16 @@ export function createStoryScene({
         : null
       if (modelInstance && options.voiceKey) {
         const resolvedVoice: ResolvedAsset<VoiceAsset> = resolveVoiceUrl(options.voiceKey)
-        waits.push(speakModel(modelInstance.model, resolvedVoice.url))
+        waits.push(
+          speakModel
+            ? speakModel({
+                model: modelInstance.model,
+                modelKey: modelInstance.key,
+                voiceKey: options.voiceKey,
+                voiceUrl: resolvedVoice.url
+              })
+            : speakLive2DModel(modelInstance.model, resolvedVoice.url)
+        )
       }
 
       waits.push(startDisplayDialogueContent(ui, animateLinear))
@@ -661,7 +686,7 @@ export function createStoryScene({
   }
 
   function getDialogueUi(): Promise<DialogueUiState> {
-    dialogueUiPromise ??= createDialogueUi(app, layers.ui, fontFamily).then(
+    dialogueUiPromise ??= createDialogueUi(app, layers.ui, fontFamily, alphaFilterResolution).then(
       (createdUi: DialogueUiState): DialogueUiState => {
         dialogueUi = createdUi
         layoutDialogueUi(createdUi, app)
@@ -711,7 +736,7 @@ export function createStoryScene({
     internalModel.extendParallelMotionManager?.(2)
 
     layoutModel(instance)
-    ensureAlphaFilter(model)
+    ensureAlphaFilter(model, alphaFilterResolution)
   }
 
   function layoutModel(instance: StoryModelInstance): void {
@@ -794,7 +819,7 @@ export function createStoryScene({
     if (!state.visible) return
 
     attachModel(modelKey)
-    ensureAlphaFilter(model).alpha = 1
+    setAlphaFilterValue(ensureAlphaFilter(model), 1)
     await setLayoutHologram(modelKey, state.hologram)
   }
 
@@ -917,10 +942,10 @@ function showModelWithFade(
   timeMs: number,
   animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
-  const alphaFilter = ensureAlphaFilter(model)
+  const alphaFilter: AlphaFilter = ensureAlphaFilter(model)
   model.visible = true
   return animateLinear((progress: number): void => {
-    alphaFilter.alpha = progress
+    setAlphaFilterValue(alphaFilter, progress)
   }, timeMs)
 }
 
@@ -931,7 +956,7 @@ function hideModelWithFade(
 ): Promise<void> {
   const alphaFilter: AlphaFilter = ensureAlphaFilter(model)
   return animateLinear((progress: number): void => {
-    alphaFilter.alpha = 1 - progress
+    setAlphaFilterValue(alphaFilter, 1 - progress)
   }, timeMs)
 }
 
@@ -952,7 +977,8 @@ function calcBackgroundScale(texture: Texture, app: Application): number {
 async function createDialogueUi(
   app: Application,
   layer: Container,
-  fontFamily: string
+  fontFamily: string,
+  filterResolution: number
 ): Promise<DialogueUiState> {
   const [textBackgroundTexture, textUnderlineTexture, telopTexture]: [Texture, Texture, Texture] =
     await Promise.all([
@@ -981,7 +1007,7 @@ async function createDialogueUi(
     fontFamily
   )
   const { container: telopContainer, text: telopText }: { container: Container; text: Text } =
-    createTelopContainer(telopTexture, screenWidth, screenHeight, fontFamily)
+    createTelopContainer(telopTexture, screenWidth, screenHeight, fontFamily, filterResolution)
 
   root.addChild(
     textBackgroundSprite,
@@ -1025,7 +1051,7 @@ function createTextBackgroundSprite(
   sprite.x = screenWidth / 2
   sprite.y = screenHeight / 2
   sprite.visible = false
-  ensureDisplayAlphaFilter(sprite)
+  sprite.alpha = 0
   return sprite
 }
 
@@ -1040,7 +1066,7 @@ function createTextUnderlineSprite(
   sprite.x = screenWidth / 10
   sprite.y = screenHeight / 1.3
   sprite.visible = false
-  ensureDisplayAlphaFilter(sprite)
+  sprite.alpha = 0
   return sprite
 }
 
@@ -1063,7 +1089,7 @@ function createDialogueText(screenWidth: number, screenHeight: number, fontFamil
   text.x = x
   text.y = screenHeight / 1.27
   text.visible = false
-  ensureDisplayAlphaFilter(text)
+  text.alpha = 0
   return text
 }
 
@@ -1086,7 +1112,7 @@ function createSpeakerText(
   text.x = screenWidth / 9
   text.y = y
   text.visible = false
-  ensureDisplayAlphaFilter(text)
+  text.alpha = 0
   return text
 }
 
@@ -1094,7 +1120,8 @@ function createTelopContainer(
   texture: Texture,
   screenWidth: number,
   screenHeight: number,
-  fontFamily: string
+  fontFamily: string,
+  filterResolution: number
 ): { container: Container; text: Text } {
   const container: Container = new Container()
   const telopSprite: Sprite = new Sprite({ texture })
@@ -1119,7 +1146,7 @@ function createTelopContainer(
   telopText.y = screenHeight / 2 + screenHeight / 300
 
   container.visible = false
-  ensureDisplayAlphaFilter(container)
+  ensureDisplayAlphaFilter(container, filterResolution)
   container.addChild(telopSprite, telopText)
 
   return { container, text: telopText }
@@ -1168,9 +1195,14 @@ function startDisplayDialogueContent(
 ): Promise<void> {
   const contentLength: number = ui.content.length
   const timeMs: number = contentLength * DIALOGUE_CHAR_TIME_MS
+  let previousCharsToShow: number = -1
 
   return animateLinear((progress: number): void => {
     const charsToShow: number = Math.min(Math.floor(progress * contentLength), contentLength)
+    if (charsToShow === previousCharsToShow) {
+      return
+    }
+    previousCharsToShow = charsToShow
     ui.textSprite.text = ui.content.substring(0, charsToShow)
   }, timeMs)
 }
@@ -1185,7 +1217,7 @@ function showTelop(
 
   ui.telopContainer.visible = true
   return animateLinear((progress: number): void => {
-    alphaFilter.alpha = progress
+    setAlphaFilterValue(alphaFilter, progress)
     ui.telopContainer.x = startX + (originalX - startX) * progress
   }, TELOP_SHOW_TIME_MS)
 }
@@ -1199,7 +1231,7 @@ function hideTelop(
   const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(ui.telopContainer)
 
   return animateLinear((progress: number): void => {
-    alphaFilter.alpha = 1 - progress
+    setAlphaFilterValue(alphaFilter, 1 - progress)
     ui.telopContainer.x = startX + (originalX - startX) * progress
   }, TELOP_HIDE_TIME_MS).then((): void => {
     ui.telopContainer.visible = false
@@ -1211,7 +1243,7 @@ function resetTelopUi(ui: DialogueUiState): void {
   ui.telopContainer.visible = false
   ui.telopContainer.x = 0
   ui.telopText.text = ''
-  ensureDisplayAlphaFilter(ui.telopContainer).alpha = 0
+  setAlphaFilterValue(ensureDisplayAlphaFilter(ui.telopContainer), 0)
 }
 
 function showDisplayObject(
@@ -1219,10 +1251,9 @@ function showDisplayObject(
   timeMs: number,
   animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
-  const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(target)
   target.visible = true
   return animateLinear((progress: number): void => {
-    alphaFilter.alpha = progress
+    target.alpha = progress
   }, timeMs)
 }
 
@@ -1231,9 +1262,8 @@ function hideDisplayObject(
   timeMs: number,
   animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
-  const alphaFilter: AlphaFilter = ensureDisplayAlphaFilter(target)
   return animateLinear((progress: number): void => {
-    alphaFilter.alpha = 1 - progress
+    target.alpha = 1 - progress
   }, timeMs).then((): void => {
     target.visible = false
   })
@@ -1408,21 +1438,37 @@ function waitForModelMotion(
   return waitUntil(() => managers[0].isFinished() && managers[1].isFinished())
 }
 
-function ensureAlphaFilter(model: SekaiLive2DModel): AlphaFilter {
+function setAlphaFilterValue(filter: AlphaFilter, alpha: number): void {
+  filter.alpha = alpha
+  filter.enabled = alpha > 0 && alpha < 0.9999
+}
+
+function ensureAlphaFilter(model: SekaiLive2DModel, resolution: number = 2): AlphaFilter {
   const filters: Filter[] = model.filters ? [...model.filters] : []
   const existing: AlphaFilter | undefined = filters.find(
     (filter: Filter): filter is AlphaFilter => filter instanceof AlphaFilter
   )
-  if (existing) return existing
+  if (existing) {
+    const existingResolution: number =
+      typeof existing.resolution === 'number' ? existing.resolution : 0
+    if (resolution > existingResolution) {
+      existing.resolution = resolution
+    }
+    return existing
+  }
 
   const alphaFilter: AlphaFilter = new AlphaFilter({ alpha: 0 })
-  alphaFilter.resolution = 2
+  alphaFilter.enabled = false
+  alphaFilter.resolution = resolution
   model.filters = [alphaFilter, ...filters]
 
   return alphaFilter
 }
 
-function ensureDisplayAlphaFilter(target: Container | Sprite | Text): AlphaFilter {
+function ensureDisplayAlphaFilter(
+  target: Container | Sprite | Text,
+  resolution: number = 2
+): AlphaFilter {
   const currentFilters: readonly Filter[] | Filter | null | undefined = target.filters
   const filters: Filter[] = Array.isArray(currentFilters)
     ? [...currentFilters]
@@ -1432,10 +1478,18 @@ function ensureDisplayAlphaFilter(target: Container | Sprite | Text): AlphaFilte
   const existing: AlphaFilter | undefined = filters.find(
     (filter: Filter): filter is AlphaFilter => filter instanceof AlphaFilter
   )
-  if (existing) return existing
+  if (existing) {
+    const existingResolution: number =
+      typeof existing.resolution === 'number' ? existing.resolution : 0
+    if (resolution > existingResolution) {
+      existing.resolution = resolution
+    }
+    return existing
+  }
 
   const alphaFilter: AlphaFilter = new AlphaFilter({ alpha: 0 })
-  alphaFilter.resolution = 2
+  alphaFilter.enabled = false
+  alphaFilter.resolution = resolution
   target.filters = [alphaFilter, ...filters]
 
   return alphaFilter
@@ -1490,7 +1544,7 @@ function resetModelParameters(model: SekaiLive2DModel): void {
   parameters.values.set(parameters.defaultValues)
 }
 
-function speakModel(model: SekaiLive2DModel, voiceUrl: string): Promise<void> {
+function speakLive2DModel(model: SekaiLive2DModel, voiceUrl: string): Promise<void> {
   const speakableModel: SpeakableSekaiLive2DModel = model as SpeakableSekaiLive2DModel
 
   return new Promise<void>((resolve: () => void, reject: (reason?: unknown) => void): void => {

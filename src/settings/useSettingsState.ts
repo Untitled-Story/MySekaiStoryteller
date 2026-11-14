@@ -5,6 +5,7 @@ import type {
   AppSettings,
   AppLanguage,
   AppearanceSettings,
+  ExportSettings,
   InteractionSettings,
   PlaybackFontSettings,
   PlaybackSettings,
@@ -28,6 +29,7 @@ export type SettingsHook = {
   shortcuts: ShortcutSettings
   onboarding: OnboardingSettings
   interaction: InteractionSettings
+  exportSettings: ExportSettings
   workspaceDir: string | null
   setLanguage: (language: AppLanguage) => void
   setFollowSystem: (follow: boolean) => void
@@ -40,6 +42,7 @@ export type SettingsHook = {
   setInteraction: (value: InteractionSettings) => void
   setTouchMode: (value: boolean) => void
   setFullscreenMode: (value: boolean) => void
+  setFfmpegPath: (ffmpegPath?: string) => void
   setWorkspaceDir: (dir: string) => void
 }
 
@@ -53,6 +56,10 @@ const DEFAULT_INTERACTION: InteractionSettings = {
   touchMode: false,
   touchModePromptSeen: false,
   fullscreenMode: false
+}
+
+const DEFAULT_EXPORT: ExportSettings = {
+  ffmpegPath: undefined
 }
 
 export function useSettingsState(): SettingsHook {
@@ -72,6 +79,7 @@ export function useSettingsState(): SettingsHook {
   const [shortcuts, setShortcuts] = useState<ShortcutSettings>(defaultShortcutSettings)
   const [onboarding, setOnboarding] = useState<OnboardingSettings>(DEFAULT_ONBOARDING)
   const [interactionState, setInteractionState] = useState<InteractionSettings>(DEFAULT_INTERACTION)
+  const [exportSettings, setExportSettings] = useState<ExportSettings>(DEFAULT_EXPORT)
   const [loaded, setLoaded] = useState(false)
   const [persistenceReady, setPersistenceReady] = useState(false)
 
@@ -117,6 +125,7 @@ export function useSettingsState(): SettingsHook {
             stored.interaction?.touchModePromptSeen ?? DEFAULT_INTERACTION.touchModePromptSeen,
           fullscreenMode: stored.interaction?.fullscreenMode ?? DEFAULT_INTERACTION.fullscreenMode
         })
+        setExportSettings(normalizeExportSettings(stored.export))
         setWorkspaceDirState(stored.workspaceDir ?? null)
         setPersistenceReady(true)
         setLoaded(true)
@@ -149,7 +158,14 @@ export function useSettingsState(): SettingsHook {
       const nextOnboarding: OnboardingSettings = normalizeOnboardingSettings(
         event.payload.onboarding
       )
+      const nextExport: ExportSettings = normalizeExportSettings(event.payload.export)
       setLanguage(normalizeAppLanguage(event.payload.language))
+      setExportSettings((current: ExportSettings): ExportSettings => {
+        if (current.ffmpegPath === nextExport.ffmpegPath) {
+          return current
+        }
+        return nextExport
+      })
       setOnboarding((current: OnboardingSettings): OnboardingSettings => {
         if (
           current.mainTourCompleted === nextOnboarding.mainTourCompleted &&
@@ -188,6 +204,7 @@ export function useSettingsState(): SettingsHook {
       shortcuts,
       onboarding,
       interaction: interactionState,
+      export: exportSettings,
       workspaceDir: workspaceDir ?? undefined
     }
 
@@ -201,6 +218,7 @@ export function useSettingsState(): SettingsHook {
     shortcuts,
     onboarding,
     interactionState,
+    exportSettings,
     workspaceDir,
     loaded,
     persistenceReady,
@@ -215,6 +233,7 @@ export function useSettingsState(): SettingsHook {
     shortcuts,
     onboarding,
     interaction: interactionState,
+    exportSettings,
     workspaceDir,
     setLanguage,
     setFollowSystem: (follow) =>
@@ -255,6 +274,8 @@ export function useSettingsState(): SettingsHook {
         ...prev,
         fullscreenMode: value
       })),
+    setFfmpegPath: (ffmpegPath?: string): void =>
+      setExportSettings(normalizeExportSettings({ ffmpegPath })),
     setWorkspaceDir: (dir: string): void => {
       // Persist immediately so backend project commands never race with the
       // debounced settings effect (critical on first-run / clear-data mobile).
@@ -270,6 +291,7 @@ export function useSettingsState(): SettingsHook {
         shortcuts,
         onboarding,
         interaction: interactionState,
+        export: exportSettings,
         workspaceDir: dir
       }
       void saveSettings(payload)
@@ -280,6 +302,13 @@ export function useSettingsState(): SettingsHook {
           logger.error('settings.workspace_save_failed', { error: describeError(error) })
         })
     }
+  }
+}
+
+function normalizeExportSettings(value: ExportSettings | undefined): ExportSettings {
+  const trimmed: string | undefined = value?.ffmpegPath?.trim()
+  return {
+    ffmpegPath: trimmed && trimmed.length > 0 ? trimmed : undefined
   }
 }
 

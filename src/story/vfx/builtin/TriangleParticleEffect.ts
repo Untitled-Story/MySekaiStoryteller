@@ -15,13 +15,14 @@ class ParticleTriangle extends Graphics {
     private readonly rotationSpeed: number,
     private readonly lifespan: number,
     private readonly fadeDuration: number,
-    filled: boolean
+    filled: boolean,
+    random: () => number
   ) {
     super()
     this.x = x
     this.y = y
     this.alpha = 0
-    this.rotation = Math.random() * Math.PI * 2
+    this.rotation = random() * Math.PI * 2
     this.blendMode = 'add'
 
     const points = [-size / 2, size / 2, size / 2, size / 2, 0, -size / 2]
@@ -70,22 +71,22 @@ export default class TriangleParticleEffect extends VisualEffectBase {
   }
 
   private randomInRange([min, max]: [number, number]): number {
-    return min + Math.random() * (max - min)
+    return min + this.random() * (max - min)
   }
 
   private spawnParticle(): void {
     if (this.particles.length >= this.maxParticles) return
 
-    const x = this.model.internalModel.width * (0.1 + Math.random() * 0.8)
-    const y = this.model.internalModel.height * (0.25 + Math.random() * 0.5)
-    const color = this.colors[Math.floor(Math.random() * this.colors.length)]
+    const x = this.model.internalModel.width * (0.1 + this.random() * 0.8)
+    const y = this.model.internalModel.height * (0.25 + this.random() * 0.5)
+    const color = this.colors[Math.floor(this.random() * this.colors.length)]
     const size = this.randomInRange(this.sizeRange)
     const velocityX = this.randomInRange(this.velocityRangeX)
     const velocityY = this.randomInRange(this.velocityRangeY)
     const rotationSpeed =
-      this.randomInRange(this.rotationSpeedRange) * (Math.random() > 0.5 ? 1 : -1)
+      this.randomInRange(this.rotationSpeedRange) * (this.random() > 0.5 ? 1 : -1)
     const lifespan = this.randomInRange(this.lifespanRange)
-    const filled = Math.random() > 0.5
+    const filled = this.random() > 0.5
 
     const particle = new ParticleTriangle(
       x,
@@ -97,7 +98,8 @@ export default class TriangleParticleEffect extends VisualEffectBase {
       rotationSpeed,
       lifespan,
       this.fadeTime,
-      filled
+      filled,
+      this.random
     )
     this.model.addChild(particle)
     this.particles.push(particle)

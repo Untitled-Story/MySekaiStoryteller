@@ -21,12 +21,14 @@ export type StoryVisualEffectContext = {
   pixi: StoryPixiAccessApi
   target: StoryVisualEffectTarget
   animateLinear(animation: (progress: number) => void, timeMs: number): Promise<void>
+  random(): number
 }
 
 export type StoryVisualEffect = {
   enabled: boolean
   readonly container?: Container
   readonly parentFilters?: readonly Filter[]
+  readonly ready?: Promise<void>
   setProgress?(progress: number): void
   update(delta: number): void
   destroyEffect(): void

@@ -56,7 +56,8 @@ export function EditorPreview({
   pauseAfterPreviewTarget,
   onPreviewFromBeginning,
   onActiveSnippetIdsChange,
-  compact = false
+  compact = false,
+  suspended = false
 }: {
   input: EditorPreviewInput
   story: EditorStory
@@ -66,6 +67,7 @@ export function EditorPreview({
   onPreviewFromBeginning: () => void
   onActiveSnippetIdsChange: (ids: ReadonlySet<string>) => void
   compact?: boolean
+  suspended?: boolean
 }): JSX.Element {
   const { t } = useTranslation()
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -377,6 +379,14 @@ export function EditorPreview({
     setStatus('stopped')
     setMessage(t('editor.stopped'))
   }
+
+  useEffect((): void => {
+    if (!suspended) return
+    const dispatcher: StoryDispatcher | undefined = sessionRef.current?.dispatcher
+    if (dispatcher && dispatcher.currentStatus === 'running') {
+      dispatcher.pause()
+    }
+  }, [suspended])
 
   const playing: boolean = status === 'running'
   const paused: boolean = status === 'paused'

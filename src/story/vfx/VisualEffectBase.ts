@@ -7,6 +7,7 @@ import type { StoryModelInstance } from '@/story/types'
 export abstract class VisualEffectBase extends Container implements StoryVisualEffect {
   protected readonly modelInstance: StoryModelInstance
   protected readonly model: StoryModelInstance['model']
+  protected readonly random: () => number
   protected _parentFilters: Filter[] = []
   enabled = false
 
@@ -17,6 +18,7 @@ export abstract class VisualEffectBase extends Container implements StoryVisualE
     }
     this.modelInstance = context.target.model
     this.model = context.target.model.model
+    this.random = context.random
   }
 
   get container(): Container {

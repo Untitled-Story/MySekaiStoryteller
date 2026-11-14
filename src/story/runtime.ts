@@ -4,7 +4,7 @@ import type { BackgroundAsset, ModelAsset, ProjectAssets, VoiceAsset } from '@/p
 import { localAssetUrl, projectAssetUrl } from '@/lib/projectAssetUrl'
 import { createStoryScene } from './scene'
 import { StoryPlaybackClock } from './playbackClock'
-import type { ResolvedAsset, StoryModelInstance, StoryRuntime } from './types'
+import type { ResolvedAsset, StoryModelInstance, StoryRuntime, StorySpeakHandler } from './types'
 import type { StoryVisualEffectRegistry } from './vfx'
 
 export type CreateStoryRuntimeOptions = {
@@ -16,6 +16,9 @@ export type CreateStoryRuntimeOptions = {
   models?: Iterable<StoryModelInstance>
   visualEffects?: StoryVisualEffectRegistry
   fontFamily?: string
+  offlineMode?: boolean
+  random?: () => number
+  speakModel?: StorySpeakHandler
 }
 
 export function createStoryRuntime({
@@ -26,7 +29,10 @@ export function createStoryRuntime({
   modelRegistry,
   models = [],
   visualEffects,
-  fontFamily
+  fontFamily,
+  offlineMode = false,
+  random,
+  speakModel
 }: CreateStoryRuntimeOptions): StoryRuntime {
   const modelMap = new Map<string, StoryModelInstance>()
   for (const model of models) {
@@ -39,7 +45,7 @@ export function createStoryRuntime({
     resolveBackgroundUrl(projectPath, assets, backgroundKey)
   const resolveVoice = (voiceKey: string): ResolvedAsset<VoiceAsset> =>
     resolveVoiceUrl(projectPath, assets, voiceKey)
-  const clock = new StoryPlaybackClock(app)
+  const clock = new StoryPlaybackClock(app, { offlineMode })
   const scene = createStoryScene({
     app,
     clock,
@@ -47,7 +53,10 @@ export function createStoryRuntime({
     resolveBackgroundUrl: resolveBackground,
     resolveVoiceUrl: resolveVoice,
     visualEffects,
-    fontFamily
+    fontFamily,
+    offlineMode,
+    random,
+    speakModel
   })
 
   return {

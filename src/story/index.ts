@@ -159,6 +159,8 @@ export {
   type StoryRunOptions,
   type StoryRemoveEffectOptions,
   type StorySceneApi,
+  type StorySpeakContext,
+  type StorySpeakHandler,
   type StoryTelopOptions
 } from './types'
 export {

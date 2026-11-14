@@ -16,6 +16,7 @@ import {
   Trash2,
   Clock,
   Download,
+  Film,
   Upload
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
@@ -31,6 +32,16 @@ import { deleteProject, renameProject } from '@/project/api'
 import { timeAgo } from '@/windows/main/utils/time'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { exportProjectArchive, requestProjectImport } from '@/project/archive'
+import { getProjectAssets, getProjectPath } from '@/project/api'
+import type { ProjectAssets } from '@/project/assets'
+import { getProjectStory } from '@/story/api'
+import type { StoryData } from '@/story/schema'
+import { getModelRegistry } from '@/modelRegistry/api'
+import type { ModelRegistry } from '@/modelRegistry/schema'
+import { getSettings } from '@/settings/api'
+import type { AppSettings } from '@/settings/types'
+import { getDataPath } from '@/workspace/api'
+import { VideoExportDialog, type VideoExportProjectData } from '@/components/VideoExportDialog'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -83,6 +94,7 @@ export default function ProjectsPage(): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
   const [exportingProject, setExportingProject] = useState<string | null>(null)
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null)
+  const [videoExportTarget, setVideoExportTarget] = useState<string | null>(null)
 
   const filtered = useMemo(() => {
     let result: ProjectMetadata[] = [...projects]
@@ -351,6 +363,16 @@ export default function ProjectsPage(): JSX.Element {
                       >
                         <Play className="w-3.5 h-3.5" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={phoneLayout ? 'size-10' : 'size-9'}
+                        aria-label={t('videoExport.exportVideo')}
+                        title={t('videoExport.exportVideo')}
+                        onClick={(): void => setVideoExportTarget(metadata.title)}
+                      >
+                        <Film className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </ContextMenuTrigger>
@@ -376,6 +398,10 @@ export default function ProjectsPage(): JSX.Element {
                     {exportingProject === metadata.title
                       ? t('projectArchive.exporting')
                       : t('projectArchive.export')}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={(): void => setVideoExportTarget(metadata.title)}>
+                    <Film className="w-4 h-4 mr-2" />
+                    {t('videoExport.exportVideo')}
                   </ContextMenuItem>
                   <ContextMenuItem
                     variant="destructive"
@@ -463,6 +489,43 @@ export default function ProjectsPage(): JSX.Element {
           variant={exportNotice.variant}
           closeLabel={t('common.close')}
           onDismiss={(): void => setExportNotice(null)}
+        />
+      )}
+
+      {videoExportTarget && (
+        <VideoExportDialog
+          open={Boolean(videoExportTarget)}
+          onOpenChange={(open: boolean): void => {
+            if (!open) setVideoExportTarget(null)
+          }}
+          projectName={videoExportTarget}
+          loadProjectData={async (): Promise<VideoExportProjectData> => {
+            const targetName: string = videoExportTarget
+            const [projectPath, dataPath, settings, assets, modelRegistry, story]: [
+              string,
+              string,
+              AppSettings | null,
+              ProjectAssets,
+              ModelRegistry,
+              StoryData
+            ] = await Promise.all([
+              getProjectPath(targetName),
+              getDataPath(),
+              getSettings(),
+              getProjectAssets(targetName),
+              getModelRegistry(),
+              getProjectStory(targetName)
+            ])
+            return {
+              projectName: targetName,
+              story,
+              assets,
+              modelRegistry,
+              dataPath,
+              projectPath,
+              settings
+            }
+          }}
         />
       )}
     </div>

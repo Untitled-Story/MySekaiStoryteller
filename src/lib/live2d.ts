@@ -14,6 +14,7 @@ export type SekaiLive2DModel = Live2DModel
 
 export type LoadSekaiLive2DModelOptions = {
   ticker?: Ticker
+  autoUpdate?: boolean
   cubismMemorySizeMB?: number
 }
 
@@ -22,9 +23,11 @@ export async function loadSekaiLive2DModel(
   options: LoadSekaiLive2DModelOptions = {}
 ): Promise<SekaiLive2DModel> {
   const engine = await ensureSekaiLive2DReady(options.cubismMemorySizeMB)
+  const autoUpdate: boolean = options.autoUpdate ?? true
 
   const factoryOptions: Live2DFactoryOptions = {
-    ticker: options.ticker,
+    ticker: autoUpdate ? options.ticker : undefined,
+    autoUpdate,
     autoFocus: false,
     autoHitTest: false,
     breathDepth: 0,

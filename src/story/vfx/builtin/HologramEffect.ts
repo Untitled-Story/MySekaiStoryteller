@@ -18,6 +18,7 @@ export class HologramEffect extends VisualEffectBase {
   private animating = false
   private effectDestroyed = false
   private patternReady = false
+  readonly ready: Promise<void>
 
   private readonly scaleLarge = 0.9
   private readonly scaleSmall = 0.8
@@ -28,7 +29,7 @@ export class HologramEffect extends VisualEffectBase {
     this.animateLinear = context.animateLinear
     this.addChild(this.graphicLarge, this.graphicSmall)
 
-    void this.loadPattern()
+    this.ready = this.loadPattern()
 
     this.crtFilter = new CRTFilter({ time: 0, lineWidth: 8, lineContrast: 0.03, vignetting: 0 })
     this.adjustFilter = new AdjustmentFilter({ alpha: 0.85, brightness: 1, red: 0.75 })
@@ -48,7 +49,7 @@ export class HologramEffect extends VisualEffectBase {
     const offset = 1.2
     this.adjustFilter.brightness = offset + amp * Math.sin(this.elapsed * 0.05)
     this.crtFilter.time += delta * 0.01
-    this.crtFilter.seed = Math.random()
+    this.crtFilter.seed = this.random()
 
     if (this.patternReady && !this.animating) {
       this.animating = true

@@ -32,6 +32,7 @@ import { exportPreparedDiagnosticBundle, type DiagnosticExportResult } from '@/l
 import { getRuntimePlatform, isMobileRuntime } from '@/lib/platform'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/style'
+import { probeFfmpegCapabilities, type FfmpegCapabilities } from '@/export'
 
 export default function SettingsPage(): JSX.Element {
   const { t } = useTranslation()
@@ -43,6 +44,7 @@ export default function SettingsPage(): JSX.Element {
     playback,
     shortcuts,
     interaction,
+    exportSettings,
     workspaceDir,
     setLanguage,
     setFollowSystem,
@@ -53,11 +55,17 @@ export default function SettingsPage(): JSX.Element {
     setShortcuts,
     setTouchMode,
     setFullscreenMode,
+    setFfmpegPath,
     setWorkspaceDir
   } = useSettings()
   const [renderPrecisionText, setRenderPrecisionText] = useState<string>(() =>
     renderPrecisionToText(playback.renderPrecision)
   )
+  const [ffmpegPathInput, setFfmpegPathInput] = useState<string>(
+    (): string => exportSettings.ffmpegPath ?? ''
+  )
+  const [ffmpegCaps, setFfmpegCaps] = useState<FfmpegCapabilities | null>(null)
+  const [checkingFfmpeg, setCheckingFfmpeg] = useState<boolean>(false)
   const [dataFonts, setDataFonts] = useState<DataFontInfo[]>([])
   const [logPath, setLogPath] = useState<string>(() => t('settings.logDefault'))
   const [shortcutConflict, setShortcutConflict] = useState<ShortcutConflict | null>(null)
@@ -68,6 +76,38 @@ export default function SettingsPage(): JSX.Element {
   useEffect(() => {
     setRenderPrecisionText(renderPrecisionToText(playback.renderPrecision))
   }, [playback.renderPrecision])
+
+  useEffect((): void => {
+    setFfmpegPathInput(exportSettings.ffmpegPath ?? '')
+  }, [exportSettings.ffmpegPath])
+
+  const checkFfmpegStatus = useCallback(
+    async (customPath?: string): Promise<void> => {
+      if (mobileRuntime) return
+      setCheckingFfmpeg(true)
+      try {
+        const caps: FfmpegCapabilities = await probeFfmpegCapabilities(customPath)
+        setFfmpegCaps(caps)
+      } catch {
+        setFfmpegCaps({
+          available: false,
+          executablePath: null,
+          version: null,
+          customPathInvalid: Boolean(customPath),
+          hardwareEncoders: [],
+          softwareEncoders: []
+        })
+      } finally {
+        setCheckingFfmpeg(false)
+      }
+    },
+    [mobileRuntime]
+  )
+
+  useEffect((): void => {
+    if (mobileRuntime) return
+    void checkFfmpegStatus(exportSettings.ffmpegPath)
+  }, [mobileRuntime, exportSettings.ffmpegPath, checkFfmpegStatus])
 
   useEffect(() => {
     let cancelled: boolean = false
@@ -401,6 +441,127 @@ export default function SettingsPage(): JSX.Element {
           </select>
         </SettingRow>
       </div>
+
+      {!mobileRuntime ? (
+        <>
+          <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
+            <h2 className="text-2xl font-semibold leading-tight">
+              {t('videoExport.settingsTitle')}
+            </h2>
+            <p className="text-sm text-muted-foreground">{t('videoExport.settingsDescription')}</p>
+          </div>
+
+          <div className="w-full max-w-2xl space-y-4">
+            <SettingRow
+              title={t('videoExport.ffmpegPath')}
+              description={t('videoExport.ffmpegPathDescription')}
+            >
+              <div className="flex flex-wrap items-center gap-2 justify-end">
+                <Input
+                  type="text"
+                  className="h-9 w-56 text-sm"
+                  placeholder={t('videoExport.ffmpegPathPlaceholder')}
+                  value={ffmpegPathInput}
+                  onChange={(e: ChangeEvent<HTMLInputElement>): void =>
+                    setFfmpegPathInput(e.target.value)
+                  }
+                  onBlur={(): void => {
+                    const trimmed: string = ffmpegPathInput.trim()
+                    const normalized: string | undefined = trimmed.length > 0 ? trimmed : undefined
+                    if (normalized !== exportSettings.ffmpegPath) {
+                      setFfmpegPath(normalized)
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={(): void => {
+                    void open({
+                      directory: false,
+                      multiple: false,
+                      title: t('videoExport.ffmpegPath')
+                    }).then((selected: string | string[] | null): void => {
+                      if (typeof selected === 'string' && selected.trim().length > 0) {
+                        const nextPath: string = selected.trim()
+                        setFfmpegPathInput(nextPath)
+                        setFfmpegPath(nextPath)
+                      }
+                    })
+                  }}
+                >
+                  {t('videoExport.browseFfmpeg')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={!ffmpegPathInput && !exportSettings.ffmpegPath}
+                  onClick={(): void => {
+                    setFfmpegPathInput('')
+                    if (exportSettings.ffmpegPath !== undefined) {
+                      setFfmpegPath(undefined)
+                    }
+                  }}
+                >
+                  {t('videoExport.clearFfmpeg')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={checkingFfmpeg}
+                  onClick={(): void => {
+                    const trimmed: string = ffmpegPathInput.trim()
+                    const targetPath: string | undefined = trimmed.length > 0 ? trimmed : undefined
+                    if (targetPath !== exportSettings.ffmpegPath) {
+                      setFfmpegPath(targetPath)
+                    } else {
+                      void checkFfmpegStatus(targetPath)
+                    }
+                  }}
+                >
+                  {checkingFfmpeg
+                    ? t('videoExport.checkingFfmpeg')
+                    : t('videoExport.recheckFfmpeg')}
+                </Button>
+              </div>
+            </SettingRow>
+
+            <div className="rounded-md border bg-muted/30 px-4 py-3 text-xs space-y-1">
+              {checkingFfmpeg ? (
+                <div className="text-muted-foreground">{t('videoExport.checkingFfmpeg')}</div>
+              ) : ffmpegCaps?.customPathInvalid ? (
+                <div className="text-destructive">{t('videoExport.ffmpegCustomInvalid')}</div>
+              ) : ffmpegCaps?.available ? (
+                <>
+                  <div className="font-medium text-foreground">
+                    {t('videoExport.ffmpegDetected', { version: ffmpegCaps.version ?? '' })}
+                  </div>
+                  {ffmpegCaps.executablePath && (
+                    <div
+                      className="truncate text-muted-foreground"
+                      title={ffmpegCaps.executablePath}
+                    >
+                      {ffmpegCaps.executablePath}
+                    </div>
+                  )}
+                  {ffmpegCaps.hardwareEncoders.length > 0 && (
+                    <div className="text-muted-foreground">
+                      {t('videoExport.ffmpegHwEncoders', {
+                        encoders: ffmpegCaps.hardwareEncoders.join(', ')
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-muted-foreground">{t('videoExport.ffmpegMissing')}</div>
+              )}
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {mobileRuntime ? (
         <>
