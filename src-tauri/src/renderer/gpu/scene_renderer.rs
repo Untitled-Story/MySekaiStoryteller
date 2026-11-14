@@ -6,6 +6,8 @@ use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
 
+use crate::renderer::config::{GpuBackendInfo, RenderBackend};
+use crate::renderer::encoder::prefers_hardware_streaming_encoder_for_backend;
 use crate::renderer::error::RendererError;
 use crate::renderer::live2d::Live2DModelInstance;
 use crate::renderer::svg_assets::{load_image_premul, BuiltinUiBitmaps, PremulImage};
@@ -973,27 +975,212 @@ pub struct GpuSceneRenderer {
     cached_ui: CachedUiState,
 }
 
-impl GpuSceneRenderer {
-    pub fn new(stage_width: u32, stage_height: u32) -> Result<Self, RendererError> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::from_env().unwrap_or_else(wgpu::Backends::all),
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
+const NVIDIA_PCI_VENDOR_ID: u32 = 0x10DE;
+
+fn wgpu_backend_name(backend: wgpu::Backend) -> &'static str {
+    match backend {
+        wgpu::Backend::Vulkan => "vulkan",
+        wgpu::Backend::Metal => "metal",
+        wgpu::Backend::Dx12 => "dx12",
+        wgpu::Backend::Gl => "gl",
+        wgpu::Backend::BrowserWebGpu => "webgpu",
+        wgpu::Backend::Noop => "noop",
+    }
+}
+
+fn device_type_name(device_type: wgpu::DeviceType) -> &'static str {
+    match device_type {
+        wgpu::DeviceType::IntegratedGpu => "integratedGpu",
+        wgpu::DeviceType::DiscreteGpu => "discreteGpu",
+        wgpu::DeviceType::VirtualGpu => "virtualGpu",
+        wgpu::DeviceType::Cpu => "cpu",
+        wgpu::DeviceType::Other => "other",
+    }
+}
+
+fn map_adapter_to_render_backend(info: &wgpu::AdapterInfo) -> RenderBackend {
+    if info.device_type == wgpu::DeviceType::Cpu {
+        return RenderBackend::Cpu;
+    }
+    match info.backend {
+        wgpu::Backend::Metal => RenderBackend::Metal,
+        wgpu::Backend::Vulkan => RenderBackend::Vulkan,
+        wgpu::Backend::Dx12 => RenderBackend::Dx12,
+        wgpu::Backend::Gl => RenderBackend::Gl,
+        wgpu::Backend::BrowserWebGpu | wgpu::Backend::Noop => RenderBackend::Auto,
+    }
+}
+
+/// Enumerates all available GPU and CPU rendering backends on the current device.
+pub fn enumerate_render_backends() -> Vec<GpuBackendInfo> {
+    let instance: wgpu::Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapters: Vec<wgpu::Adapter> =
+        pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+    let mut results: Vec<GpuBackendInfo> = Vec::with_capacity(adapters.len() + 1);
+    let mut added_cuda: bool = false;
+
+    for adapter in &adapters {
+        let info: wgpu::AdapterInfo = adapter.get_info();
+        let backend: RenderBackend = map_adapter_to_render_backend(&info);
+        let supports_compute: bool = adapter.limits().max_compute_workgroups_per_dimension > 0;
+        let wgpu_backend: String = wgpu_backend_name(info.backend).to_string();
+        let device_type: String = device_type_name(info.device_type).to_string();
+
+        if !added_cuda
+            && info.vendor == NVIDIA_PCI_VENDOR_ID
+            && info.device_type != wgpu::DeviceType::Cpu
+            && matches!(info.backend, wgpu::Backend::Vulkan | wgpu::Backend::Dx12)
+        {
+            added_cuda = true;
+            results.push(GpuBackendInfo {
+                backend: RenderBackend::Cuda,
+                wgpu_backend: wgpu_backend.clone(),
+                adapter_name: info.name.clone(),
+                device_type: device_type.clone(),
+                vendor_id: info.vendor,
+                supports_compute,
+                supports_hw_video_encoder: prefers_hardware_streaming_encoder_for_backend(
+                    RenderBackend::Cuda,
+                ),
+            });
+        }
+
+        results.push(GpuBackendInfo {
+            backend,
+            wgpu_backend,
+            adapter_name: info.name,
+            device_type,
+            vendor_id: info.vendor,
+            supports_compute,
+            supports_hw_video_encoder: prefers_hardware_streaming_encoder_for_backend(backend),
         });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-            apply_limit_buckets: false,
-        }))
-        .or_else(|_| {
+    }
+
+    results
+}
+
+fn select_adapter_for_backend(backend: RenderBackend) -> Result<wgpu::Adapter, RendererError> {
+    match backend {
+        RenderBackend::Auto => {
+            let instance: wgpu::Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::from_env().unwrap_or_else(wgpu::Backends::all),
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+                apply_limit_buckets: false,
+            }))
+            .or_else(|_| {
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    compatible_surface: None,
+                    force_fallback_adapter: true,
+                    apply_limit_buckets: false,
+                }))
+            })
+            .map_err(|err| RendererError::Gpu(format!("No WebGPU/wgpu adapter available: {err}")))
+        }
+        RenderBackend::Metal => request_specific_backend_adapter(wgpu::Backends::METAL, "Metal/MPS"),
+        RenderBackend::Vulkan => request_specific_backend_adapter(wgpu::Backends::VULKAN, "Vulkan"),
+        RenderBackend::Dx12 => request_specific_backend_adapter(wgpu::Backends::DX12, "DirectX 12"),
+        RenderBackend::Gl => request_specific_backend_adapter(wgpu::Backends::GL, "OpenGL/GLES"),
+        RenderBackend::Cuda => {
+            let backends: wgpu::Backends = wgpu::Backends::VULKAN | wgpu::Backends::DX12;
+            let instance: wgpu::Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends,
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+            let adapters: Vec<wgpu::Adapter> =
+                pollster::block_on(instance.enumerate_adapters(backends));
+            let nvidia_adapter: Option<wgpu::Adapter> = adapters
+                .into_iter()
+                .filter(|adapter| {
+                    let info: wgpu::AdapterInfo = adapter.get_info();
+                    info.vendor == NVIDIA_PCI_VENDOR_ID
+                        && info.device_type != wgpu::DeviceType::Cpu
+                })
+                .max_by_key(|adapter| {
+                    let info: wgpu::AdapterInfo = adapter.get_info();
+                    let backend_rank: u8 = match info.backend {
+                        wgpu::Backend::Vulkan => 2,
+                        wgpu::Backend::Dx12 => 1,
+                        _ => 0,
+                    };
+                    let discrete_rank: u8 =
+                        u8::from(info.device_type == wgpu::DeviceType::DiscreteGpu);
+                    (discrete_rank, backend_rank)
+                });
+            if let Some(adapter) = nvidia_adapter {
+                return Ok(adapter);
+            }
+            Err(RendererError::Gpu(
+                "No NVIDIA GPU adapter available for CUDA backend (requires Vulkan/DX12 NVIDIA driver)"
+                    .to_string(),
+            ))
+        }
+        RenderBackend::Cpu => {
+            let instance: wgpu::Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+            let adapters: Vec<wgpu::Adapter> =
+                pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+            if let Some(cpu_adapter) = adapters
+                .into_iter()
+                .find(|adapter| adapter.get_info().device_type == wgpu::DeviceType::Cpu)
+            {
+                return Ok(cpu_adapter);
+            }
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
                 apply_limit_buckets: false,
             }))
-        })
-        .map_err(|err| RendererError::Gpu(format!("No WebGPU/wgpu adapter available: {err}")))?;
+            .map_err(|err| {
+                RendererError::Gpu(format!(
+                    "No CPU/software WebGPU adapter available on this system: {err}"
+                ))
+            })
+        }
+    }
+}
+
+fn request_specific_backend_adapter(
+    backends: wgpu::Backends,
+    label: &str,
+) -> Result<wgpu::Adapter, RendererError> {
+    let instance: wgpu::Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+        apply_limit_buckets: false,
+    }))
+    .map_err(|err| RendererError::Gpu(format!("No {label} GPU adapter available: {err}")))
+}
+
+impl GpuSceneRenderer {
+    /// Creates a GPU scene renderer using the automatic backend selection policy.
+    pub fn new(stage_width: u32, stage_height: u32) -> Result<Self, RendererError> {
+        Self::new_with_backend(stage_width, stage_height, RenderBackend::Auto)
+    }
+
+    /// Creates a GPU scene renderer configured for a specific [`RenderBackend`].
+    pub fn new_with_backend(
+        stage_width: u32,
+        stage_height: u32,
+        backend: RenderBackend,
+    ) -> Result<Self, RendererError> {
+        let adapter: wgpu::Adapter = select_adapter_for_backend(backend)?;
 
         let adapter_limits: wgpu::Limits = adapter.limits();
         let supports_compute_filters: bool = adapter
@@ -5285,5 +5472,31 @@ mod tests {
             .expect("finish 720p yuv"));
         assert_eq!(yuv.y.len(), 1280 * 720);
         assert_eq!(yuv.u.len(), 640 * 360);
+    }
+
+    #[test]
+    fn enumerate_and_select_render_backends() {
+        let backends: Vec<GpuBackendInfo> = enumerate_render_backends();
+        assert!(
+            !backends.is_empty(),
+            "expected at least one GPU/CPU wgpu adapter on host"
+        );
+        assert!(!prefers_hardware_streaming_encoder_for_backend(
+            RenderBackend::Cpu
+        ));
+
+        let auto_renderer: GpuSceneRenderer =
+            GpuSceneRenderer::new_with_backend(64, 64, RenderBackend::Auto)
+                .expect("Auto backend must initialize");
+        drop(auto_renderer);
+
+        #[cfg(target_os = "macos")]
+        {
+            let metal_renderer: GpuSceneRenderer =
+                GpuSceneRenderer::new_with_backend(64, 64, RenderBackend::Metal)
+                    .expect("Metal/MPS backend must initialize on macOS");
+            drop(metal_renderer);
+            assert!(backends.iter().any(|b| b.backend == RenderBackend::Metal));
+        }
     }
 }

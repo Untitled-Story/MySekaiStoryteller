@@ -11,8 +11,8 @@ use super::clock::DeterministicClock;
 use super::config::VideoExportConfig;
 use super::dispatcher::{SceneDriver, StoryRunner};
 use super::encoder::{
-    create_video_encoder_with_options, encode_interleaved_i16_parallel_with_workers,
-    encode_yuv_gop_chunk, prefers_hardware_streaming_encoder, EncodedAudioPacket,
+    create_video_encoder_for_backend, encode_interleaved_i16_parallel_with_workers,
+    encode_yuv_gop_chunk, prefers_hardware_streaming_encoder_for_backend, EncodedAudioPacket,
     EncodedVideoPacket, H264EncoderOptions, Mp4MuxerWriter,
 };
 use super::error::RendererError;
@@ -139,7 +139,7 @@ where
     };
 
     let use_parallel_gop: bool = h264_opts.bitrate_bps == 0
-        && !prefers_hardware_streaming_encoder()
+        && !prefers_hardware_streaming_encoder_for_backend(config.render_backend)
         && !(cfg!(target_os = "android")
             && ((config.width as u64) * (config.height as u64) > 1920 * 1080));
 
@@ -786,8 +786,14 @@ fn run_streaming_abr_pipeline<F>(
 where
     F: FnMut(ExportProgress),
 {
-    let mut video_encoder =
-        create_video_encoder_with_options(config.width, config.height, config.fps, h264_opts)?;
+    let mut video_encoder: Box<dyn super::encoder::VideoFrameEncoder> =
+        create_video_encoder_for_backend(
+            config.width,
+            config.height,
+            config.fps,
+            h264_opts,
+            config.render_backend,
+        )?;
     let (frame_tx, frame_rx) = mpsc::sync_channel::<(u64, YuvFrame)>(4);
     let free_frames: Mutex<Vec<YuvFrame>> = Mutex::new(Vec::new());
     let fps: u32 = config.fps;
@@ -1449,6 +1455,7 @@ mod tests {
             audio_bitrate_kbps: None,
             audio_volume_percent: 0,
             background_color: "#204060".to_string(),
+            render_backend: crate::renderer::config::RenderBackend::Auto,
         };
         let custom_res = export_story_to_mp4(&input, &custom_cfg, &custom_mp4, None, |_| {})
             .expect("video only");

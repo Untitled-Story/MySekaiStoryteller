@@ -47,12 +47,15 @@ import {
   cancelVideoExport,
   exportProjectVideo,
   generateRandomExportSeed,
+  getAvailableRenderBackends,
   isValidExportHexColor,
   isVideoExportCancelledError,
   listenVideoExportProgress,
   sanitizeVideoFileName,
   validateExportFps,
   validateVideoDimensions,
+  type GpuBackendInfo,
+  type RenderBackend,
   type VideoExportConfig,
   type VideoExportProgress,
   type VideoExportResult,
@@ -160,6 +163,10 @@ export function ExportVideoDialog({
     String(DEFAULT_VIDEO_EXPORT_CONFIG.fps)
   )
   const [quality, setQuality] = useState<VideoQualityPreset>(DEFAULT_VIDEO_EXPORT_CONFIG.quality)
+  const [renderBackend, setRenderBackend] = useState<RenderBackend>(
+    DEFAULT_VIDEO_EXPORT_CONFIG.renderBackend
+  )
+  const [availableBackends, setAvailableBackends] = useState<GpuBackendInfo[]>([])
 
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false)
   const [rateMode, setRateMode] = useState<VideoRateControlMode>('preset')
@@ -209,6 +216,25 @@ export function ExportVideoDialog({
     }
   }, [open, projectName, exporting])
 
+  useEffect((): (() => void) | void => {
+    if (!open) return
+    let cancelled: boolean = false
+    void getAvailableRenderBackends()
+      .then((list: GpuBackendInfo[]): void => {
+        if (!cancelled && mountedRef.current) {
+          setAvailableBackends(list)
+        }
+      })
+      .catch((): void => {
+        if (!cancelled && mountedRef.current) {
+          setAvailableBackends([])
+        }
+      })
+    return (): void => {
+      cancelled = true
+    }
+  }, [open])
+
   const resetDefaults = (): void => {
     if (exporting) return
     setResolutionPreset('1080p')
@@ -217,6 +243,7 @@ export function ExportVideoDialog({
     setFpsPreset(String(DEFAULT_VIDEO_EXPORT_CONFIG.fps))
     setCustomFpsText(String(DEFAULT_VIDEO_EXPORT_CONFIG.fps))
     setQuality(DEFAULT_VIDEO_EXPORT_CONFIG.quality)
+    setRenderBackend(DEFAULT_VIDEO_EXPORT_CONFIG.renderBackend)
     setRateMode('preset')
     setVideoQpText('19')
     setVideoBitrateText('8000')
@@ -383,6 +410,7 @@ export function ExportVideoDialog({
       height: selectedDimensions.height,
       fps: resolvedFps,
       quality,
+      renderBackend,
       seedMode:
         seedModeKind === 'fixed'
           ? { mode: 'fixed', seed: parseStrictInt(seedText) }
@@ -603,6 +631,44 @@ export function ExportVideoDialog({
                 <option value="quality">{t('videoExport.qualityQuality')}</option>
               </select>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('videoExport.renderBackend')}
+            </label>
+            <select
+              aria-label={t('videoExport.renderBackend')}
+              value={renderBackend}
+              disabled={exporting}
+              onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
+                setRenderBackend(event.target.value as RenderBackend)
+              }
+              className={SELECT_CLASS}
+            >
+              {(
+                [
+                  ['auto', t('videoExport.backendAuto')],
+                  ['metal', t('videoExport.backendMetal')],
+                  ['vulkan', t('videoExport.backendVulkan')],
+                  ['cuda', t('videoExport.backendCuda')],
+                  ['dx12', t('videoExport.backendDx12')],
+                  ['gl', t('videoExport.backendGl')],
+                  ['cpu', t('videoExport.backendCpu')]
+                ] as readonly [RenderBackend, string][]
+              ).map(([backendKey, label]: readonly [RenderBackend, string]): JSX.Element => {
+                const detected: GpuBackendInfo | undefined = availableBackends.find(
+                  (item: GpuBackendInfo): boolean => item.backend === backendKey
+                )
+                const optionText: string =
+                  detected && backendKey !== 'auto' ? `${label} (${detected.adapterName})` : label
+                return (
+                  <option key={backendKey} value={backendKey}>
+                    {optionText}
+                  </option>
+                )
+              })}
+            </select>
           </div>
 
           {fpsPreset === 'custom' && (

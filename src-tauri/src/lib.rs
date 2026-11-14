@@ -157,6 +157,7 @@ pub fn run() {
             project::story::set_project_story,
             export::export_project_video,
             export::cancel_video_export,
+            export::get_available_render_backends,
             window::open_editor,
             window::open_player,
         ]);

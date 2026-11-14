@@ -30,6 +30,20 @@ const HEX_COLOR_RE: RegExp = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 export const VideoQualityPresetSchema = z.enum(['fast', 'balanced', 'quality'])
 export type VideoQualityPreset = z.infer<typeof VideoQualityPresetSchema>
 
+export const RenderBackendSchema = z.enum(['auto', 'metal', 'vulkan', 'cuda', 'dx12', 'gl', 'cpu'])
+export type RenderBackend = z.infer<typeof RenderBackendSchema>
+
+export const GpuBackendInfoSchema = z.object({
+  backend: RenderBackendSchema,
+  wgpuBackend: z.string(),
+  adapterName: z.string(),
+  deviceType: z.string(),
+  vendorId: z.number().int().nonnegative(),
+  supportsCompute: z.boolean(),
+  supportsHwVideoEncoder: z.boolean()
+})
+export type GpuBackendInfo = z.infer<typeof GpuBackendInfoSchema>
+
 export const VideoSeedModeSchema = z.discriminatedUnion('mode', [
   z.object({
     mode: z.literal('fixed'),
@@ -66,7 +80,8 @@ export const VideoExportConfigSchema = z.object({
     .nullable()
     .optional(),
   audioVolumePercent: z.number().int().min(0).max(MAX_AUDIO_VOLUME_PERCENT),
-  backgroundColor: z.string().regex(HEX_COLOR_RE)
+  backgroundColor: z.string().regex(HEX_COLOR_RE),
+  renderBackend: RenderBackendSchema.default('auto')
 })
 export type VideoExportConfig = z.infer<typeof VideoExportConfigSchema>
 
@@ -148,7 +163,8 @@ export const DEFAULT_VIDEO_EXPORT_CONFIG: VideoExportConfig = {
   includeAudio: true,
   audioBitrateKbps: null,
   audioVolumePercent: 100,
-  backgroundColor: DEFAULT_BACKGROUND_COLOR
+  backgroundColor: DEFAULT_BACKGROUND_COLOR,
+  renderBackend: 'auto'
 }
 
 export function validateVideoDimensions(width: number, height: number): 'ok' | 'invalid' | 'odd' {
@@ -207,6 +223,7 @@ export async function exportProjectVideo(params: {
       height: parsedConfig.height,
       fps: parsedConfig.fps,
       quality: parsedConfig.quality,
+      renderBackend: parsedConfig.renderBackend,
       includeAudio: parsedConfig.includeAudio
     },
     async (): Promise<VideoExportResult> => {
@@ -223,6 +240,11 @@ export async function exportProjectVideo(params: {
 
 export function cancelVideoExport(): Promise<boolean> {
   return invoke<boolean>('cancel_video_export')
+}
+
+export async function getAvailableRenderBackends(): Promise<GpuBackendInfo[]> {
+  const raw: unknown = await invoke<unknown>('get_available_render_backends')
+  return z.array(GpuBackendInfoSchema).parse(raw)
 }
 
 export function listenVideoExportProgress(

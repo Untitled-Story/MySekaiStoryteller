@@ -1,7 +1,7 @@
 use rusty_h264_common::{Profile, YuvFrame};
 use rusty_h264_encoder::{Encoder, EncoderConfig, Preset};
 
-use crate::renderer::config::VideoQualityPreset;
+use crate::renderer::config::{RenderBackend, VideoQualityPreset};
 use crate::renderer::error::RendererError;
 
 #[derive(Debug, Clone)]
@@ -244,23 +244,41 @@ pub fn create_video_encoder(
 }
 
 /// Factory returning the active video encoder backend with explicit encoding options.
+/// Returns whether the hardware streaming H.264 encoder is preferred for the given [`RenderBackend`].
+pub fn prefers_hardware_streaming_encoder_for_backend(backend: RenderBackend) -> bool {
+    if backend == RenderBackend::Cpu {
+        return false;
+    }
+    prefers_hardware_streaming_encoder()
+}
+
 pub fn create_video_encoder_with_options(
     width: u32,
     height: u32,
     fps: u32,
     options: H264EncoderOptions,
 ) -> Result<Box<dyn VideoFrameEncoder>, RendererError> {
+    create_video_encoder_for_backend(width, height, fps, options, RenderBackend::Auto)
+}
+
+/// Creates a video frame encoder honoring the requested [`RenderBackend`].
+/// `RenderBackend::Cpu` forces pure-CPU H.264 encoding even when hardware acceleration is available.
+pub fn create_video_encoder_for_backend(
+    width: u32,
+    height: u32,
+    fps: u32,
+    options: H264EncoderOptions,
+    backend: RenderBackend,
+) -> Result<Box<dyn VideoFrameEncoder>, RendererError> {
     #[cfg(all(target_os = "macos", feature = "native-hw-accel"))]
-    {
+    if backend != RenderBackend::Cpu {
         let enc: super::video_vt::VideoVtEncoder =
             super::video_vt::VideoVtEncoder::new_with_options(width, height, fps, options)?;
         return Ok(Box::new(enc));
     }
-    #[cfg(not(all(target_os = "macos", feature = "native-hw-accel")))]
-    {
-        let enc = RustyH264VideoEncoder::new_with_options(width, height, fps, options)?;
-        Ok(Box::new(enc))
-    }
+    let _ = backend;
+    let enc: RustyH264VideoEncoder = RustyH264VideoEncoder::new_with_options(width, height, fps, options)?;
+    Ok(Box::new(enc))
 }
 
 /// Pure-Rust software H.264 encoder powered by `rusty_h264_encoder`.

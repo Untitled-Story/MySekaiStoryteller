@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::settings::{get_settings, PlaybackFontSettings};
-use crate::renderer::config::VideoExportConfig;
+use crate::renderer::config::{GpuBackendInfo, VideoExportConfig};
 use crate::renderer::error::RendererError;
 use crate::renderer::export::{export_story_to_mp4, ExportProgress, ExportResult, ExportStage};
+use crate::renderer::gpu::enumerate_render_backends;
 use crate::renderer::story::{PlaybackFontConfig, ProjectRenderInput, StoryData};
 
 pub const VIDEO_EXPORT_PROGRESS_EVENT: &str = "video-export-progress";
@@ -232,6 +233,14 @@ pub fn cancel_video_export(state: State<'_, VideoExportManager>) -> Result<bool,
         log::info!(target: "backend::export", "video_export.cancel_requested");
     }
     Ok(cancelled)
+}
+
+/// Enumerates available GPU (Metal/MPS, Vulkan, CUDA, DX12, GL) and CPU render backends.
+#[tauri::command]
+pub async fn get_available_render_backends() -> Result<Vec<GpuBackendInfo>, String> {
+    tauri::async_runtime::spawn_blocking(enumerate_render_backends)
+        .await
+        .map_err(|err| format!("Failed to enumerate render backends: {err}"))
 }
 
 #[cfg(test)]

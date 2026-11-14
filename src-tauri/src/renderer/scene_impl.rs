@@ -151,7 +151,11 @@ impl<'a> StorySceneState<'a> {
                 })
                 .collect();
 
-            match GpuSceneRenderer::new(config.width, config.height)
+            match GpuSceneRenderer::new_with_backend(
+                config.width,
+                config.height,
+                config.render_backend,
+            )
                 .and_then(|g| Ok((g, StoryTextRenderer::new(&input.font, Some(&input.data_dir))?)))
             {
                 Ok((g, t)) => {

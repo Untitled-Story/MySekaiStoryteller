@@ -68,6 +68,40 @@ fn default_seed_value() -> u64 {
     DEFAULT_EXPORT_SEED
 }
 
+/// Hardware or software rendering backend preference for video export.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum RenderBackend {
+    /// Automatically choose the best available GPU backend (Metal / Vulkan / DX12 / GL) with fallback.
+    #[default]
+    Auto,
+    /// Apple Metal / MPS GPU backend (macOS / Apple Silicon).
+    Metal,
+    /// Cross-platform Vulkan GPU backend (Linux / Windows / Android).
+    Vulkan,
+    /// NVIDIA CUDA-class discrete GPU preference (routes through Vulkan/DX12 targeting NVIDIA `0x10DE`).
+    Cuda,
+    /// DirectX 12 GPU backend (Windows).
+    Dx12,
+    /// OpenGL / GLES GPU backend.
+    Gl,
+    /// Software/CPU rendering adapter + CPU H.264 encoder.
+    Cpu,
+}
+
+/// Metadata describing an available GPU or CPU render backend detected on this system.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuBackendInfo {
+    pub backend: RenderBackend,
+    pub wgpu_backend: String,
+    pub adapter_name: String,
+    pub device_type: String,
+    pub vendor_id: u32,
+    pub supports_compute: bool,
+    pub supports_hw_video_encoder: bool,
+}
+
 /// Video export parameters passed from the frontend dialog or CLI/tests.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +132,8 @@ pub struct VideoExportConfig {
     pub audio_volume_percent: u32,
     #[serde(default = "default_background_color")]
     pub background_color: String,
+    #[serde(default)]
+    pub render_backend: RenderBackend,
 }
 
 fn default_width() -> u32 {
@@ -138,6 +174,7 @@ impl Default for VideoExportConfig {
             audio_bitrate_kbps: None,
             audio_volume_percent: default_audio_volume_percent(),
             background_color: default_background_color(),
+            render_backend: RenderBackend::default(),
         }
     }
 }
@@ -361,5 +398,28 @@ mod tests {
 
         custom.background_color = "not-hex".to_string();
         assert!(custom.validate().is_err());
+    }
+
+    #[test]
+    fn config_render_backend_serde_roundtrip_and_default() {
+        let legacy: VideoExportConfig =
+            serde_json::from_str(r#"{"width":1920,"height":1080,"fps":60}"#).expect("legacy json");
+        assert_eq!(legacy.render_backend, RenderBackend::Auto);
+
+        for (raw, expected) in [
+            ("auto", RenderBackend::Auto),
+            ("metal", RenderBackend::Metal),
+            ("vulkan", RenderBackend::Vulkan),
+            ("cuda", RenderBackend::Cuda),
+            ("dx12", RenderBackend::Dx12),
+            ("gl", RenderBackend::Gl),
+            ("cpu", RenderBackend::Cpu),
+        ] {
+            let parsed: RenderBackend =
+                serde_json::from_str(&format!(r#""{raw}""#)).expect("parse backend");
+            assert_eq!(parsed, expected);
+            let serialized: String = serde_json::to_string(&parsed).expect("serialize backend");
+            assert_eq!(serialized, format!(r#""{raw}""#));
+        }
     }
 }
