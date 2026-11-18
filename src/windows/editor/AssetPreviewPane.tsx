@@ -1,4 +1,4 @@
-import type { ChangeEvent, JSX } from 'react'
+import type { ChangeEvent, JSX, RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Application } from 'pixi.js'
 import { Image as ImageIcon, LoaderCircle, Play, X } from 'lucide-react'
@@ -8,8 +8,14 @@ import { describeError, logger } from '@/lib/logger'
 import { ensureSekaiLive2DReady, loadSekaiLive2DModel, type SekaiLive2DModel } from '@/lib/live2d'
 import { projectAssetUrl } from '@/lib/projectAssetUrl'
 import { cn } from '@/lib/style'
+import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { BackgroundAsset, ModelAsset } from '@/project/assets'
-import { applyAndWaitModelMotion, resolveModelUrl, stopModelMotions } from '@/story'
+import {
+  applyAndWaitModelFacial,
+  applyAndWaitModelMotion,
+  resolveModelUrl,
+  stopModelMotions
+} from '@/story'
 import type { EditorAssetSelection } from './editorCatalog'
 import type { EditorPreviewInput } from './EditorPreview'
 import { resolveRenderPrecision } from './resolveRenderPrecision'
@@ -85,7 +91,12 @@ export function AssetPreviewPane({
           name={title}
         />
       ) : (
-        <ModelPreview key={selection.key} modelKey={selection.key} input={input} />
+        <ModelPreview
+          key={selection.key}
+          modelKey={selection.key}
+          input={input}
+          compact={compact}
+        />
       )}
     </section>
   )
@@ -135,15 +146,18 @@ function BackgroundImagePreview({
 
 function ModelPreview({
   modelKey,
-  input
+  input,
+  compact
 }: {
   modelKey: string
   input: EditorPreviewInput
+  compact: boolean
 }): JSX.Element {
   const { t } = useTranslation()
   const stageRef = useRef<HTMLDivElement | null>(null)
   const modelRef = useRef<SekaiLive2DModel | null>(null)
   const playbackTokenRef = useRef<number>(0)
+  const facialTokenRef = useRef<number>(0)
   const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
   const fitRef = useRef<(() => void) | null>(null)
   const [status, setStatus] = useState<ModelPreviewStatus>('loading')
@@ -153,7 +167,9 @@ function ModelPreview({
   const modelId: string | undefined = input.assets.models[modelKey]?.modelId
   const anchor: number = input.assets.models[modelKey]?.anchor ?? 0.5
   const normalScale: number = input.assets.models[modelKey]?.normalScale ?? 1
-  const registryEntry = modelId ? input.modelRegistry.models[modelId] : undefined
+  const registryEntry: ModelRegistry['models'][string] | undefined = modelId
+    ? input.modelRegistry.models[modelId]
+    : undefined
   const motions: readonly string[] = registryEntry?.motions ?? []
   const facials: readonly string[] = registryEntry?.facials ?? []
   const renderPrecision: number = resolveRenderPrecision(input.settings)
@@ -253,6 +269,7 @@ function ModelPreview({
     return (): void => {
       disposed = true
       playbackTokenRef.current += 1
+      facialTokenRef.current += 1
       modelRef.current = null
       fitRef.current = null
       // The model unregisters itself from the app ticker, so it must be destroyed before the app.
@@ -266,20 +283,21 @@ function ModelPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelUrl, renderPrecision, modelKey])
 
-  const playPreview = (nextMotion: string, nextFacial: string): void => {
-    const model: SekaiLive2DModel | null = modelRef.current
-    if (!model) return
+  const logPlaybackFailure = (error: unknown): void => {
+    logger.warn('editor.asset_model_preview_motion_failed', {
+      projectName: input.projectName,
+      modelKey,
+      error: describeError(error)
+    })
+  }
 
-    const token: number = ++playbackTokenRef.current
-    if (!nextMotion && !nextFacial) {
-      stopModelMotions(model)
-      return
-    }
-
-    const waitUntil = (whenFinish: () => boolean): Promise<void> =>
+  // Resolves once `whenFinish` holds, or when the playback it belongs to is superseded or disposed.
+  const createWaitUntil =
+    (tokenRef: RefObject<number>, token: number) =>
+    (whenFinish: () => boolean): Promise<void> =>
       new Promise<void>((resolve): void => {
         const check = (): void => {
-          if (playbackTokenRef.current !== token || !modelRef.current || whenFinish()) {
+          if (tokenRef.current !== token || !modelRef.current || whenFinish()) {
             resolve()
             return
           }
@@ -288,18 +306,34 @@ function ModelPreview({
         check()
       })
 
+  const playPreview = (nextMotion: string, nextFacial: string): void => {
+    const model: SekaiLive2DModel | null = modelRef.current
+    if (!model) return
+
+    const token: number = ++playbackTokenRef.current
+    facialTokenRef.current += 1
+    if (!nextMotion && !nextFacial) {
+      stopModelMotions(model)
+      return
+    }
+
     void applyAndWaitModelMotion(
       model,
-      waitUntil,
+      createWaitUntil(playbackTokenRef, token),
       nextMotion || undefined,
       nextFacial || undefined
-    ).catch((error: unknown): void => {
-      logger.warn('editor.asset_model_preview_motion_failed', {
-        projectName: input.projectName,
-        modelKey,
-        error: describeError(error)
-      })
-    })
+    ).catch(logPlaybackFailure)
+  }
+
+  // Changing the facial must not restart a body motion that is already playing.
+  const playFacialOnly = (nextFacial: string): void => {
+    const model: SekaiLive2DModel | null = modelRef.current
+    if (!model || !nextFacial) return
+
+    const token: number = ++facialTokenRef.current
+    void applyAndWaitModelFacial(model, createWaitUntil(facialTokenRef, token), nextFacial).catch(
+      logPlaybackFailure
+    )
   }
 
   const ready: boolean = status === 'ready'
@@ -319,10 +353,17 @@ function ModelPreview({
           </div>
         ) : null}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t px-3 py-2 text-xs">
+      <div
+        className={cn(
+          'flex shrink-0 items-center border-t text-xs',
+          // Compact chrome keeps the bar one row (44px) so the canvas stays 16:9 like the stage.
+          compact ? 'h-11 gap-2 px-2' : 'flex-wrap gap-x-3 gap-y-2 px-3 py-2'
+        )}
+      >
         <ModelPreviewSelect
           label={t('snippetFields.motion')}
           noneLabel={t('editor.modelPreviewNone')}
+          compact={compact}
           value={motion}
           options={motions}
           disabled={!ready}
@@ -334,23 +375,25 @@ function ModelPreview({
         <ModelPreviewSelect
           label={t('snippetFields.facial')}
           noneLabel={t('editor.modelPreviewNone')}
+          compact={compact}
           value={facial}
           options={facials}
           disabled={!ready}
           onChange={(value: string): void => {
             setFacial(value)
-            playPreview(motion, value)
+            playFacialOnly(value)
           }}
         />
         <Button
           type="button"
           size="sm"
-          className="gap-1.5 text-xs"
+          className="shrink-0 gap-1.5 text-xs"
+          aria-label={t('common.play')}
           disabled={!ready || (!motion && !facial)}
           onClick={(): void => playPreview(motion, facial)}
         >
           <Play className="size-3.5" />
-          {t('common.play')}
+          {compact ? null : t('common.play')}
         </Button>
       </div>
     </>
@@ -360,6 +403,7 @@ function ModelPreview({
 function ModelPreviewSelect({
   label,
   noneLabel,
+  compact,
   value,
   options,
   disabled,
@@ -367,23 +411,29 @@ function ModelPreviewSelect({
 }: {
   label: string
   noneLabel: string
+  compact: boolean
   value: string
   options: readonly string[]
   disabled: boolean
   onChange: (value: string) => void
 }): JSX.Element {
   return (
-    <label className="flex min-w-0 items-center gap-1.5">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
+    <label className={cn('flex min-w-0 items-center gap-1.5', compact && 'flex-1')}>
+      {compact ? null : <span className="shrink-0 text-muted-foreground">{label}</span>}
       <select
-        className="h-8 min-w-0 max-w-48 rounded-md border bg-background px-2 text-xs text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
+        aria-label={label}
+        className={cn(
+          'h-8 min-w-0 rounded-md border bg-background px-2 text-xs text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50',
+          compact ? 'w-full' : 'max-w-48'
+        )}
         value={value}
         disabled={disabled}
         onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
           onChange(event.currentTarget.value)
         }
       >
-        <option value="">{noneLabel}</option>
+        {/* Without a visible label, the empty option doubles as the field's name. */}
+        <option value="">{compact ? label : noneLabel}</option>
         {options.map(
           (name: string): JSX.Element => (
             <option key={name} value={name}>

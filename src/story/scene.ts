@@ -1320,6 +1320,18 @@ export async function applyAndWaitModelMotion(
   }
 }
 
+/** Replaces only the facial layer, leaving a running body motion untouched. */
+export async function applyAndWaitModelFacial(
+  model: SekaiLive2DModel,
+  waitUntil: (whenFinish: () => boolean) => Promise<void>,
+  facial: string
+): Promise<void> {
+  const facialManager: ParallelMotionManagerLike = getParallelMotionManagers(model)[1]
+  facialManager.stopAllMotions()
+  await facialManager.startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false })
+  await waitUntil((): boolean => facialManager.isFinished())
+}
+
 function resolveMotionIgnoreParamIds(
   facial: string | undefined,
   composingEyeMotion: boolean

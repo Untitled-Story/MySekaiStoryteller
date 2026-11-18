@@ -1243,16 +1243,18 @@ export default function App({
   // The stage preview stays mounted underneath so playback state survives browsing assets.
   const previewNode: JSX.Element = (
     <div className="relative h-full min-h-0 w-full">
-      <EditorPreview
-        input={previewInput}
-        story={story}
-        previewRequest={previewRequest}
-        previewTargetNodeId={previewTargetNode?.id ?? null}
-        pauseAfterPreviewTarget={pauseAfterPreviewTarget}
-        onActiveSnippetIdsChange={setActiveSnippetIds}
-        onPreviewFromBeginning={(): void => requestPreview(null, false)}
-        compact={compactChrome}
-      />
+      <div className="h-full min-h-0" inert={assetPreviewSelection !== null}>
+        <EditorPreview
+          input={previewInput}
+          story={story}
+          previewRequest={previewRequest}
+          previewTargetNodeId={previewTargetNode?.id ?? null}
+          pauseAfterPreviewTarget={pauseAfterPreviewTarget}
+          onActiveSnippetIdsChange={setActiveSnippetIds}
+          onPreviewFromBeginning={(): void => requestPreview(null, false)}
+          compact={compactChrome}
+        />
+      </div>
       {assetPreviewSelection ? (
         <AssetPreviewPane
           selection={assetPreviewSelection}

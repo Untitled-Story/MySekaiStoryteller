@@ -109,6 +109,7 @@ export {
   type PreloadStoryModelsOptions
 } from './preload'
 export {
+  applyAndWaitModelFacial,
   applyAndWaitModelMotion,
   createStoryScene,
   stopModelMotions,
