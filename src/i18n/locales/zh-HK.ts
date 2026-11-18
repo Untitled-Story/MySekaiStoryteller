@@ -162,9 +162,6 @@ export const zhHK: LocaleShape = {
     fontMissing: '{{family}}（找不到）',
     interaction: '互動',
     interactionDescription: '調整觸控與行動端互動行為。',
-    touchMode: '觸控模式',
-    touchModeDescription: '讓清單操作按鈕始終可見，而不依賴滑鼠懸停，更方便觸控操作。',
-    touchModeAria: '切換觸控模式',
     fullscreenMode: '全螢幕模式',
     fullscreenModeDescription:
       '強制開啟 Android 沉浸式全螢幕，隱藏狀態列與導覽列。若系統導覽列遮擋頁面底部，可開啟此選項。',

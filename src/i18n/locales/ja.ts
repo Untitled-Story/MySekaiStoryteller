@@ -167,10 +167,6 @@ export const ja: typeof en = {
     fontMissing: '{{family}}（見つかりません）',
     interaction: 'インタラクション',
     interactionDescription: 'タッチとモバイルのインタラクション動作を調整します。',
-    touchMode: 'タッチモード',
-    touchModeDescription:
-      'マウスホバーに頼らず、リスト操作のボタンを常に表示します。タッチ操作がしやすくなります。',
-    touchModeAria: 'タッチモードを切り替え',
     fullscreenMode: 'フルスクリーンモード',
     fullscreenModeDescription:
       'Androidの没入型フルスクリーンを強制し、ステータスバーとナビゲーションバーを隠します。システムナビが画面下部を覆う場合に使用してください。',

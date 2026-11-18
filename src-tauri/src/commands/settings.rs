@@ -96,10 +96,6 @@ impl OnboardingSettings {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InteractionSettings {
-    #[serde(default)]
-    pub touch_mode: bool,
-    #[serde(default)]
-    pub touch_mode_prompt_seen: bool,
     /// Android-only: force immersive system bars off to avoid occlusion.
     #[serde(default)]
     pub fullscreen_mode: bool,

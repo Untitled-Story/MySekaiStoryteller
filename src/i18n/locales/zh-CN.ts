@@ -158,9 +158,6 @@ export const zhCN = {
     fontMissing: '{{family}}（未找到）',
     interaction: '交互',
     interactionDescription: '调整触控与移动端交互行为。',
-    touchMode: '触控模式',
-    touchModeDescription: '让列表操作按钮始终可见，而不依赖鼠标悬停，更方便触控操作。',
-    touchModeAria: '切换触控模式',
     fullscreenMode: '全屏模式',
     fullscreenModeDescription:
       '强制开启 Android 沉浸式全屏，隐藏状态栏与导航栏。若系统导航栏遮挡页面底部，可打开此选项。',
