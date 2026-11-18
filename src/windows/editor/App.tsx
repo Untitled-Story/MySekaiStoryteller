@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CirclePlay,
   Clapperboard,
+  Ellipsis,
   FileJson,
   FileArchive,
   LoaderCircle,
@@ -91,6 +92,7 @@ import {
 } from './editorCatalog'
 import { EditorAssetInspector, EditorInspector } from './EditorInspector'
 import { AssetPreviewPane } from './AssetPreviewPane'
+import { EditorMoreSheet } from './EditorMoreSheet'
 import { EditorPreview, type EditorPreviewInput } from './EditorPreview'
 import { EditorSidebar, type EditorSidebarTab } from './EditorSidebar'
 import {
@@ -184,6 +186,7 @@ export default function App({
   const landscapeViewport: boolean = useIsLandscapeViewport()
   const mobileLandscapeLayout: boolean = isMobileRuntime() && landscapeViewport
   const [mobileBottomTab, setMobileBottomTab] = useState<'outline' | 'properties'>('outline')
+  const [moreSheetOpen, setMoreSheetOpen] = useState<boolean>(false)
 
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
@@ -1266,6 +1269,36 @@ export default function App({
     </div>
   )
 
+  const historyButtons: JSX.Element = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-9"
+        aria-label={t('common.undo')}
+        title={t('common.undo')}
+        disabled={history.past.length === 0}
+        onClick={(): void => dispatchHistory({ type: 'undo' })}
+      >
+        <Undo2 className="size-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-9"
+        aria-label={t('common.redo')}
+        title={t('common.redo')}
+        disabled={history.future.length === 0}
+        onClick={(): void => dispatchHistory({ type: 'redo' })}
+      >
+        <Redo2 className="size-4" />
+      </Button>
+    </>
+  )
+  const phoneSaveFailed: boolean = phoneLayout && storySaveStatus === 'error'
+
   return (
     <main
       className={cn(
@@ -1276,7 +1309,7 @@ export default function App({
       <header
         className={cn(
           'flex shrink-0 items-center border-b bg-background px-2 sm:px-3',
-          phoneLayout && 'flex-wrap content-start px-2 pb-1',
+          phoneLayout && 'px-2',
           embedInShell && phoneLayout
             ? 'pt-[env(safe-area-inset-top)]'
             : embedInShell
@@ -1287,7 +1320,7 @@ export default function App({
         )}
       >
         <div
-          className={cn('flex min-w-0 items-center gap-1.5 sm:gap-2', phoneLayout && 'h-12 flex-1')}
+          className={cn('flex min-w-0 items-center gap-1.5 sm:gap-2', phoneLayout && 'h-11 flex-1')}
         >
           {embedInShell ? (
             <Button
@@ -1310,15 +1343,20 @@ export default function App({
               <ArrowLeft className="size-4" />
             </Button>
           ) : null}
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-            <Clapperboard className="size-4" />
-          </div>
+          {phoneLayout ? null : (
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+              <Clapperboard className="size-4" />
+            </div>
+          )}
           <p className="min-w-0 truncate text-sm font-semibold">{loadedProject.metadata.title}</p>
           <span
-            aria-label={isDirty ? t('editor.unsavedChanges') : undefined}
+            aria-label={
+              phoneSaveFailed ? saveButtonTitle : isDirty ? t('editor.unsavedChanges') : undefined
+            }
             className={cn(
               'size-1.5 shrink-0 rounded-full bg-amber-500 transition-opacity duration-300 ease-out',
-              isDirty ? 'opacity-100' : 'opacity-0'
+              isDirty ? 'opacity-100' : 'opacity-0',
+              phoneSaveFailed && 'bg-destructive opacity-100'
             )}
           />
         </div>
@@ -1326,33 +1364,10 @@ export default function App({
         <div
           className={cn(
             'ml-2 flex items-center gap-0.5 sm:ml-5 sm:gap-1 sm:border-l sm:pl-4',
-            phoneLayout && 'ml-auto h-12'
+            phoneLayout && 'hidden'
           )}
         >
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            aria-label={t('common.undo')}
-            title={t('common.undo')}
-            disabled={history.past.length === 0}
-            onClick={(): void => dispatchHistory({ type: 'undo' })}
-          >
-            <Undo2 className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            aria-label={t('common.redo')}
-            title={t('common.redo')}
-            disabled={history.future.length === 0}
-            onClick={(): void => dispatchHistory({ type: 'redo' })}
-          >
-            <Redo2 className="size-4" />
-          </Button>
+          {historyButtons}
           <Button
             type="button"
             variant="ghost"
@@ -1372,7 +1387,7 @@ export default function App({
         <div
           className={cn(
             'ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5',
-            phoneLayout && 'ml-0 h-12 w-full border-t px-0.5 pt-1'
+            phoneLayout && 'h-11 shrink-0'
           )}
         >
           {visibleError && (
@@ -1380,27 +1395,29 @@ export default function App({
               {visibleError}
             </span>
           )}
+          {phoneLayout ? null : (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className={compactChrome ? 'size-9' : 'size-8'}
+              aria-label={t('projectArchive.export')}
+              title={t('projectArchive.export')}
+              disabled={exportingProject || editorSaving}
+              onClick={(): void => void exportCurrentProject()}
+            >
+              {exportingProject ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Package className="size-4" />
+              )}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
-            size="icon"
-            className={phoneLayout ? 'size-10 shrink-0' : compactChrome ? 'size-9' : 'size-8'}
-            aria-label={t('projectArchive.export')}
-            title={t('projectArchive.export')}
-            disabled={exportingProject || editorSaving}
-            onClick={(): void => void exportCurrentProject()}
-          >
-            {exportingProject ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <Package className="size-4" />
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
-            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
+            size={compactChrome ? 'icon' : 'sm'}
+            className={compactChrome ? 'size-9' : undefined}
             data-tour="editor-preview-button"
             disabled={!selectedNode}
             aria-label={t('editor.preview')}
@@ -1408,20 +1425,33 @@ export default function App({
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
-            {phoneLayout || !compactChrome ? t('editor.preview') : null}
+            {compactChrome ? null : t('editor.preview')}
           </Button>
           <Button
             type="button"
-            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
-            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
+            size={compactChrome ? 'icon' : 'sm'}
+            className={compactChrome ? 'size-9' : undefined}
             data-tour="editor-player-button"
             title={t('editor.playSavedTitle')}
             aria-label={t('editor.playSaved')}
             onClick={(): void => void playSavedProject()}
           >
             <Play className="size-3.5 fill-current" />
-            {phoneLayout || !compactChrome ? t('editor.playSaved') : null}
+            {compactChrome ? null : t('editor.playSaved')}
           </Button>
+          {phoneLayout ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9"
+              aria-label={t('common.moreActions')}
+              title={t('common.moreActions')}
+              onClick={(): void => setMoreSheetOpen(true)}
+            >
+              <Ellipsis className="size-4" />
+            </Button>
+          ) : null}
         </div>
       </header>
 
@@ -1442,7 +1472,7 @@ export default function App({
           <div className="h-[calc(56.25vw+5.25rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
             {previewNode}
           </div>
-          <div className="flex h-12 shrink-0 items-center border-b bg-muted/25 px-3">
+          <div className="flex h-11 shrink-0 items-center gap-1 border-b bg-muted/25 px-3">
             <div className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1">
               <button
                 type="button"
@@ -1469,6 +1499,7 @@ export default function App({
                 {t('editor.properties')}
               </button>
             </div>
+            <div className="flex shrink-0 items-center">{historyButtons}</div>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden [&>aside]:border-r-0">
             {mobileBottomTab === 'outline' ? sidebarNode : inspectorNode}
@@ -1546,6 +1577,22 @@ export default function App({
         </AlertDialogContent>
       </AlertDialog>
 
+      {phoneLayout ? (
+        <EditorMoreSheet
+          open={moreSheetOpen}
+          onOpenChange={setMoreSheetOpen}
+          saveLabel={saveButtonTitle}
+          saveFailed={storySaveStatus === 'error'}
+          canSave={canManualSave}
+          onSave={(): void => {
+            void flushEditorWrites()
+          }}
+          exporting={exportingProject}
+          canExport={!exportingProject && !editorSaving}
+          onExport={(): void => void exportCurrentProject()}
+          error={visibleError}
+        />
+      ) : null}
       <ProjectSwitchDialog
         targetProjectName={projectSwitchNeedsDecision ? pendingProjectName : null}
         saving={editorSaving}
