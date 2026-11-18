@@ -340,10 +340,15 @@ function ModelPreview({
 
   return (
     <>
-      <div className="relative min-h-0 flex-1 bg-muted/40">
+      <div className={cn('relative min-h-0 flex-1', compact ? 'bg-black' : 'bg-muted/40')}>
         <div ref={stageRef} className="absolute inset-0" />
         {status !== 'ready' ? (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+          <div
+            className={cn(
+              'pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs',
+              compact ? 'text-white/60' : 'text-muted-foreground'
+            )}
+          >
             {status === 'loading' ? <LoaderCircle className="size-5 animate-spin" /> : null}
             <span>
               {status === 'loading'
@@ -423,8 +428,11 @@ function ModelPreviewSelect({
       <select
         aria-label={label}
         className={cn(
-          'h-8 min-w-0 rounded-md border bg-background px-2 text-xs text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50',
-          compact ? 'w-full' : 'max-w-48'
+          'h-8 min-w-0 rounded-md border px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50',
+          // Solid dark fill: native option lists inherit the select's colors.
+          compact
+            ? 'w-full border-white/15 bg-neutral-900 text-white'
+            : 'max-w-48 bg-background text-foreground'
         )}
         value={value}
         disabled={disabled}
