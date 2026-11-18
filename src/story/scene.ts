@@ -1285,7 +1285,7 @@ async function applyModelLastFrame(
   await Promise.all(tasks)
 }
 
-async function applyAndWaitModelMotion(
+export async function applyAndWaitModelMotion(
   model: SekaiLive2DModel,
   waitUntil: (whenFinish: () => boolean) => Promise<void>,
   motion?: string,
@@ -1405,7 +1405,7 @@ function stopMotionManagers(
   managers[1].stopAllMotions()
 }
 
-function stopModelMotions(model: SekaiLive2DModel): void {
+export function stopModelMotions(model: SekaiLive2DModel): void {
   stopMotionManagers(getParallelMotionManagers(model))
 }
 

@@ -108,7 +108,12 @@ export {
   StoryModelPreloadError,
   type PreloadStoryModelsOptions
 } from './preload'
-export { createStoryScene, type CreateStorySceneOptions } from './scene'
+export {
+  applyAndWaitModelMotion,
+  createStoryScene,
+  stopModelMotions,
+  type CreateStorySceneOptions
+} from './scene'
 export {
   createBuiltinSnippetRegistry,
   snippetRegistry,

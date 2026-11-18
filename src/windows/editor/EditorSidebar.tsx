@@ -114,7 +114,6 @@ export function EditorSidebar({
   onToggleParallel,
   onMoveSnippet,
   onSelectAsset,
-  onOpenAssetPreview,
   onAddDialogOpenChange,
   onAddSnippet,
   onImportAsset,
@@ -141,7 +140,6 @@ export function EditorSidebar({
   onToggleParallel: (nodeId: string) => void
   onMoveSnippet: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   onSelectAsset: (selection: EditorAssetSelection) => void
-  onOpenAssetPreview?: (selection: EditorAssetSelection) => void
   onAddDialogOpenChange: (open: boolean) => void
   onAddSnippet: (type: AddableSnippetType) => void
   onImportAsset: (kind: Exclude<ProjectAssetKind, 'models'>) => void
@@ -228,7 +226,6 @@ export function EditorSidebar({
           selectedAsset={selectedAsset}
           projectPath={projectPath}
           onSelect={onSelectAsset}
-          onOpenAssetPreview={onOpenAssetPreview}
           onImport={onImportAsset}
           onRegisterModel={onRegisterModel}
         />
@@ -1010,7 +1007,6 @@ function AssetLibrary({
   selectedAsset,
   projectPath,
   onSelect,
-  onOpenAssetPreview,
   onImport,
   onRegisterModel
 }: {
@@ -1019,7 +1015,6 @@ function AssetLibrary({
   selectedAsset: EditorAssetSelection | null
   projectPath: string
   onSelect: (selection: EditorAssetSelection) => void
-  onOpenAssetPreview?: (selection: EditorAssetSelection) => void
   onImport: (kind: Exclude<ProjectAssetKind, 'models'>) => void
   onRegisterModel: () => void
 }): JSX.Element {
@@ -1043,7 +1038,6 @@ function AssetLibrary({
             selectedAsset={selectedAsset}
             projectPath={projectPath}
             onSelect={onSelect}
-            onOpenAssetPreview={onOpenAssetPreview}
             onImport={onImport}
             onRegisterModel={onRegisterModel}
           />
@@ -1059,7 +1053,6 @@ function AssetGroup({
   selectedAsset,
   projectPath,
   onSelect,
-  onOpenAssetPreview,
   onImport,
   onRegisterModel
 }: {
@@ -1068,7 +1061,6 @@ function AssetGroup({
   selectedAsset: EditorAssetSelection | null
   projectPath: string
   onSelect: (selection: EditorAssetSelection) => void
-  onOpenAssetPreview?: (selection: EditorAssetSelection) => void
   onImport: (kind: Exclude<ProjectAssetKind, 'models'>) => void
   onRegisterModel: () => void
 }): JSX.Element {
@@ -1111,12 +1103,6 @@ function AssetGroup({
                   selected ? 'bg-amber-500/10' : 'hover:bg-accent'
                 )}
                 onClick={(): void => onSelect({ kind: item.kind, key: item.key })}
-                onDoubleClick={(): void => {
-                  if (item.kind === 'backgrounds') {
-                    onOpenAssetPreview?.({ kind: item.kind, key: item.key })
-                  }
-                }}
-                title={item.kind === 'backgrounds' ? t('editor.doubleClickToExpand') : undefined}
               >
                 <AssetThumbnail
                   kind={item.kind}

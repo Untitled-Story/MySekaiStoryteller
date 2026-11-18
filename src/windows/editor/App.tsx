@@ -90,7 +90,7 @@ import {
   type FlatTreeNode
 } from './editorCatalog'
 import { EditorAssetInspector, EditorInspector } from './EditorInspector'
-import { BackgroundPreviewDialog } from './BackgroundPreviewDialog'
+import { AssetPreviewPane } from './AssetPreviewPane'
 import { EditorPreview, type EditorPreviewInput } from './EditorPreview'
 import { EditorSidebar, type EditorSidebarTab } from './EditorSidebar'
 import {
@@ -199,7 +199,7 @@ export default function App({
     (): ReadonlySet<string> => new Set()
   )
   const [selectedAsset, setSelectedAsset] = useState<EditorAssetSelection | null>(null)
-  const [previewBackgroundKey, setPreviewBackgroundKey] = useState<string | null>(null)
+  const [dismissedAssetPreviewId, setDismissedAssetPreviewId] = useState<string | null>(null)
   const [addDialogOpen, setAddDialogOpen] = useState<boolean>(false)
   const [deleteSnippetId, setDeleteSnippetId] = useState<string | null>(null)
   const [assetDeletePrompt, setAssetDeletePrompt] = useState<AssetDeletePrompt | null>(null)
@@ -402,7 +402,7 @@ export default function App({
     const startedAt: number = performance.now()
     setLoadState({ status: 'loading' })
     setLoadedProject(null)
-    setPreviewBackgroundKey(null)
+    setDismissedAssetPreviewId(null)
     setActionError(null)
     logger.info('editor.project_load_started', { projectName: activeProjectName })
 
@@ -1156,12 +1156,6 @@ export default function App({
   const tabletLayout: boolean = viewportMode === 'tablet' && !mobileLandscapeLayout
   const compactChrome: boolean = phoneLayout || tabletLayout || mobileLandscapeLayout
 
-  const openBackgroundPreview = (selection: EditorAssetSelection): void => {
-    if (selection.kind === 'backgrounds') {
-      setPreviewBackgroundKey(selection.key)
-    }
-  }
-
   const touchMode: boolean = isMobileRuntime()
   const sidebarNode: JSX.Element = (
     <EditorSidebar
@@ -1206,7 +1200,6 @@ export default function App({
         setActivePanel('assets')
         if (phoneLayout) setMobileBottomTab('properties')
       }}
-      onOpenAssetPreview={openBackgroundPreview}
       onAddDialogOpenChange={setAddDialogOpen}
       onAddSnippet={addSnippet}
       onImportAsset={(kind: Exclude<ProjectAssetKind, 'models'>): void => {
@@ -1221,7 +1214,6 @@ export default function App({
       <EditorAssetInspector
         assets={previewInput.assets}
         selectedAsset={selectedAsset}
-        projectPath={previewInput.projectPath}
         onModelChange={updateModelAsset}
         onFileAssetChange={updateFileAsset}
         onRename={(selection: EditorAssetSelection, key: string): void => {
@@ -1230,7 +1222,6 @@ export default function App({
         onDelete={(selection: EditorAssetSelection): void => {
           void requestDeleteAsset(selection)
         }}
-        onOpenPreview={openBackgroundPreview}
       />
     ) : (
       <EditorInspector
@@ -1246,17 +1237,39 @@ export default function App({
       />
     )
 
+  const assetPreviewId: string | null = selectedAsset
+    ? `${selectedAsset.kind}:${selectedAsset.key}`
+    : null
+  const assetPreviewSelection: EditorAssetSelection | null =
+    activePanel === 'assets' &&
+    selectedAsset &&
+    selectedAsset.kind !== 'voices' &&
+    assetPreviewId !== dismissedAssetPreviewId
+      ? selectedAsset
+      : null
+
+  // The stage preview stays mounted underneath so playback state survives browsing assets.
   const previewNode: JSX.Element = (
-    <EditorPreview
-      input={previewInput}
-      story={story}
-      previewRequest={previewRequest}
-      previewTargetNodeId={previewTargetNode?.id ?? null}
-      pauseAfterPreviewTarget={pauseAfterPreviewTarget}
-      onActiveSnippetIdsChange={setActiveSnippetIds}
-      onPreviewFromBeginning={(): void => requestPreview(null, false)}
-      compact={compactChrome}
-    />
+    <div className="relative h-full min-h-0 w-full">
+      <EditorPreview
+        input={previewInput}
+        story={story}
+        previewRequest={previewRequest}
+        previewTargetNodeId={previewTargetNode?.id ?? null}
+        pauseAfterPreviewTarget={pauseAfterPreviewTarget}
+        onActiveSnippetIdsChange={setActiveSnippetIds}
+        onPreviewFromBeginning={(): void => requestPreview(null, false)}
+        compact={compactChrome}
+      />
+      {assetPreviewSelection ? (
+        <AssetPreviewPane
+          selection={assetPreviewSelection}
+          input={previewInput}
+          compact={compactChrome}
+          onClose={(): void => setDismissedAssetPreviewId(assetPreviewId)}
+        />
+      ) : null}
+    </div>
   )
 
   return (
@@ -1604,22 +1617,6 @@ export default function App({
           } catch (error: unknown) {
             setActionError(describeError(error, t('editor.importModelFailed')))
             throw error
-          }
-        }}
-      />
-      <BackgroundPreviewDialog
-        key={previewBackgroundKey}
-        open={previewBackgroundKey !== null}
-        assetKey={previewBackgroundKey}
-        asset={
-          previewBackgroundKey
-            ? (previewInput.assets.backgrounds[previewBackgroundKey] ?? null)
-            : null
-        }
-        projectPath={previewInput.projectPath}
-        onOpenChange={(open: boolean): void => {
-          if (!open) {
-            setPreviewBackgroundKey(null)
           }
         }}
       />
