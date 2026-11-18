@@ -66,7 +66,7 @@ export function AssetPreviewPane({
           >
             <ChevronLeft className="size-5" />
           </Button>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
         </div>
       ) : (
         <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
@@ -279,7 +279,8 @@ function CompactModelControls({ controls }: { controls: ModelPreviewControls }):
       <Button
         type="button"
         size="icon"
-        className="size-9 shrink-0 rounded-full bg-white text-black hover:bg-white/90"
+        variant="ghost"
+        className="size-9 shrink-0"
         aria-label={t('common.play')}
         title={t('common.play')}
         disabled={!ready || (!controls.motion && !controls.facial)}
@@ -326,10 +327,10 @@ function PickerChip({
       aria-label={value ? `${label}: ${value}` : label}
       disabled={disabled}
       className={cn(
-        'flex h-9 min-w-0 flex-1 items-center gap-2 rounded-full border px-3 text-left text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-amber-400/60 disabled:opacity-40',
+        'flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border px-3 text-left text-xs outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40',
         value
-          ? 'border-amber-400/60 bg-amber-400/10 text-white'
-          : 'border-white/15 text-white/60 active:bg-white/10'
+          ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+          : 'border-white/15 text-white/70 active:bg-white/10'
       )}
       onClick={onClick}
     >

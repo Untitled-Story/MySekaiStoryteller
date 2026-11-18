@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Check, Search, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/style'
 import { fuzzyMatchOptions } from '@/lib/fuzzyMatch'
 
@@ -36,7 +37,7 @@ export function ModelOptionSheet({
           aria-describedby={undefined}
           onOpenAutoFocus={(event: Event): void => event.preventDefault()}
           onInteractOutside={(event: Event): void => event.preventDefault()}
-          className="fixed inset-x-0 bottom-0 z-50 flex h-[46dvh] flex-col rounded-t-2xl border-t border-white/10 bg-neutral-900 pb-[env(safe-area-inset-bottom)] text-white shadow-2xl data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom duration-200"
+          className="fixed inset-x-0 bottom-0 z-50 flex h-[46dvh] flex-col rounded-t-2xl border-t bg-popover pb-[env(safe-area-inset-bottom)] text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom duration-200"
         >
           <SheetBody
             title={title}
@@ -88,21 +89,21 @@ function SheetBody({
         </DialogPrimitive.Title>
         <DialogPrimitive.Close
           aria-label={t('common.close')}
-          className="-mr-2 flex size-9 shrink-0 items-center justify-center rounded-full text-white/70 outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-amber-400/60"
+          className="-mr-2 flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
           <X className="size-4" />
         </DialogPrimitive.Close>
       </div>
       <div className="relative mx-3 shrink-0">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-white/45" />
-        <input
+        <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
           type="search"
           inputMode="search"
           autoComplete="off"
           aria-label={t('editor.modelPreviewSearch')}
           placeholder={t('editor.modelPreviewSearch')}
           value={query}
-          className="h-9 w-full rounded-lg bg-white/10 pr-3 pl-9 text-sm text-white outline-none placeholder:text-white/40 focus-visible:ring-2 focus-visible:ring-amber-400/60"
+          className="pl-9 text-sm"
           onChange={(event: ChangeEvent<HTMLInputElement>): void =>
             setQuery(event.currentTarget.value)
           }
@@ -134,7 +135,7 @@ function SheetBody({
             )
           )
         ) : (
-          <p className="px-3 py-6 text-center text-xs text-white/50">
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
             {t('editor.modelPreviewNoMatch')}
           </p>
         )}
@@ -160,9 +161,9 @@ function SheetOption({
       role="option"
       aria-selected={selected}
       className={cn(
-        'flex h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] outline-none active:bg-white/10 focus-visible:ring-2 focus-visible:ring-amber-400/60',
+        'flex h-11 w-full items-center gap-2 rounded-md px-3 text-left text-[13px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
         mono && 'font-mono',
-        selected ? 'text-amber-300' : 'text-white/85'
+        selected ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'active:bg-accent'
       )}
       onClick={onPick}
     >
