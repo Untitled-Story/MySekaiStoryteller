@@ -19,6 +19,7 @@
 - Build: `pnpm tauri build` for production.
 - Android: `pnpm android:dev`, `pnpm android:build` (init with `pnpm android:init` if needed).
 - Frontend only: `pnpm dev` (Vite), `pnpm build` (Vite build).
+- Mobile layout on desktop: `pnpm tauri:dev:mobile` opens a 390×844 window with the mobile AppShell forced (real Rust backend, desktop plugins). It only simulates layout and navigation; verify native behavior on a device.
 - Lint/format/typecheck: `pnpm lint`, `pnpm format`, `pnpm typecheck`.
 - Rust check: `cd src-tauri && cargo check`.
 

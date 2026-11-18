@@ -1,0 +1,18 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm dev:mobile"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "MySekaiStoryteller (mobile preview)",
+        "url": "/src/windows/main/index.html",
+        "width": 390,
+        "height": 844,
+        "resizable": true,
+        "visible": true
+      }
+    ]
+  }
+}

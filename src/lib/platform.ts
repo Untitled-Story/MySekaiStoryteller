@@ -31,6 +31,8 @@ export function prefersInAppNavigation(): boolean {
 
 export function shouldForceMobileShell(): boolean {
   if (typeof window === 'undefined') return false
+  // Dev-only switch set by `pnpm dev:mobile`; never true in production builds.
+  if (import.meta.env.DEV && import.meta.env.VITE_FORCE_MOBILE_SHELL === '1') return true
   try {
     const params: URLSearchParams = new URLSearchParams(window.location.search)
     if (params.get('mobileShell') === '1') return true
