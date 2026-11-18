@@ -1170,7 +1170,10 @@ export default function App({
       selectedAsset={selectedAsset}
       addDialogOpen={addDialogOpen}
       projectPath={previewInput.projectPath}
-      onActivePanelChange={setActivePanel}
+      onActivePanelChange={(panel: EditorSidebarTab): void => {
+        setActivePanel(panel)
+        setDismissedAssetPreviewId(null)
+      }}
       onSearchQueryChange={setSearchQuery}
       onSelectNode={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
@@ -1197,6 +1200,7 @@ export default function App({
       onMoveSnippet={moveSnippet}
       onSelectAsset={(selection: EditorAssetSelection): void => {
         setSelectedAsset(selection)
+        setDismissedAssetPreviewId(null)
         setActivePanel('assets')
         if (phoneLayout) setMobileBottomTab('properties')
       }}
