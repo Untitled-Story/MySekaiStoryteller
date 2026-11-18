@@ -199,7 +199,6 @@ export default function App({
     (): ReadonlySet<string> => new Set()
   )
   const [selectedAsset, setSelectedAsset] = useState<EditorAssetSelection | null>(null)
-  const [dismissedAssetPreviewId, setDismissedAssetPreviewId] = useState<string | null>(null)
   const [addDialogOpen, setAddDialogOpen] = useState<boolean>(false)
   const [deleteSnippetId, setDeleteSnippetId] = useState<string | null>(null)
   const [assetDeletePrompt, setAssetDeletePrompt] = useState<AssetDeletePrompt | null>(null)
@@ -402,7 +401,6 @@ export default function App({
     const startedAt: number = performance.now()
     setLoadState({ status: 'loading' })
     setLoadedProject(null)
-    setDismissedAssetPreviewId(null)
     setActionError(null)
     logger.info('editor.project_load_started', { projectName: activeProjectName })
 
@@ -1170,10 +1168,7 @@ export default function App({
       selectedAsset={selectedAsset}
       addDialogOpen={addDialogOpen}
       projectPath={previewInput.projectPath}
-      onActivePanelChange={(panel: EditorSidebarTab): void => {
-        setActivePanel(panel)
-        setDismissedAssetPreviewId(null)
-      }}
+      onActivePanelChange={setActivePanel}
       onSearchQueryChange={setSearchQuery}
       onSelectNode={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
@@ -1200,7 +1195,6 @@ export default function App({
       onMoveSnippet={moveSnippet}
       onSelectAsset={(selection: EditorAssetSelection): void => {
         setSelectedAsset(selection)
-        setDismissedAssetPreviewId(null)
         setActivePanel('assets')
         if (phoneLayout) setMobileBottomTab('properties')
       }}
@@ -1241,14 +1235,8 @@ export default function App({
       />
     )
 
-  const assetPreviewId: string | null = selectedAsset
-    ? `${selectedAsset.kind}:${selectedAsset.key}`
-    : null
   const assetPreviewSelection: EditorAssetSelection | null =
-    activePanel === 'assets' &&
-    selectedAsset &&
-    selectedAsset.kind !== 'voices' &&
-    assetPreviewId !== dismissedAssetPreviewId
+    activePanel === 'assets' && selectedAsset && selectedAsset.kind !== 'voices'
       ? selectedAsset
       : null
 
@@ -1270,7 +1258,7 @@ export default function App({
           selection={assetPreviewSelection}
           input={previewInput}
           compact={compactChrome}
-          onClose={(): void => setDismissedAssetPreviewId(assetPreviewId)}
+          onClose={(): void => setActivePanel('story')}
         />
       ) : null}
     </div>
