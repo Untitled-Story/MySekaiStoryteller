@@ -49,6 +49,7 @@ import {
   type StoryAssetKind
 } from '@/story'
 import type { ProjectAssetKind, ProjectAssets } from '@/project/assets'
+import { projectAssetUrl } from '@/lib/projectAssetUrl'
 import { isDesktopRuntime } from '@/lib/platform'
 import { cn } from '@/lib/style'
 import {
@@ -102,6 +103,7 @@ export function EditorSidebar({
   assets,
   selectedAsset,
   addDialogOpen,
+  projectPath,
   onActivePanelChange,
   onSearchQueryChange,
   onSelectNode,
@@ -127,6 +129,7 @@ export function EditorSidebar({
   assets: ProjectAssets
   selectedAsset: EditorAssetSelection | null
   addDialogOpen: boolean
+  projectPath: string
   onActivePanelChange: (panel: EditorSidebarTab) => void
   onSearchQueryChange: (query: string) => void
   onSelectNode: (nodeId: string) => void
@@ -221,6 +224,7 @@ export function EditorSidebar({
           assets={assets}
           query={searchQuery}
           selectedAsset={selectedAsset}
+          projectPath={projectPath}
           onSelect={onSelectAsset}
           onImport={onImportAsset}
           onRegisterModel={onRegisterModel}
@@ -1001,6 +1005,7 @@ function AssetLibrary({
   assets,
   query,
   selectedAsset,
+  projectPath,
   onSelect,
   onImport,
   onRegisterModel
@@ -1008,6 +1013,7 @@ function AssetLibrary({
   assets: ProjectAssets
   query: string
   selectedAsset: EditorAssetSelection | null
+  projectPath: string
   onSelect: (selection: EditorAssetSelection) => void
   onImport: (kind: Exclude<ProjectAssetKind, 'models'>) => void
   onRegisterModel: () => void
@@ -1030,6 +1036,7 @@ function AssetLibrary({
             kind={kind}
             items={items}
             selectedAsset={selectedAsset}
+            projectPath={projectPath}
             onSelect={onSelect}
             onImport={onImport}
             onRegisterModel={onRegisterModel}
@@ -1044,6 +1051,7 @@ function AssetGroup({
   kind,
   items,
   selectedAsset,
+  projectPath,
   onSelect,
   onImport,
   onRegisterModel
@@ -1051,6 +1059,7 @@ function AssetGroup({
   kind: ProjectAssetKind
   items: readonly ReturnType<typeof getAssetItems>[number][]
   selectedAsset: EditorAssetSelection | null
+  projectPath: string
   onSelect: (selection: EditorAssetSelection) => void
   onImport: (kind: Exclude<ProjectAssetKind, 'models'>) => void
   onRegisterModel: () => void
@@ -1095,7 +1104,12 @@ function AssetGroup({
                 )}
                 onClick={(): void => onSelect({ kind: item.kind, key: item.key })}
               >
-                <AssetIcon kind={item.kind} />
+                <AssetThumbnail
+                  kind={item.kind}
+                  path={item.path}
+                  projectPath={projectPath}
+                  name={item.name}
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium">{item.name}</span>
                   <span className="block truncate text-[11px] text-muted-foreground">
@@ -1124,6 +1138,37 @@ function AssetGroup({
       )}
     </section>
   )
+}
+
+function AssetThumbnail({
+  kind,
+  path,
+  projectPath,
+  name
+}: {
+  kind: ProjectAssetKind
+  path?: string
+  projectPath: string
+  name: string
+}): JSX.Element {
+  const [loadError, setLoadError] = useState<boolean>(false)
+
+  if (kind === 'backgrounds' && path && !loadError) {
+    const url: string = projectAssetUrl(projectPath, path)
+    return (
+      <span className="relative flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-sm border bg-muted/40">
+        <img
+          src={url}
+          alt={name}
+          loading="lazy"
+          className="size-full object-cover"
+          onError={(): void => setLoadError(true)}
+        />
+      </span>
+    )
+  }
+
+  return <AssetIcon kind={kind} />
 }
 
 function AssetIcon({ kind }: { kind: ProjectAssetKind }): JSX.Element {

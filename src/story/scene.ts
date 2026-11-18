@@ -1285,7 +1285,7 @@ async function applyModelLastFrame(
   await Promise.all(tasks)
 }
 
-async function applyAndWaitModelMotion(
+export async function applyAndWaitModelMotion(
   model: SekaiLive2DModel,
   waitUntil: (whenFinish: () => boolean) => Promise<void>,
   motion?: string,
@@ -1318,6 +1318,18 @@ async function applyAndWaitModelMotion(
   } finally {
     finishEyeComposition?.()
   }
+}
+
+/** Replaces only the facial layer, leaving a running body motion untouched. */
+export async function applyAndWaitModelFacial(
+  model: SekaiLive2DModel,
+  waitUntil: (whenFinish: () => boolean) => Promise<void>,
+  facial: string
+): Promise<void> {
+  const facialManager: ParallelMotionManagerLike = getParallelMotionManagers(model)[1]
+  facialManager.stopAllMotions()
+  await facialManager.startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false })
+  await waitUntil((): boolean => facialManager.isFinished())
 }
 
 function resolveMotionIgnoreParamIds(
@@ -1405,7 +1417,7 @@ function stopMotionManagers(
   managers[1].stopAllMotions()
 }
 
-function stopModelMotions(model: SekaiLive2DModel): void {
+export function stopModelMotions(model: SekaiLive2DModel): void {
   stopMotionManagers(getParallelMotionManagers(model))
 }
 

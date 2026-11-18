@@ -90,6 +90,7 @@ import {
   type FlatTreeNode
 } from './editorCatalog'
 import { EditorAssetInspector, EditorInspector } from './EditorInspector'
+import { AssetPreviewPane } from './AssetPreviewPane'
 import { EditorPreview, type EditorPreviewInput } from './EditorPreview'
 import { EditorSidebar, type EditorSidebarTab } from './EditorSidebar'
 import {
@@ -1166,6 +1167,7 @@ export default function App({
       assets={previewInput.assets}
       selectedAsset={selectedAsset}
       addDialogOpen={addDialogOpen}
+      projectPath={previewInput.projectPath}
       onActivePanelChange={setActivePanel}
       onSearchQueryChange={setSearchQuery}
       onSelectNode={(nodeId: string): void => {
@@ -1233,17 +1235,35 @@ export default function App({
       />
     )
 
+  const assetPreviewSelection: EditorAssetSelection | null =
+    activePanel === 'assets' && selectedAsset && selectedAsset.kind !== 'voices'
+      ? selectedAsset
+      : null
+
+  // The stage preview stays mounted underneath so playback state survives browsing assets.
   const previewNode: JSX.Element = (
-    <EditorPreview
-      input={previewInput}
-      story={story}
-      previewRequest={previewRequest}
-      previewTargetNodeId={previewTargetNode?.id ?? null}
-      pauseAfterPreviewTarget={pauseAfterPreviewTarget}
-      onActiveSnippetIdsChange={setActiveSnippetIds}
-      onPreviewFromBeginning={(): void => requestPreview(null, false)}
-      compact={compactChrome}
-    />
+    <div className="relative h-full min-h-0 w-full">
+      <div className="h-full min-h-0" inert={assetPreviewSelection !== null}>
+        <EditorPreview
+          input={previewInput}
+          story={story}
+          previewRequest={previewRequest}
+          previewTargetNodeId={previewTargetNode?.id ?? null}
+          pauseAfterPreviewTarget={pauseAfterPreviewTarget}
+          onActiveSnippetIdsChange={setActiveSnippetIds}
+          onPreviewFromBeginning={(): void => requestPreview(null, false)}
+          compact={compactChrome}
+        />
+      </div>
+      {assetPreviewSelection ? (
+        <AssetPreviewPane
+          selection={assetPreviewSelection}
+          input={previewInput}
+          compact={compactChrome}
+          onClose={(): void => setActivePanel('story')}
+        />
+      ) : null}
+    </div>
   )
 
   return (

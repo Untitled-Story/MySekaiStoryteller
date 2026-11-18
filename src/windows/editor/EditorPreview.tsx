@@ -8,7 +8,7 @@ import { describeError as describeLogError, logger } from '@/lib/logger'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { ProjectAssets } from '@/project/assets'
-import type { AppSettings, RenderPrecision } from '@/settings/types'
+import type { AppSettings } from '@/settings/types'
 import { loadPlaybackFontFamily } from '@/settings/fonts'
 import {
   createStoryRuntime,
@@ -24,6 +24,7 @@ import {
   type StoryRuntime
 } from '@/story'
 import type { EditorStory } from './editorDocument'
+import { resolveRenderPrecision } from './resolveRenderPrecision'
 import { useTranslation } from 'react-i18next'
 import { i18n } from '@/i18n'
 
@@ -514,14 +515,6 @@ export function EditorPreview({
       </div>
     </section>
   )
-}
-
-function resolveRenderPrecision(settings: AppSettings | null): number {
-  const precision: RenderPrecision | undefined = settings?.playback?.renderPrecision
-  if (typeof precision === 'number' && Number.isFinite(precision) && precision > 0) {
-    return precision
-  }
-  return window.devicePixelRatio
 }
 
 function describePreviewError(error: unknown): string {
