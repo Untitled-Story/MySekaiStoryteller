@@ -367,7 +367,6 @@ export const zhHK: LocaleShape = {
     threePersonLayoutScale: '三人配置縮放',
     anchor: '錨點',
     projectPath: '專案內路徑',
-    revealInExplorer: '在檔案總管中顯示',
     failedToLoadImage: '圖片載入失敗',
     backToStagePreview: '返回畫面預覽',
     modelPreviewLoading: '正在載入模型',

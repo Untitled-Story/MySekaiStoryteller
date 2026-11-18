@@ -377,7 +377,6 @@ export const ja: typeof en = {
     threePersonLayoutScale: '3人レイアウトのスケール',
     anchor: 'アンカー',
     projectPath: 'プロジェクト内パス',
-    revealInExplorer: 'ファイルマネージャーで表示',
     failedToLoadImage: '画像の読み込みに失敗しました',
     backToStagePreview: 'ステージプレビューに戻る',
     modelPreviewLoading: 'モデルを読み込み中',

@@ -364,7 +364,6 @@ export const zhCN = {
     threePersonLayoutScale: '三人布局缩放',
     anchor: '锚点',
     projectPath: '项目内路径',
-    revealInExplorer: '在文件管理器中显示',
     failedToLoadImage: '图片加载失败',
     backToStagePreview: '返回画面预览',
     modelPreviewLoading: '正在加载模型',

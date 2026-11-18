@@ -381,7 +381,6 @@ export const en: LocaleShape = {
     threePersonLayoutScale: 'Three-person layout scale',
     anchor: 'Anchor',
     projectPath: 'Project path',
-    revealInExplorer: 'Reveal in file manager',
     failedToLoadImage: 'Failed to load image',
     backToStagePreview: 'Back to stage preview',
     modelPreviewLoading: 'Loading model',

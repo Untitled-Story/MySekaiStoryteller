@@ -1,13 +1,11 @@
 import type { ChangeEvent, JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Application } from 'pixi.js'
-import { FolderOpen, Image as ImageIcon, LoaderCircle, Play, X } from 'lucide-react'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { Image as ImageIcon, LoaderCircle, Play, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { describeError, logger } from '@/lib/logger'
 import { ensureSekaiLive2DReady, loadSekaiLive2DModel, type SekaiLive2DModel } from '@/lib/live2d'
-import { isDesktopRuntime } from '@/lib/platform'
 import { projectAssetUrl } from '@/lib/projectAssetUrl'
 import { cn } from '@/lib/style'
 import type { BackgroundAsset, ModelAsset } from '@/project/assets'
@@ -51,21 +49,6 @@ export function AssetPreviewPane({
     ? backgroundAsset.name || selection.key
     : (modelAsset?.name ?? modelAsset?.modelId ?? selection.key)
 
-  const handleRevealInDir = async (asset: BackgroundAsset): Promise<void> => {
-    try {
-      const normalizedRoot: string = input.projectPath.replace(/[\\/]+$/, '')
-      const normalizedRelative: string = asset.path.replace(/^[\\/]+/, '')
-      if (normalizedRelative.split(/[\\/]+/).includes('..')) {
-        throw new Error(`Asset path must not contain parent directory segments: ${asset.path}`)
-      }
-      const fullPath: string = `${normalizedRoot}/${normalizedRelative}`
-      await revealItemInDir(fullPath)
-      logger.info('editor.background_revealed_in_dir', { path: fullPath })
-    } catch (error: unknown) {
-      logger.error('editor.background_reveal_failed', { error: describeError(error) })
-    }
-  }
-
   return (
     <section
       data-slot="asset-preview-pane"
@@ -83,20 +66,6 @@ export function AssetPreviewPane({
         <div className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{title}</span>
         </div>
-        {backgroundAsset && isDesktopRuntime() ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0 gap-1.5 text-xs"
-            onClick={(): void => {
-              void handleRevealInDir(backgroundAsset)
-            }}
-          >
-            <FolderOpen className="size-3.5" />
-            {t('editor.revealInExplorer')}
-          </Button>
-        ) : null}
         <Button
           type="button"
           variant="outline"
