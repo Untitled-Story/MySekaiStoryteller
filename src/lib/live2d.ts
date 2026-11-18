@@ -7,6 +7,7 @@ let live2DCoreReady: Promise<void> | null = null
 let live2DEnginePromise: Promise<Live2DEngine> | null = null
 let live2DEngine: Live2DEngine | null = null
 let cubismConfigured = false
+const DEFAULT_EYE_BLINK_PARAMETER_IDS: readonly string[] = ['ParamEyeLOpen', 'ParamEyeROpen']
 const pausedSoundOwners: Set<object> = new Set()
 const pausedSounds: Set<ManagedLive2DSound> = new Set()
 
@@ -31,7 +32,33 @@ export async function loadSekaiLive2DModel(
     anchorMode: 'canvas'
   }
 
-  return engine.Live2DModel.from(modelUrl, factoryOptions)
+  return new Promise<SekaiLive2DModel>((resolve, reject): void => {
+    const model: SekaiLive2DModel = engine.Live2DModel.fromSync(modelUrl, {
+      ...factoryOptions,
+      onLoad: (): void => resolve(model),
+      onError: (error: Error): void => reject(error)
+    })
+    // fromSync defers loading, so the listener is attached before the settings JSON is read.
+    model.once('settingsJSONLoaded', fillEmptyEyeBlinkGroup)
+  })
+}
+
+/**
+ * Sekai exports ship an `EyeBlink` group with no `Ids`, which the engine treats as "blink
+ * disabled" and never creates the auto-blink controller. Fall back to the default eye params.
+ */
+function fillEmptyEyeBlinkGroup(settingsJson: object): void {
+  const groups: unknown = (settingsJson as { Groups?: unknown }).Groups
+  if (!Array.isArray(groups)) return
+
+  for (const group of groups as unknown[]) {
+    if (!group || typeof group !== 'object') continue
+    const eyeBlinkGroup = group as { Name?: unknown; Ids?: unknown }
+    if (eyeBlinkGroup.Name !== 'EyeBlink') continue
+    if (!Array.isArray(eyeBlinkGroup.Ids) || eyeBlinkGroup.Ids.length === 0) {
+      eyeBlinkGroup.Ids = [...DEFAULT_EYE_BLINK_PARAMETER_IDS]
+    }
+  }
 }
 
 export async function ensureSekaiLive2DReady(cubismMemorySizeMB = 32): Promise<Live2DEngine> {
