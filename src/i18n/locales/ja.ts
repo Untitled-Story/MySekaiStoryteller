@@ -167,10 +167,6 @@ export const ja: typeof en = {
     fontMissing: '{{family}}（見つかりません）',
     interaction: 'インタラクション',
     interactionDescription: 'タッチとモバイルのインタラクション動作を調整します。',
-    touchMode: 'タッチモード',
-    touchModeDescription:
-      'マウスホバーに頼らず、リスト操作のボタンを常に表示します。タッチ操作がしやすくなります。',
-    touchModeAria: 'タッチモードを切り替え',
     fullscreenMode: 'フルスクリーンモード',
     fullscreenModeDescription:
       'Androidの没入型フルスクリーンを強制し、ステータスバーとナビゲーションバーを隠します。システムナビが画面下部を覆う場合に使用してください。',
@@ -258,6 +254,7 @@ export const ja: typeof en = {
     emptyStory: 'スニペットがありません',
     previewFromHere: 'ここからプレビュー',
     copySnippet: 'スニペットを複製',
+    editSnippet: 'プロパティを編集',
     moveUp: '上へ移動',
     moveDown: '下へ移動',
     moveIntoParallel: '上のParallelへ移動',
@@ -306,7 +303,6 @@ export const ja: typeof en = {
     saveNow: '今すぐ保存',
     saved: '保存済み',
     unsavedChanges: '未保存の変更があります',
-    outline: 'アウトライン',
     properties: 'プロパティ',
     pinOutline: 'アウトラインを固定',
     noProject: 'プロジェクトが開かれていません',

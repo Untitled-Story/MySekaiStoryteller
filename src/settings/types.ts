@@ -50,8 +50,6 @@ export type ShortcutSettings = {
 }
 
 export type InteractionSettings = {
-  touchMode: boolean
-  touchModePromptSeen: boolean
   fullscreenMode: boolean
 }
 

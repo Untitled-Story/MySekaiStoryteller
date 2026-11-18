@@ -49,6 +49,25 @@
 - Preserve proper names, credited biographies, and user-authored project content unless a product requirement explicitly calls for translating them.
 - Before finishing frontend work, search the touched UI for newly introduced hard-coded user-facing text and run `pnpm typecheck` to catch missing or structurally inconsistent locale keys.
 
+## UI Motion & Continuity
+
+- Every layout change caused by a user action must be continuous. Size, position, and visibility changes must not jump: animate them, or design the layout so they do not happen.
+- A control that appears or disappears next to flexible siblings must not make those siblings resize abruptly. Animate its width and opacity so neighbours reflow smoothly, or reserve its slot and fade it with `opacity`.
+- Never run a layout animation (width, height) at the same time as a position animation in the same row: the layout change moves the position animation's target and makes it stutter. Run them one after the other, the moving indicator first and the resize after it (`delay-*`).
+- Do not mount a heavy panel in the same render that starts an animation. Let the animated element update first (for example with `useDeferredValue` on the content), so the first frame is not delayed.
+- Selection indicators (active tab, segment, row highlight) move between positions with a transition instead of swapping instantly.
+- Content that is swapped in place (tab panels, toolbars, sheets) fades in. Overlays and sheets must also animate out, mirroring how they entered (`data-[state=closed]:animate-out`).
+- Reuse the existing `tw-animate-css` utilities (`animate-in`, `fade-in-0`, `slide-in-from-*`) and the shared timing before writing custom keyframes: 150 ms for fades, 200 ms for movement and resizing, `ease-out`. Prefer `transform` and `opacity`; animating `width` is acceptable for small controls.
+- Every animation must be disabled under `prefers-reduced-motion` (`motion-reduce:animate-none` / `motion-reduce:transition-none`).
+- Motion cannot be judged from a screenshot. Before finishing UI work that adds, removes, resizes, or swaps elements, exercise the transition in the running app and check that nothing jumps.
+
+## Touch Input
+
+- Touch gestures map one-to-one onto desktop mouse actions: tap = left click (select and preview), long press and release without moving = right click (action menu), long press and move = drag, double tap = open for editing.
+- Actions that touch reaches only through a gesture must be discoverable: the action menu must expose every action the desktop context menu has, and the gestures must be introduced in onboarding or backed by a visible control.
+- A long press must give visible feedback when it is recognized, before the finger is lifted.
+- Do not navigate away from the current list on a plain tap; a tap previews and keeps the user in place.
+
 ## Cross-Platform Compatibility
 
 - Treat runtime platform, input mode, and viewport size as separate concerns. Desktop builds on macOS, Linux, and Windows must retain desktop navigation/layout regardless of window width; Android/iOS may use responsive phone/tablet layouts and single-webview navigation.

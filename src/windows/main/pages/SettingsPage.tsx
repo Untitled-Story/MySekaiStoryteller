@@ -51,7 +51,6 @@ export default function SettingsPage(): JSX.Element {
     setRenderPrecision,
     setPlaybackFont,
     setShortcuts,
-    setTouchMode,
     setFullscreenMode,
     setWorkspaceDir
   } = useSettings()
@@ -402,7 +401,7 @@ export default function SettingsPage(): JSX.Element {
         </SettingRow>
       </div>
 
-      {mobileRuntime ? (
+      {androidRuntime ? (
         <>
           <div className="w-full max-w-2xl space-y-1 mt-8 mb-2">
             <h2 className="text-2xl font-semibold leading-tight">{t('settings.interaction')}</h2>
@@ -411,27 +410,15 @@ export default function SettingsPage(): JSX.Element {
 
           <div className="w-full max-w-2xl space-y-6">
             <SettingRow
-              title={t('settings.touchMode')}
-              description={t('settings.touchModeDescription')}
+              title={t('settings.fullscreenMode')}
+              description={t('settings.fullscreenModeDescription')}
             >
               <Switch
-                checked={interaction.touchMode}
-                aria-label={t('settings.touchModeAria')}
-                onCheckedChange={setTouchMode}
+                checked={interaction.fullscreenMode}
+                aria-label={t('settings.fullscreenModeAria')}
+                onCheckedChange={setFullscreenMode}
               />
             </SettingRow>
-            {androidRuntime ? (
-              <SettingRow
-                title={t('settings.fullscreenMode')}
-                description={t('settings.fullscreenModeDescription')}
-              >
-                <Switch
-                  checked={interaction.fullscreenMode}
-                  aria-label={t('settings.fullscreenModeAria')}
-                  onCheckedChange={setFullscreenMode}
-                />
-              </SettingRow>
-            ) : null}
           </div>
         </>
       ) : null}

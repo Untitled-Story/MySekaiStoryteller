@@ -1,5 +1,13 @@
 import type { ChangeEvent, JSX } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState
+} from 'react'
 import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog'
 import {
   getCurrentWindow,
@@ -11,6 +19,7 @@ import {
   ChevronRight,
   CirclePlay,
   Clapperboard,
+  Ellipsis,
   FileJson,
   FileArchive,
   LoaderCircle,
@@ -18,6 +27,7 @@ import {
   Play,
   Redo2,
   Save,
+  Search,
   Undo2
 } from 'lucide-react'
 import { useIsLandscapeViewport, useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
@@ -91,6 +101,7 @@ import {
 } from './editorCatalog'
 import { EditorAssetInspector, EditorInspector } from './EditorInspector'
 import { AssetPreviewPane } from './AssetPreviewPane'
+import { EditorMoreSheet } from './EditorMoreSheet'
 import { EditorPreview, type EditorPreviewInput } from './EditorPreview'
 import { EditorSidebar, type EditorSidebarTab } from './EditorSidebar'
 import {
@@ -184,6 +195,11 @@ export default function App({
   const landscapeViewport: boolean = useIsLandscapeViewport()
   const mobileLandscapeLayout: boolean = isMobileRuntime() && landscapeViewport
   const [mobileBottomTab, setMobileBottomTab] = useState<'outline' | 'properties'>('outline')
+  const [moreSheetOpen, setMoreSheetOpen] = useState<boolean>(false)
+  const [phoneSearchOpen, setPhoneSearchOpen] = useState<boolean>(false)
+  // The panel below the tabs swaps one render behind the tab indicator, so mounting a heavy
+  // panel does not delay the indicator's first frame.
+  const phonePanel: 'outline' | 'properties' = useDeferredValue(mobileBottomTab)
 
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
@@ -1159,6 +1175,7 @@ export default function App({
     <EditorSidebar
       activePanel={activePanel}
       searchQuery={searchQuery}
+      compactToolbar={phoneLayout}
       touchMode={touchMode}
       treeNodes={treeNodes}
       selectedNodeId={selectedNode?.id ?? null}
@@ -1173,14 +1190,21 @@ export default function App({
       onSelectNode={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
         requestPreview(nodeId, true)
       }}
       onContextSelectSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
       }}
+      onEditSnippet={
+        phoneLayout
+          ? (nodeId: string): void => {
+              setSelectedNodeId(nodeId)
+              setActivePanel('story')
+              setMobileBottomTab('properties')
+            }
+          : undefined
+      }
       onPreviewSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
@@ -1266,6 +1290,59 @@ export default function App({
     </div>
   )
 
+  const historyButtons: JSX.Element = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-9"
+        aria-label={t('common.undo')}
+        title={t('common.undo')}
+        disabled={history.past.length === 0}
+        onClick={(): void => dispatchHistory({ type: 'undo' })}
+      >
+        <Undo2 className="size-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-9"
+        aria-label={t('common.redo')}
+        title={t('common.redo')}
+        disabled={history.future.length === 0}
+        onClick={(): void => dispatchHistory({ type: 'redo' })}
+      >
+        <Redo2 className="size-4" />
+      </Button>
+    </>
+  )
+  const phoneSaveFailed: boolean = phoneLayout && storySaveStatus === 'error'
+  const phoneTab: EditorSidebarTab | 'properties' =
+    mobileBottomTab === 'properties' ? 'properties' : activePanel
+  const phoneTabs: ReadonlyArray<{ value: EditorSidebarTab | 'properties'; label: string }> = [
+    { value: 'story', label: t('editor.story') },
+    { value: 'assets', label: t('editor.assets') },
+    { value: 'properties', label: t('editor.properties') }
+  ]
+  const searchLabel: string =
+    activePanel === 'story' ? t('editor.searchSnippets') : t('editor.searchAssets')
+
+  function selectPhoneTab(tab: EditorSidebarTab | 'properties'): void {
+    if (tab === 'properties') {
+      setMobileBottomTab('properties')
+      return
+    }
+    setActivePanel(tab)
+    setMobileBottomTab('outline')
+  }
+
+  function closePhoneSearch(): void {
+    setPhoneSearchOpen(false)
+    setSearchQuery('')
+  }
+
   return (
     <main
       className={cn(
@@ -1276,7 +1353,7 @@ export default function App({
       <header
         className={cn(
           'flex shrink-0 items-center border-b bg-background px-2 sm:px-3',
-          phoneLayout && 'flex-wrap content-start px-2 pb-1',
+          phoneLayout && 'px-2',
           embedInShell && phoneLayout
             ? 'pt-[env(safe-area-inset-top)]'
             : embedInShell
@@ -1287,7 +1364,7 @@ export default function App({
         )}
       >
         <div
-          className={cn('flex min-w-0 items-center gap-1.5 sm:gap-2', phoneLayout && 'h-12 flex-1')}
+          className={cn('flex min-w-0 items-center gap-1.5 sm:gap-2', phoneLayout && 'h-11 flex-1')}
         >
           {embedInShell ? (
             <Button
@@ -1310,15 +1387,20 @@ export default function App({
               <ArrowLeft className="size-4" />
             </Button>
           ) : null}
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-            <Clapperboard className="size-4" />
-          </div>
+          {phoneLayout ? null : (
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+              <Clapperboard className="size-4" />
+            </div>
+          )}
           <p className="min-w-0 truncate text-sm font-semibold">{loadedProject.metadata.title}</p>
           <span
-            aria-label={isDirty ? t('editor.unsavedChanges') : undefined}
+            aria-label={
+              phoneSaveFailed ? saveButtonTitle : isDirty ? t('editor.unsavedChanges') : undefined
+            }
             className={cn(
               'size-1.5 shrink-0 rounded-full bg-amber-500 transition-opacity duration-300 ease-out',
-              isDirty ? 'opacity-100' : 'opacity-0'
+              isDirty ? 'opacity-100' : 'opacity-0',
+              phoneSaveFailed && 'bg-destructive opacity-100'
             )}
           />
         </div>
@@ -1326,33 +1408,10 @@ export default function App({
         <div
           className={cn(
             'ml-2 flex items-center gap-0.5 sm:ml-5 sm:gap-1 sm:border-l sm:pl-4',
-            phoneLayout && 'ml-auto h-12'
+            phoneLayout && 'hidden'
           )}
         >
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            aria-label={t('common.undo')}
-            title={t('common.undo')}
-            disabled={history.past.length === 0}
-            onClick={(): void => dispatchHistory({ type: 'undo' })}
-          >
-            <Undo2 className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            aria-label={t('common.redo')}
-            title={t('common.redo')}
-            disabled={history.future.length === 0}
-            onClick={(): void => dispatchHistory({ type: 'redo' })}
-          >
-            <Redo2 className="size-4" />
-          </Button>
+          {historyButtons}
           <Button
             type="button"
             variant="ghost"
@@ -1372,7 +1431,7 @@ export default function App({
         <div
           className={cn(
             'ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5',
-            phoneLayout && 'ml-0 h-12 w-full border-t px-0.5 pt-1'
+            phoneLayout && 'h-11 shrink-0'
           )}
         >
           {visibleError && (
@@ -1380,27 +1439,29 @@ export default function App({
               {visibleError}
             </span>
           )}
+          {phoneLayout ? null : (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className={compactChrome ? 'size-9' : 'size-8'}
+              aria-label={t('projectArchive.export')}
+              title={t('projectArchive.export')}
+              disabled={exportingProject || editorSaving}
+              onClick={(): void => void exportCurrentProject()}
+            >
+              {exportingProject ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Package className="size-4" />
+              )}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
-            size="icon"
-            className={phoneLayout ? 'size-10 shrink-0' : compactChrome ? 'size-9' : 'size-8'}
-            aria-label={t('projectArchive.export')}
-            title={t('projectArchive.export')}
-            disabled={exportingProject || editorSaving}
-            onClick={(): void => void exportCurrentProject()}
-          >
-            {exportingProject ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <Package className="size-4" />
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
-            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
+            size={compactChrome ? 'icon' : 'sm'}
+            className={compactChrome ? 'size-9' : undefined}
             data-tour="editor-preview-button"
             disabled={!selectedNode}
             aria-label={t('editor.preview')}
@@ -1408,20 +1469,33 @@ export default function App({
             onClick={(): void => requestPreview(selectedNode?.id ?? null, false)}
           >
             <CirclePlay className="size-3.5" />
-            {phoneLayout || !compactChrome ? t('editor.preview') : null}
+            {compactChrome ? null : t('editor.preview')}
           </Button>
           <Button
             type="button"
-            size={phoneLayout ? 'sm' : compactChrome ? 'icon' : 'sm'}
-            className={phoneLayout ? 'h-10 min-w-0 flex-1' : compactChrome ? 'size-9' : undefined}
+            size={compactChrome ? 'icon' : 'sm'}
+            className={compactChrome ? 'size-9' : undefined}
             data-tour="editor-player-button"
             title={t('editor.playSavedTitle')}
             aria-label={t('editor.playSaved')}
             onClick={(): void => void playSavedProject()}
           >
             <Play className="size-3.5 fill-current" />
-            {phoneLayout || !compactChrome ? t('editor.playSaved') : null}
+            {compactChrome ? null : t('editor.playSaved')}
           </Button>
+          {phoneLayout ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9"
+              aria-label={t('common.moreActions')}
+              title={t('common.moreActions')}
+              onClick={(): void => setMoreSheetOpen(true)}
+            >
+              <Ellipsis className="size-4" />
+            </Button>
+          ) : null}
         </div>
       </header>
 
@@ -1439,39 +1513,89 @@ export default function App({
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           inert={projectMutationInProgress}
         >
-          <div className="h-[calc(56.25vw+5.25rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
+          <div className="h-[calc(56.25vw+2.75rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
             {previewNode}
           </div>
-          <div className="flex h-12 shrink-0 items-center border-b bg-muted/25 px-3">
-            <div className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-              <button
+          {phoneSearchOpen && mobileBottomTab === 'outline' ? (
+            <div className="flex h-11 shrink-0 animate-in items-center gap-1 border-b bg-muted/25 px-2 duration-150 fade-in-0 motion-reduce:animate-none">
+              <Button
                 type="button"
-                className={cn(
-                  'h-9 rounded-md text-sm font-medium transition-colors',
-                  mobileBottomTab === 'outline'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground'
-                )}
-                onClick={(): void => setMobileBottomTab('outline')}
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0"
+                aria-label={t('common.back')}
+                title={t('common.back')}
+                onClick={closePhoneSearch}
               >
-                {t('editor.outline')}
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'h-9 rounded-md text-sm font-medium transition-colors',
-                  mobileBottomTab === 'properties'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground'
-                )}
-                onClick={(): void => setMobileBottomTab('properties')}
-              >
-                {t('editor.properties')}
-              </button>
+                <ArrowLeft className="size-4" />
+              </Button>
+              <Input
+                autoFocus
+                type="search"
+                aria-label={searchLabel}
+                placeholder={searchLabel}
+                value={searchQuery}
+                className="h-9 min-w-0 flex-1 bg-background text-sm"
+                onChange={(event: ChangeEvent<HTMLInputElement>): void =>
+                  setSearchQuery(event.currentTarget.value)
+                }
+              />
             </div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden [&>aside]:border-r-0">
-            {mobileBottomTab === 'outline' ? sidebarNode : inspectorNode}
+          ) : (
+            <div className="flex h-11 shrink-0 animate-in items-center gap-1 border-b bg-muted/25 px-3 duration-150 fade-in-0 motion-reduce:animate-none">
+              <div className="relative grid min-w-0 flex-1 grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-1 left-1 w-[calc((100%-1rem)/3)] rounded-md bg-background shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none"
+                  style={{
+                    transform: `translateX(calc(${phoneTabs.findIndex((tab: { value: EditorSidebarTab | 'properties' }): boolean => tab.value === phoneTab)} * (100% + 0.25rem)))`
+                  }}
+                />
+                {phoneTabs.map(
+                  (tab: { value: EditorSidebarTab | 'properties'; label: string }): JSX.Element => (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      className={cn(
+                        'relative h-9 min-w-0 truncate rounded-md px-1 text-sm font-medium transition-colors duration-200 motion-reduce:transition-none',
+                        phoneTab === tab.value ? 'text-foreground' : 'text-muted-foreground'
+                      )}
+                      onClick={(): void => selectPhoneTab(tab.value)}
+                    >
+                      {tab.label}
+                    </button>
+                  )
+                )}
+              </div>
+              <div className="flex shrink-0 items-center">
+                <div
+                  inert={mobileBottomTab !== 'outline'}
+                  className={cn(
+                    'shrink-0 overflow-hidden transition-[width,opacity] delay-200 duration-200 ease-out motion-reduce:transition-none motion-reduce:delay-0',
+                    mobileBottomTab === 'outline' ? 'w-9 opacity-100' : 'w-0 opacity-0'
+                  )}
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-9"
+                    aria-label={searchLabel}
+                    title={searchLabel}
+                    onClick={(): void => setPhoneSearchOpen(true)}
+                  >
+                    <Search className="size-4" />
+                  </Button>
+                </div>
+                {historyButtons}
+              </div>
+            </div>
+          )}
+          <div
+            key={phonePanel}
+            className="min-h-0 flex-1 animate-in overflow-hidden duration-150 fade-in-0 motion-reduce:animate-none [&>aside]:border-r-0"
+          >
+            {phonePanel === 'outline' ? sidebarNode : inspectorNode}
           </div>
         </div>
       ) : tabletLayout ? (
@@ -1546,6 +1670,22 @@ export default function App({
         </AlertDialogContent>
       </AlertDialog>
 
+      {phoneLayout ? (
+        <EditorMoreSheet
+          open={moreSheetOpen}
+          onOpenChange={setMoreSheetOpen}
+          saveLabel={saveButtonTitle}
+          saveFailed={storySaveStatus === 'error'}
+          canSave={canManualSave}
+          onSave={(): void => {
+            void flushEditorWrites()
+          }}
+          exporting={exportingProject}
+          canExport={!exportingProject && !editorSaving}
+          onExport={(): void => void exportCurrentProject()}
+          error={visibleError}
+        />
+      ) : null}
       <ProjectSwitchDialog
         targetProjectName={projectSwitchNeedsDecision ? pendingProjectName : null}
         saving={editorSaving}

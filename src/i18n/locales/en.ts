@@ -171,10 +171,6 @@ export const en: LocaleShape = {
     fontMissing: '{{family}} (missing)',
     interaction: 'Interaction',
     interactionDescription: 'Adjust touch and mobile interaction behavior.',
-    touchMode: 'Touch mode',
-    touchModeDescription:
-      'Keep list actions visible instead of relying on mouse hover, making them easier to use by touch.',
-    touchModeAria: 'Toggle touch mode',
     fullscreenMode: 'Fullscreen mode',
     fullscreenModeDescription:
       'Force Android immersive fullscreen and hide the status and navigation bars. Use this if the system navigation bar covers the bottom of the app.',
@@ -262,6 +258,7 @@ export const en: LocaleShape = {
     emptyStory: 'No snippets in this scene',
     previewFromHere: 'Preview from here',
     copySnippet: 'Duplicate snippet',
+    editSnippet: 'Edit properties',
     moveUp: 'Move up',
     moveDown: 'Move down',
     moveIntoParallel: 'Move into Parallel above',
@@ -310,7 +307,6 @@ export const en: LocaleShape = {
     saveNow: 'Save now',
     saved: 'Saved',
     unsavedChanges: 'Unsaved changes',
-    outline: 'Outline',
     properties: 'Properties',
     pinOutline: 'Pin outline',
     noProject: 'No project open',

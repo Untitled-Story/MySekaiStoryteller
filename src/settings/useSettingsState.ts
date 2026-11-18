@@ -38,7 +38,6 @@ export type SettingsHook = {
   setShortcuts: (value: ShortcutSettings) => void
   setOnboarding: (value: OnboardingSettings) => void
   setInteraction: (value: InteractionSettings) => void
-  setTouchMode: (value: boolean) => void
   setFullscreenMode: (value: boolean) => void
   setWorkspaceDir: (dir: string) => void
 }
@@ -50,8 +49,6 @@ const DEFAULT_PLAYBACK: PlaybackSettings = {
 }
 
 const DEFAULT_INTERACTION: InteractionSettings = {
-  touchMode: false,
-  touchModePromptSeen: false,
   fullscreenMode: false
 }
 
@@ -112,9 +109,6 @@ export function useSettingsState(): SettingsHook {
         setShortcuts(normalizeShortcutSettings(stored.shortcuts))
         setOnboarding(normalizeOnboardingSettings(stored.onboarding))
         setInteractionState({
-          touchMode: stored.interaction?.touchMode ?? DEFAULT_INTERACTION.touchMode,
-          touchModePromptSeen:
-            stored.interaction?.touchModePromptSeen ?? DEFAULT_INTERACTION.touchModePromptSeen,
           fullscreenMode: stored.interaction?.fullscreenMode ?? DEFAULT_INTERACTION.fullscreenMode
         })
         setWorkspaceDirState(stored.workspaceDir ?? null)
@@ -245,11 +239,6 @@ export function useSettingsState(): SettingsHook {
     setShortcuts: (value) => setShortcuts(normalizeShortcutSettings(value)),
     setOnboarding: (value) => setOnboarding(normalizeOnboardingSettings(value)),
     setInteraction: (value) => setInteractionState(value),
-    setTouchMode: (value) =>
-      setInteractionState((prev) => ({
-        ...prev,
-        touchMode: value
-      })),
     setFullscreenMode: (value) =>
       setInteractionState((prev) => ({
         ...prev,
