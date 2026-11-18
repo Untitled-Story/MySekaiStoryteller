@@ -258,6 +258,7 @@ export const en: LocaleShape = {
     emptyStory: 'No snippets in this scene',
     previewFromHere: 'Preview from here',
     copySnippet: 'Duplicate snippet',
+    editSnippet: 'Edit properties',
     moveUp: 'Move up',
     moveDown: 'Move down',
     moveIntoParallel: 'Move into Parallel above',

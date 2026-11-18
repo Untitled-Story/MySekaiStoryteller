@@ -247,6 +247,7 @@ export const zhHK: LocaleShape = {
     emptyStory: '目前場景沒有片段',
     previewFromHere: '從此處預覽',
     copySnippet: '複製片段',
+    editSnippet: '編輯屬性',
     moveUp: '上移',
     moveDown: '下移',
     moveIntoParallel: '移入上方 Parallel',

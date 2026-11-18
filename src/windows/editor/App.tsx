@@ -1190,14 +1190,21 @@ export default function App({
       onSelectNode={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
         requestPreview(nodeId, true)
       }}
       onContextSelectSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')
-        if (phoneLayout) setMobileBottomTab('properties')
       }}
+      onEditSnippet={
+        phoneLayout
+          ? (nodeId: string): void => {
+              setSelectedNodeId(nodeId)
+              setActivePanel('story')
+              setMobileBottomTab('properties')
+            }
+          : undefined
+      }
       onPreviewSnippet={(nodeId: string): void => {
         setSelectedNodeId(nodeId)
         setActivePanel('story')

@@ -244,6 +244,7 @@ export const zhCN = {
     emptyStory: '当前场景没有片段',
     previewFromHere: '从此处预览',
     copySnippet: '复制片段',
+    editSnippet: '编辑属性',
     moveUp: '上移',
     moveDown: '下移',
     moveIntoParallel: '移入上方 Parallel',

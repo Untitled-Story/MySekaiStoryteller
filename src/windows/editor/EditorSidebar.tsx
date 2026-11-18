@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Pencil,
   FolderPlus,
   GripVertical,
   ImagePlus,
@@ -52,6 +53,7 @@ import type { ProjectAssetKind, ProjectAssets } from '@/project/assets'
 import { projectAssetUrl } from '@/lib/projectAssetUrl'
 import { isDesktopRuntime } from '@/lib/platform'
 import { cn } from '@/lib/style'
+import { ActionSheet, type ActionSheetItem } from './ActionSheet'
 import {
   getAssetItems,
   NODE_PRESENTATIONS,
@@ -112,6 +114,7 @@ export function EditorSidebar({
   onPreviewSnippet,
   onDuplicateSnippet,
   onDeleteSnippet,
+  onEditSnippet,
   onToggleParallel,
   onMoveSnippet,
   onSelectAsset,
@@ -139,6 +142,7 @@ export function EditorSidebar({
   onPreviewSnippet: (nodeId: string) => void
   onDuplicateSnippet: (nodeId: string) => void
   onDeleteSnippet: (nodeId: string) => void
+  onEditSnippet?: (nodeId: string) => void
   onToggleParallel: (nodeId: string) => void
   onMoveSnippet: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   onSelectAsset: (selection: EditorAssetSelection) => void
@@ -152,7 +156,6 @@ export function EditorSidebar({
     activePanel === 'story' ? t('editor.searchSnippets') : t('editor.searchAssets')
   const searching: boolean = searchQuery.trim().length > 0
   const dragEnabled: boolean = !searching
-  const touchRowDrag: boolean = touchMode && !searching
   const dragDisabledHint: string = t('editor.dragDisabledHint')
 
   return (
@@ -221,9 +224,10 @@ export function EditorSidebar({
           onToggleParallel={onToggleParallel}
           onMove={onMoveSnippet}
           dragEnabled={dragEnabled}
-          touchRowDrag={touchRowDrag}
+          touchMode={touchMode}
           dragDisabledHint={dragDisabledHint}
           bottomInset={compactToolbar}
+          onEdit={onEditSnippet}
           onAdd={(): void => onAddDialogOpenChange(true)}
         />
       ) : (
@@ -289,6 +293,7 @@ function TabButton({
 
 const TOUCH_ROW_DRAG_LONG_PRESS_MS: number = 380
 const TOUCH_ROW_DRAG_CANCEL_PX: number = 14
+const DOUBLE_TAP_MS: number = 300
 const DRAG_ACTIVATE_PX: number = 6
 const DRAG_AUTO_SCROLL_EDGE_PX: number = 56
 const DRAG_AUTO_SCROLL_MAX_PX_PER_FRAME: number = 18
@@ -306,9 +311,10 @@ function StoryTree({
   onToggleParallel,
   onMove,
   dragEnabled,
-  touchRowDrag,
+  touchMode,
   dragDisabledHint,
   bottomInset,
+  onEdit,
   onAdd
 }: {
   nodes: readonly FlatTreeNode[]
@@ -323,9 +329,10 @@ function StoryTree({
   onToggleParallel: (nodeId: string) => void
   onMove: (sourceId: string, targetId: string, placement: SnippetDropPlacement) => void
   dragEnabled: boolean
-  touchRowDrag: boolean
+  touchMode: boolean
   dragDisabledHint: string
   bottomInset: boolean
+  onEdit?: (nodeId: string) => void
   onAdd: () => void
 }): JSX.Element {
   const { t } = useTranslation()
@@ -348,6 +355,10 @@ function StoryTree({
   const dropTargetRef = useRef<StoryDropTarget | null>(null)
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<StoryDropTarget | null>(null)
+  const [pressedNodeId, setPressedNodeId] = useState<string | null>(null)
+  const [actionNodeId, setActionNodeId] = useState<string | null>(null)
+  const [actionSheetOpen, setActionSheetOpen] = useState<boolean>(false)
+  const lastTapRef = useRef<{ nodeId: string; at: number } | null>(null)
 
   useEffect((): (() => void) => {
     return (): void => {
@@ -384,6 +395,7 @@ function StoryTree({
     }
     pointerRef.current = null
     setDraggedNodeId(null)
+    setPressedNodeId(null)
     updateDropTarget(null)
   }
 
@@ -391,11 +403,12 @@ function StoryTree({
     const pointer: typeof pointerRef.current = pointerRef.current
     if (!pointer || pointer.pointerId !== pointerId || pointer.armed) return
     pointer.armed = true
+    setPressedNodeId(pointer.sourceId)
     treeRef.current?.setPointerCapture(pointerId)
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (!dragEnabled || event.button !== 0) return
+    if (event.button !== 0) return
     if (!(event.target instanceof Element)) return
     if (event.target.closest('[data-no-drag]')) return
 
@@ -404,10 +417,11 @@ function StoryTree({
     if (!sourceId) return
 
     const fromHandle: boolean = Boolean(event.target.closest('[data-drag-handle]'))
-    // Desktop: grip-handle only. Touch drag mode: entire snippet row.
-    if (!touchRowDrag && !fromHandle) return
+    // Desktop: grip-handle drag only. Touch: the whole row, where a long press arms a drag and
+    // releasing without moving opens the actions.
+    if (!touchMode && (!dragEnabled || !fromHandle)) return
 
-    const requiresLongPress: boolean = touchRowDrag
+    const requiresLongPress: boolean = touchMode
     clearLongPressTimer()
     suppressClickRef.current = false
     pointerRef.current = {
@@ -454,6 +468,7 @@ function StoryTree({
 
     if (!pointer.active) {
       if (distance < DRAG_ACTIVATE_PX) return
+      if (!dragEnabled) return
       pointer.active = true
       suppressClickRef.current = true
       setDraggedNodeId(pointer.sourceId)
@@ -585,16 +600,104 @@ function StoryTree({
       onMove(pointer.sourceId, dropTargetRef.current.nodeId, dropTargetRef.current.placement)
       event?.preventDefault()
     }
-    if (
-      event?.type === 'pointerup' &&
-      pointer.requiresLongPress &&
-      !pointer.armed &&
-      !pointer.moved
-    ) {
-      onSelect(pointer.sourceId)
+    if (event?.type === 'pointerup' && pointer.requiresLongPress) {
+      if (!pointer.armed && !pointer.moved) {
+        selectOrEdit(pointer.sourceId)
+      } else if (
+        pointer.armed &&
+        !pointer.active &&
+        Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) <
+          DRAG_ACTIVATE_PX
+      ) {
+        onContextSelect(pointer.sourceId)
+        setActionNodeId(pointer.sourceId)
+        setActionSheetOpen(true)
+      }
     }
     resetPointerState(event)
   }
+
+  // A second tap on the same row within DOUBLE_TAP_MS edits it instead of previewing it again.
+  function selectOrEdit(nodeId: string): void {
+    const now: number = performance.now()
+    const last: { nodeId: string; at: number } | null = lastTapRef.current
+    if (onEdit && last && last.nodeId === nodeId && now - last.at < DOUBLE_TAP_MS) {
+      lastTapRef.current = null
+      onEdit(nodeId)
+      return
+    }
+    lastTapRef.current = { nodeId, at: now }
+    onSelect(nodeId)
+  }
+
+  function buildSnippetActions(
+    flatNode: FlatTreeNode,
+    moves: StoryContextMoves
+  ): ActionSheetItem[][] {
+    const nodeId: string = flatNode.node.id
+    const moveItem = (
+      key: string,
+      label: string,
+      icon: JSX.Element,
+      target: StoryMoveTarget | null
+    ): ActionSheetItem => ({
+      key,
+      icon,
+      label,
+      disabled: !dragEnabled || !target,
+      onSelect: (): void => {
+        if (target) onMove(nodeId, target.nodeId, target.placement)
+      }
+    })
+    return [
+      [
+        ...(onEdit
+          ? [
+              {
+                key: 'edit',
+                icon: <Pencil />,
+                label: t('editor.editSnippet'),
+                onSelect: (): void => onEdit(nodeId)
+              }
+            ]
+          : []),
+        {
+          key: 'preview',
+          icon: <Play />,
+          label: t('editor.previewFromHere'),
+          onSelect: (): void => onPreview(nodeId)
+        },
+        {
+          key: 'copy',
+          icon: <Copy />,
+          label: t('editor.copySnippet'),
+          onSelect: (): void => onDuplicate(nodeId)
+        }
+      ],
+      [
+        moveItem('up', t('editor.moveUp'), <ArrowUp />, moves.up),
+        moveItem('down', t('editor.moveDown'), <ArrowDown />, moves.down),
+        moveItem('indent', t('editor.moveIntoParallel'), <IndentIncrease />, moves.indent),
+        moveItem('outdent', t('editor.moveOutParallel'), <IndentDecrease />, moves.outdent)
+      ],
+      [
+        {
+          key: 'delete',
+          icon: <Trash2 />,
+          label: t('editor.deleteSnippet'),
+          destructive: true,
+          onSelect: (): void => onDelete(nodeId)
+        }
+      ]
+    ]
+  }
+
+  const actionNode: FlatTreeNode | undefined = nodes.find(
+    (candidate: FlatTreeNode): boolean => candidate.node.id === actionNodeId
+  )
+  const actionGroups: ActionSheetItem[][] = actionNode
+    ? buildSnippetActions(actionNode, resolveContextMoves(nodes, actionNode))
+    : []
 
   function handleSelect(nodeId: string): void {
     if (suppressClickRef.current) {
@@ -605,67 +708,78 @@ function StoryTree({
   }
 
   return (
-    <div
-      ref={treeRef}
-      data-tour="editor-story-tree"
-      className={cn(
-        'min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent',
-        bottomInset && 'pb-20'
-      )}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={finishPointerDrag}
-      onPointerCancel={finishPointerDrag}
-    >
-      <div className="space-y-0.5">
-        {nodes.map((flatNode: FlatTreeNode): JSX.Element => {
-          const contextMoves: StoryContextMoves = resolveContextMoves(nodes, flatNode)
-          return (
-            <StoryNodeRow
-              key={flatNode.node.id}
-              flatNode={flatNode}
-              selected={flatNode.node.id === selectedNodeId}
-              active={activeSnippetIds.has(flatNode.node.id)}
-              hasActiveSnippets={activeSnippetIds.size > 0}
-              expanded={expandedParallelIds.has(flatNode.node.id)}
-              dragEnabled={dragEnabled}
-              touchRowDrag={touchRowDrag}
-              dragDisabledHint={dragDisabledHint}
-              dragging={draggedNodeId === flatNode.node.id}
-              dropPlacement={
-                dropTarget?.indicatorNodeId === flatNode.node.id
-                  ? dropTarget.indicatorPlacement
-                  : null
-              }
-              dropIndicatorDepth={
-                dropTarget?.indicatorNodeId === flatNode.node.id ? dropTarget.indicatorDepth : null
-              }
-              onSelect={handleSelect}
-              onContextSelect={onContextSelect}
-              onPreview={onPreview}
-              onDuplicate={onDuplicate}
-              onDelete={onDelete}
-              onMove={onMove}
-              contextMoves={contextMoves}
-              onToggleParallel={onToggleParallel}
-            />
-          )
-        })}
-      </div>
-      {nodes.length === 0 && (
-        <div className="px-2 pt-8 text-center text-xs text-muted-foreground">
-          {t('editor.emptyStory')}
-        </div>
-      )}
-      <button
-        type="button"
-        className="mt-3 flex h-8 items-center gap-2 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-        onClick={onAdd}
+    <>
+      <div
+        ref={treeRef}
+        data-tour="editor-story-tree"
+        className={cn(
+          'min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent',
+          bottomInset && 'pb-20'
+        )}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishPointerDrag}
+        onPointerCancel={finishPointerDrag}
       >
-        <Plus className="size-3.5" />
-        {t('editor.addSnippet')}
-      </button>
-    </div>
+        <div className="space-y-0.5">
+          {nodes.map((flatNode: FlatTreeNode): JSX.Element => {
+            const contextMoves: StoryContextMoves = resolveContextMoves(nodes, flatNode)
+            return (
+              <StoryNodeRow
+                key={flatNode.node.id}
+                flatNode={flatNode}
+                selected={flatNode.node.id === selectedNodeId}
+                active={activeSnippetIds.has(flatNode.node.id)}
+                hasActiveSnippets={activeSnippetIds.size > 0}
+                expanded={expandedParallelIds.has(flatNode.node.id)}
+                dragEnabled={dragEnabled}
+                touchMode={touchMode}
+                dragDisabledHint={dragDisabledHint}
+                dragging={draggedNodeId === flatNode.node.id}
+                pressed={pressedNodeId === flatNode.node.id}
+                dropPlacement={
+                  dropTarget?.indicatorNodeId === flatNode.node.id
+                    ? dropTarget.indicatorPlacement
+                    : null
+                }
+                dropIndicatorDepth={
+                  dropTarget?.indicatorNodeId === flatNode.node.id
+                    ? dropTarget.indicatorDepth
+                    : null
+                }
+                onSelect={handleSelect}
+                onContextSelect={onContextSelect}
+                onPreview={onPreview}
+                onDuplicate={onDuplicate}
+                onDelete={onDelete}
+                onMove={onMove}
+                contextMoves={contextMoves}
+                onToggleParallel={onToggleParallel}
+              />
+            )
+          })}
+        </div>
+        {nodes.length === 0 && (
+          <div className="px-2 pt-8 text-center text-xs text-muted-foreground">
+            {t('editor.emptyStory')}
+          </div>
+        )}
+        <button
+          type="button"
+          className="mt-3 flex h-8 items-center gap-2 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={onAdd}
+        >
+          <Plus className="size-3.5" />
+          {t('editor.addSnippet')}
+        </button>
+      </div>
+      <ActionSheet
+        open={actionSheetOpen}
+        onOpenChange={setActionSheetOpen}
+        title={actionNode?.node.type ?? ''}
+        groups={actionGroups}
+      />
+    </>
   )
 }
 
@@ -676,9 +790,10 @@ function StoryNodeRow({
   hasActiveSnippets,
   expanded,
   dragEnabled,
-  touchRowDrag,
+  touchMode,
   dragDisabledHint,
   dragging,
+  pressed,
   dropPlacement,
   dropIndicatorDepth,
   onSelect,
@@ -696,9 +811,10 @@ function StoryNodeRow({
   hasActiveSnippets: boolean
   expanded: boolean
   dragEnabled: boolean
-  touchRowDrag: boolean
+  touchMode: boolean
   dragDisabledHint: string
   dragging: boolean
+  pressed: boolean
   dropPlacement: SnippetDropPlacement | null
   dropIndicatorDepth: number | null
   onSelect: (nodeId: string) => void
@@ -729,20 +845,21 @@ function StoryNodeRow({
   const row: JSX.Element = (
     <div
       className={cn(
-        'relative transition-opacity',
+        'relative transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none',
         dragging && 'opacity-35',
-        touchRowDrag && dragEnabled && 'touch-none select-none'
+        pressed && 'scale-[0.98]',
+        touchMode && 'touch-none select-none'
       )}
       style={{ paddingLeft: `${flatNode.depth * 18}px` }}
       data-snippet-id={node.id}
       onContextMenu={
-        touchRowDrag
+        touchMode
           ? (event: ReactMouseEvent<HTMLDivElement>): void => {
               event.preventDefault()
             }
           : undefined
       }
-      {...(touchRowDrag ? {} : longPressHandlers)}
+      {...(touchMode ? {} : longPressHandlers)}
     >
       {dropPlacement === 'before' && (
         <span
@@ -767,10 +884,10 @@ function StoryNodeRow({
           selected ? 'bg-emerald-500/10 text-foreground' : 'hover:bg-accent',
           isParallel && !selected && 'bg-violet-500/[0.035]',
           dropPlacement === 'inside' && 'bg-violet-500/15 ring-1 ring-violet-500/60',
-          touchRowDrag && dragEnabled && 'touch-none cursor-grab active:cursor-grabbing'
+          touchMode && 'touch-none'
         )}
         onClick={(): void => {
-          if (!touchRowDrag) onSelect(node.id)
+          if (!touchMode) onSelect(node.id)
         }}
       >
         <span
@@ -784,7 +901,7 @@ function StoryNodeRow({
           <GripVertical
             className={cn(
               'size-3',
-              touchRowDrag && dragEnabled ? 'text-muted-foreground' : 'text-muted-foreground/45'
+              touchMode && dragEnabled ? 'text-muted-foreground' : 'text-muted-foreground/45'
             )}
           />
         </span>
@@ -826,8 +943,8 @@ function StoryNodeRow({
     </div>
   )
 
-  // Drag mode is reorder-only: no context menu / long-press actions.
-  if (touchRowDrag) return row
+  // Touch rows have no context menu trigger: the tree's gesture handling opens the action sheet.
+  if (touchMode) return row
 
   return (
     <ContextMenu>

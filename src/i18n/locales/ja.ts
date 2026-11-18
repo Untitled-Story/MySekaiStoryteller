@@ -254,6 +254,7 @@ export const ja: typeof en = {
     emptyStory: 'スニペットがありません',
     previewFromHere: 'ここからプレビュー',
     copySnippet: 'スニペットを複製',
+    editSnippet: 'プロパティを編集',
     moveUp: '上へ移動',
     moveDown: '下へ移動',
     moveIntoParallel: '上のParallelへ移動',
