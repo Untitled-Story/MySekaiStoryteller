@@ -4,7 +4,8 @@ use tauri::AppHandle;
 
 use super::{
     now_millis, project_path, projects_dir, read_metadata, validate_project_name,
-    write_default_project_files, write_metadata, AssetsSummary, ProjectMetadata,
+    validate_project_reference, write_default_project_files, write_metadata, AssetsSummary,
+    ProjectMetadata,
 };
 
 #[tauri::command]
@@ -56,6 +57,18 @@ pub fn set_project_metadata(
 }
 
 #[tauri::command]
+pub fn set_project_pinned(
+    app: AppHandle,
+    project_name: String,
+    pinned: bool,
+) -> Result<(), String> {
+    let project_path = project_path(&app, &project_name)?;
+    let mut metadata = read_metadata(&project_path).ok_or("项目不存在")?;
+    metadata.pinned = pinned;
+    write_metadata(&project_path, &metadata)
+}
+
+#[tauri::command]
 pub fn create_project(app: AppHandle, project_name: String) -> Result<(), String> {
     let started_at = Instant::now();
     log::info!(
@@ -76,6 +89,7 @@ pub fn create_project(app: AppHandle, project_name: String) -> Result<(), String
     let metadata = ProjectMetadata {
         title: project_name.clone(),
         last_modified: now_millis(),
+        pinned: false,
         assets_summary: Some(AssetsSummary {
             models: 0,
             backgrounds: 0,
@@ -101,7 +115,7 @@ pub fn delete_project(app: AppHandle, project_name: String) -> Result<(), String
         "project.delete started project={}",
         project_name
     );
-    validate_project_name(&project_name)?;
+    validate_project_reference(&project_name)?;
     let dir = projects_dir(&app)?;
     let project_path = dir.join(&project_name);
 
@@ -128,7 +142,7 @@ pub fn rename_project(app: AppHandle, old_name: String, new_name: String) -> Res
         old_name,
         new_name
     );
-    validate_project_name(&old_name)?;
+    validate_project_reference(&old_name)?;
     validate_project_name(&new_name)?;
     let dir = projects_dir(&app)?;
     let old_path = dir.join(&old_name);

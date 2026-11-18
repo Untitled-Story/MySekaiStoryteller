@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Plus, Edit3, Play, Clock, Folder, Settings } from 'lucide-react'
 import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDialog'
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
@@ -8,58 +8,31 @@ import { timeAgo } from '@/windows/main/utils/time'
 import { useNavigate } from 'react-router'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { useSettings } from '@/settings/useSettings'
-import { MAIN_TOUR_VERSION } from '@/onboarding/types'
 import { MainProductTour } from '@/onboarding/MainProductTour'
 import { useTranslation } from 'react-i18next'
 import { useViewportMode } from '@/hooks/useViewportMode'
 import { cn } from '@/lib/style'
-import { detectPreferTouchMode } from '@/lib/touchMode'
 import { isMobileRuntime } from '@/lib/platform'
-import { Button } from '@/components/ui/Button'
-import { Switch } from '@/components/ui/Switch'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/Dialog'
 
 export default function HomePage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects } = useProjectsMetadata()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [touchPromptOpen, setTouchPromptOpen] = useState(false)
-  const [touchPromptValue, setTouchPromptValue] = useState(false)
   const navigate = useNavigate()
-  const { onboarding, interaction, setOnboarding, setInteraction } = useSettings()
+  const { onboarding, setOnboarding } = useSettings()
   const viewportMode = useViewportMode()
   const stackSections: boolean = viewportMode === 'phone'
   const mobileRuntime: boolean = isMobileRuntime()
 
-  const completeMainTour = useCallback((): void => {
-    setOnboarding({ ...onboarding, mainTourVersion: MAIN_TOUR_VERSION })
-    if (!interaction.touchModePromptSeen) {
-      setTouchPromptValue(detectPreferTouchMode())
-      setTouchPromptOpen(true)
-    }
-  }, [interaction.touchModePromptSeen, onboarding, setOnboarding])
-
-  const finishTouchPrompt = useCallback(
-    (enabled: boolean): void => {
-      setInteraction({
-        ...interaction,
-        touchMode: enabled,
-        touchModePromptSeen: true
-      })
-      setTouchPromptOpen(false)
-    },
-    [interaction, setInteraction]
-  )
+  function completeMainTour(): void {
+    setOnboarding({ ...onboarding, mainTourCompleted: true })
+  }
 
   const latest: ProjectMetadata | null =
     projects.length > 0 ? [...projects].sort((a, b) => b.lastModified - a.lastModified)[0] : null
+  const pinnedProjects: ProjectMetadata[] = projects
+    .filter((project) => Boolean(project.pinned))
+    .sort((a, b) => b.lastModified - a.lastModified)
 
   const handleOpenEditor = async (title: string): Promise<void> => {
     try {
@@ -111,40 +84,34 @@ export default function HomePage(): JSX.Element {
             stackSections && 'rounded-2xl border bg-card p-4 shadow-xs'
           )}
         >
+          {pinnedProjects.length > 0 && (
+            <div className={cn(stackSections ? 'mb-5' : 'mb-8')}>
+              <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                {t('home.pinned')}
+              </h3>
+              <div className="space-y-5">
+                {pinnedProjects.map((project) => (
+                  <HomeProjectCard
+                    key={project.title}
+                    project={project}
+                    stackSections={stackSections}
+                    onEdit={handleOpenEditor}
+                    onPlay={handleOpenPlayer}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
           <h3 className="mb-4 text-xs font-medium tracking-wider text-muted-foreground uppercase">
             {t('home.recent')}
           </h3>
           {latest ? (
-            <div className="space-y-4">
-              <div>
-                <h4 className="truncate text-lg font-medium">{latest.title}</h4>
-                <div className="mt-1 flex items-center text-xs text-muted-foreground">
-                  <Clock className="mr-1 h-3 w-3" />
-                  <span>{timeAgo(latest.lastModified)}</span>
-                </div>
-              </div>
-              <div
-                className={cn(
-                  'flex gap-2',
-                  stackSections && '[&>button]:h-11 [&>button]:flex-1 [&>button]:justify-center'
-                )}
-              >
-                <button
-                  onClick={() => handleOpenEditor(latest.title)}
-                  className="flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  <Edit3 className="h-3.5 w-3.5" />
-                  {t('home.continueEditing')}
-                </button>
-                <button
-                  onClick={() => handleOpenPlayer(latest.title)}
-                  className="flex items-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  {t('common.play')}
-                </button>
-              </div>
-            </div>
+            <HomeProjectCard
+              project={latest}
+              stackSections={stackSections}
+              onEdit={handleOpenEditor}
+              onPlay={handleOpenPlayer}
+            />
           ) : (
             <p className="text-sm text-muted-foreground">{t('home.noRecent')}</p>
           )}
@@ -195,43 +162,55 @@ export default function HomePage(): JSX.Element {
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleProjectCreated}
       />
-      <MainProductTour
-        active={onboarding.mainTourVersion < MAIN_TOUR_VERSION}
-        onComplete={completeMainTour}
-      />
+      <MainProductTour active={!onboarding.mainTourCompleted} onComplete={completeMainTour} />
+    </div>
+  )
+}
 
-      <Dialog
-        open={touchPromptOpen}
-        onOpenChange={(open: boolean): void => {
-          if (!open) finishTouchPrompt(touchPromptValue)
-        }}
+type HomeProjectCardProps = {
+  project: ProjectMetadata
+  stackSections: boolean
+  onEdit: (title: string) => void
+  onPlay: (title: string) => void
+}
+
+function HomeProjectCard({
+  project,
+  stackSections,
+  onEdit,
+  onPlay
+}: HomeProjectCardProps): JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="truncate text-lg font-medium">{project.title}</h4>
+        <div className="mt-1 flex items-center text-xs text-muted-foreground">
+          <Clock className="mr-1 h-3 w-3" />
+          <span>{timeAgo(project.lastModified)}</span>
+        </div>
+      </div>
+      <div
+        className={cn(
+          'flex gap-2',
+          stackSections && '[&>button]:h-11 [&>button]:flex-1 [&>button]:justify-center'
+        )}
       >
-        <DialogContent className="max-w-md select-none">
-          <DialogHeader>
-            <DialogTitle>{t('home.touchPromptTitle')}</DialogTitle>
-            <DialogDescription>{t('home.touchPromptDescription')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-between rounded-lg border px-3 py-3">
-            <div className="pr-4">
-              <p className="text-sm font-medium">{t('home.touchMode')}</p>
-              <p className="text-xs text-muted-foreground">{t('home.touchModeHint')}</p>
-            </div>
-            <Switch
-              checked={touchPromptValue}
-              aria-label={t('home.touchModeAria')}
-              onCheckedChange={setTouchPromptValue}
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={(): void => finishTouchPrompt(false)}>
-              {t('home.touchNotNow')}
-            </Button>
-            <Button type="button" onClick={(): void => finishTouchPrompt(touchPromptValue)}>
-              {t('common.confirm')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <button
+          onClick={(): void => void onEdit(project.title)}
+          className="flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <Edit3 className="h-3.5 w-3.5" />
+          {t('home.continueEditing')}
+        </button>
+        <button
+          onClick={(): void => void onPlay(project.title)}
+          className="flex items-center gap-2 rounded-md border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
+        >
+          <Play className="h-3.5 w-3.5" />
+          {t('common.play')}
+        </button>
+      </div>
     </div>
   )
 }

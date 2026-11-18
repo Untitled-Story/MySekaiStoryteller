@@ -12,8 +12,7 @@ import { Agentation } from 'agentation'
 import { ProjectImportCoordinator } from '@/windows/main/components/ProjectImportCoordinator'
 import { ProjectsMetadataProvider } from '@/windows/main/providers/ProjectsMetadataProvider'
 import { AppNavigator } from '@/windows/shell/AppNavigator'
-import { getRuntimePlatform, prefersInAppNavigation } from '@/lib/platform'
-import { applyFullscreenModePreference } from '@/lib/orientation'
+import { prefersInAppNavigation } from '@/lib/platform'
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
 import { cn } from '@/lib/style'
 import { useTranslation } from 'react-i18next'
@@ -40,7 +39,7 @@ export default function App(): React.JSX.Element {
 
 function AppContent(): React.JSX.Element {
   const { t } = useTranslation()
-  const { appearance, loaded, workspaceDir, setWorkspaceDir, interaction } = useSettings()
+  const { appearance, loaded, workspaceDir, setWorkspaceDir } = useSettings()
   const activeTheme = appearance.activeTheme
   const location = useLocation()
   const viewportMode: ViewportMode = useViewportMode()
@@ -57,12 +56,6 @@ function AppContent(): React.JSX.Element {
     root.classList.toggle('dark', activeTheme === 'dark')
     root.style.colorScheme = activeTheme
   }, [activeTheme])
-
-  useEffect((): void => {
-    if (!loaded) return
-    if (getRuntimePlatform() !== 'android') return
-    applyFullscreenModePreference(interaction.fullscreenMode)
-  }, [interaction.fullscreenMode, loaded])
 
   if (!loaded) {
     return <></>

@@ -45,6 +45,10 @@ pub struct ShortcutBinding {
 pub struct EditorShortcutSettings {
     #[serde(default = "default_editor_save_shortcut")]
     pub save: ShortcutBinding,
+    #[serde(default = "default_editor_undo_shortcut")]
+    pub undo: ShortcutBinding,
+    #[serde(default = "default_editor_redo_shortcut")]
+    pub redo: ShortcutBinding,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,9 +77,20 @@ pub struct ShortcutSettings {
 #[serde(rename_all = "camelCase")]
 pub struct OnboardingSettings {
     #[serde(default)]
-    pub main_tour_version: u32,
+    pub main_tour_completed: bool,
     #[serde(default)]
-    pub editor_tour_version: u32,
+    pub editor_tour_completed: bool,
+    #[serde(default, rename = "mainTourVersion", skip_serializing)]
+    legacy_main_tour_version: u32,
+    #[serde(default, rename = "editorTourVersion", skip_serializing)]
+    legacy_editor_tour_version: u32,
+}
+
+impl OnboardingSettings {
+    fn migrate_legacy(&mut self) {
+        self.main_tour_completed |= self.legacy_main_tour_version > 0;
+        self.editor_tour_completed |= self.legacy_editor_tour_version > 0;
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -152,6 +167,8 @@ impl Default for EditorShortcutSettings {
     fn default() -> Self {
         Self {
             save: default_editor_save_shortcut(),
+            undo: default_editor_undo_shortcut(),
+            redo: default_editor_redo_shortcut(),
         }
     }
 }
@@ -210,6 +227,17 @@ fn default_editor_save_shortcut() -> ShortcutBinding {
     shortcut("s", true)
 }
 
+fn default_editor_undo_shortcut() -> ShortcutBinding {
+    shortcut("z", true)
+}
+
+fn default_editor_redo_shortcut() -> ShortcutBinding {
+    ShortcutBinding {
+        shift: true,
+        ..shortcut("z", true)
+    }
+}
+
 fn default_player_reload_shortcut() -> ShortcutBinding {
     shortcut("r", true)
 }
@@ -257,8 +285,9 @@ pub fn get_settings(app: AppHandle) -> Option<AppSettings> {
             return None;
         }
     };
-    match serde_json::from_str(&raw) {
-        Ok(settings) => {
+    match serde_json::from_str::<AppSettings>(&raw) {
+        Ok(mut settings) => {
+            settings.onboarding.migrate_legacy();
             log::debug!(
                 target: "backend::settings",
                 "settings.load completed duration_ms={}",
@@ -307,14 +336,41 @@ mod tests {
 
         assert_eq!(settings.shortcuts.editor.save.key, "s");
         assert!(settings.shortcuts.editor.save.primary);
+        assert_eq!(settings.shortcuts.editor.undo.key, "z");
+        assert!(settings.shortcuts.editor.undo.primary);
+        assert!(!settings.shortcuts.editor.undo.shift);
+        assert_eq!(settings.shortcuts.editor.redo.key, "z");
+        assert!(settings.shortcuts.editor.redo.primary);
+        assert!(settings.shortcuts.editor.redo.shift);
         assert_eq!(settings.shortcuts.player.reload.key, "r");
         assert_eq!(settings.shortcuts.player.enter_fullscreen.key, "F11");
         assert_eq!(settings.shortcuts.player.exit_fullscreen.key, "Escape");
         assert_eq!(settings.shortcuts.player.close.key, "w");
         assert_eq!(settings.language, "system");
-        assert_eq!(settings.onboarding.main_tour_version, 0);
-        assert_eq!(settings.onboarding.editor_tour_version, 0);
-        assert!(!settings.interaction.fullscreen_mode);
+        assert!(!settings.onboarding.main_tour_completed);
+        assert!(!settings.onboarding.editor_tour_completed);
+    }
+
+    #[test]
+    fn completed_legacy_tours_migrate_to_completion_flags() {
+        let mut settings: AppSettings = serde_json::from_str(
+            r#"{
+                "onboarding": {
+                    "mainTourVersion": 1,
+                    "editorTourVersion": 0
+                }
+            }"#,
+        )
+        .expect("settings should parse");
+
+        settings.onboarding.migrate_legacy();
+
+        assert!(settings.onboarding.main_tour_completed);
+        assert!(!settings.onboarding.editor_tour_completed);
+        let serialized: String =
+            serde_json::to_string(&settings).expect("settings should serialize");
+        assert!(!serialized.contains("mainTourVersion"));
+        assert!(!serialized.contains("editorTourVersion"));
     }
 
     #[test]

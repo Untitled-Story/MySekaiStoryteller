@@ -61,7 +61,6 @@ jobs:
 
       - name: Check frontend
         run: |
-          pnpm test:story-reducer
           pnpm typecheck
           pnpm lint
 

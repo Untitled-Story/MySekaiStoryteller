@@ -16,10 +16,11 @@ import {
   Trash2,
   Clock,
   Download,
-  Upload
+  Upload,
+  Pin,
+  PinOff
 } from 'lucide-react'
 import { open, save } from '@tauri-apps/plugin-dialog'
-import { useSettings } from '@/settings/useSettings'
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
 import { isMobileRuntime } from '@/lib/platform'
 
@@ -28,7 +29,7 @@ import { CreateProjectDialog } from '@/windows/main/components/CreateProjectDial
 import { useProjectsMetadata } from '@/windows/main/hooks/useProjectsMetadata'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
 import type { ProjectMetadata } from '@/project/metadata'
-import { deleteProject, renameProject } from '@/project/api'
+import { deleteProject, renameProject, setProjectPinned } from '@/project/api'
 import { timeAgo } from '@/windows/main/utils/time'
 import { openEditorWindow, openPlayerWindow } from '@/windows/api'
 import { exportProjectArchive, requestProjectImport } from '@/project/archive'
@@ -68,11 +69,10 @@ export default function ProjectsPage(): JSX.Element {
   const { t } = useTranslation()
   const { projects, fetchProjects, loading } = useProjectsMetadata()
   const { spinning, spin } = useSpinOnce()
-  const { interaction } = useSettings()
   const viewportMode: ViewportMode = useViewportMode()
   const phoneLayout: boolean = viewportMode === 'phone'
   const mobileRuntime: boolean = isMobileRuntime()
-  const alwaysShowRowActions: boolean = phoneLayout || interaction.touchMode
+  const alwaysShowRowActions: boolean = mobileRuntime
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -94,11 +94,12 @@ export default function ProjectsPage(): JSX.Element {
       result = result.filter((p) => p.title.toLowerCase().includes(query))
     }
 
-    if (sortMode === 'recent') {
-      result.sort((a, b) => b.lastModified - a.lastModified)
-    } else {
-      result.sort((a, b) => a.title.localeCompare(b.title))
-    }
+    result.sort((a, b) => {
+      const pinnedDiff: number = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+      if (pinnedDiff !== 0) return pinnedDiff
+      if (sortMode === 'recent') return b.lastModified - a.lastModified
+      return a.title.localeCompare(b.title)
+    })
 
     return result
   }, [projects, search, sortMode])
@@ -172,6 +173,19 @@ export default function ProjectsPage(): JSX.Element {
     } finally {
       setIsRenaming(false)
       setRenameTarget(null)
+    }
+  }
+
+  const handleTogglePin = async (projectName: string, pinned: boolean): Promise<void> => {
+    try {
+      await setProjectPinned(projectName, pinned)
+      spin(fetchProjects)
+    } catch (error) {
+      alert(
+        t(pinned ? 'project.pinFailed' : 'project.unpinFailed', {
+          error: error instanceof Error ? error.message : t('common.unknownError')
+        })
+      )
     }
   }
 
@@ -323,7 +337,12 @@ export default function ProjectsPage(): JSX.Element {
                     )}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{metadata.title}</p>
+                      <div className="flex items-center gap-1 min-w-0">
+                        {metadata.pinned && (
+                          <Pin className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
+                        )}
+                        <p className="text-sm font-medium truncate">{metadata.title}</p>
+                      </div>
                       <div className="flex items-center text-xs text-muted-foreground mt-0.5">
                         <Clock className="w-3 h-3 mr-1 flex-shrink-0" />
                         <span>{timeAgo(metadata.lastModified)}</span>
@@ -360,6 +379,16 @@ export default function ProjectsPage(): JSX.Element {
                   <ContextMenuItem onClick={() => handleOpenEditor(metadata.title)}>
                     <Edit3 className="w-4 h-4 mr-2" />
                     {t('common.edit')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={(): void => void handleTogglePin(metadata.title, !metadata.pinned)}
+                  >
+                    {metadata.pinned ? (
+                      <PinOff className="w-4 h-4 mr-2" />
+                    ) : (
+                      <Pin className="w-4 h-4 mr-2" />
+                    )}
+                    {metadata.pinned ? t('project.unpin') : t('project.pin')}
                   </ContextMenuItem>
                   <ContextMenuItem
                     onClick={() => {
