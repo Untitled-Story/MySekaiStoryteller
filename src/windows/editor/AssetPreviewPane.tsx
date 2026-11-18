@@ -74,7 +74,8 @@ export function AssetPreviewPane({
         </div>
         <Button
           type="button"
-          variant="outline"
+          // Matches the stage preview: compact chrome is black, so use the transparent ghost style.
+          variant={compact ? 'ghost' : 'outline'}
           size="sm"
           className="shrink-0 gap-1.5 text-xs"
           onClick={onClose}
