@@ -236,7 +236,11 @@ function ModelPreview({
           ticker: previewApp.ticker
         })
         if (disposed) {
-          loaded.destroy({ children: true })
+          try {
+            loaded.destroy({ children: true })
+          } catch {
+            // The app (and its ticker) may already be destroyed by cleanup.
+          }
           return
         }
         model = loaded
@@ -263,6 +267,9 @@ function ModelPreview({
       disposed = true
       playbackTokenRef.current += 1
       modelRef.current = null
+      // The model unregisters itself from the app ticker, so it must be destroyed before the app.
+      model?.destroy({ children: true })
+      model = null
       if (app && appInitialized) {
         app.renderer.off('resize', fit)
         app.destroy(true, { children: true })
