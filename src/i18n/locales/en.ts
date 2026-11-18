@@ -386,6 +386,8 @@ export const en: LocaleShape = {
     modelPreviewLoading: 'Loading model',
     modelPreviewFailed: 'Failed to load model',
     modelPreviewNone: 'None',
+    modelPreviewSearch: 'Search',
+    modelPreviewNoMatch: 'No matches',
     assetModels: 'Models',
     assetBackgrounds: 'Backgrounds',
     assetVoices: 'Voices',

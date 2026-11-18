@@ -382,6 +382,8 @@ export const ja: typeof en = {
     modelPreviewLoading: 'モデルを読み込み中',
     modelPreviewFailed: 'モデルの読み込みに失敗しました',
     modelPreviewNone: 'なし',
+    modelPreviewSearch: '検索',
+    modelPreviewNoMatch: '一致する項目がありません',
     assetModels: 'モデル',
     assetBackgrounds: '背景',
     assetVoices: '音声',

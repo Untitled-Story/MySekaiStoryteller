@@ -1,36 +1,26 @@
-import type { ChangeEvent, JSX, RefObject } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Application } from 'pixi.js'
-import { Image as ImageIcon, LoaderCircle, Play, X } from 'lucide-react'
+import type { ChangeEvent, CSSProperties, JSX, ReactNode } from 'react'
+import { useState } from 'react'
+import { ChevronDown, ChevronLeft, Image as ImageIcon, LoaderCircle, Play, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
-import { describeError, logger } from '@/lib/logger'
-import { ensureSekaiLive2DReady, loadSekaiLive2DModel, type SekaiLive2DModel } from '@/lib/live2d'
 import { projectAssetUrl } from '@/lib/projectAssetUrl'
 import { cn } from '@/lib/style'
-import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { BackgroundAsset, ModelAsset } from '@/project/assets'
-import {
-  applyAndWaitModelFacial,
-  applyAndWaitModelMotion,
-  resolveModelUrl,
-  stopModelMotions
-} from '@/story'
 import type { EditorAssetSelection } from './editorCatalog'
 import type { EditorPreviewInput } from './EditorPreview'
-import { resolveRenderPrecision } from './resolveRenderPrecision'
+import { ModelOptionSheet } from './ModelOptionSheet'
+import {
+  MODEL_PIVOT_POSITION,
+  useModelPreviewSession,
+  type ModelPreviewControls,
+  type ModelPreviewSession
+} from './useModelPreviewSession'
 
-// Mirrors the stage's Normal layout / Center placement (see layoutModel in story/scene.ts).
-const CENTER_POSITION_X: number = 0.5
-const CENTER_POSITION_Y: number = 0.5
-const MODEL_POSITION_Y_OFFSET: number = 0.3
-const MOTION_POLL_INTERVAL_MS: number = 50
-
-type ModelPreviewStatus = 'loading' | 'ready' | 'error'
-
-type ModelLayout = {
-  anchor: number
-  normalScale: number
+// The story stage is always 16:9; on touch layouts the preview shows exactly that frame so models
+// and backgrounds sit where they will in the story.
+const STAGE_FRAME_STYLE: CSSProperties = {
+  width: 'min(100cqw, calc(100cqh * 16 / 9))',
+  aspectRatio: '16 / 9'
 }
 
 export function AssetPreviewPane({
@@ -63,33 +53,45 @@ export function AssetPreviewPane({
         compact ? 'bg-black text-white' : 'bg-background'
       )}
     >
-      <div
-        className={cn(
-          'flex shrink-0 items-center gap-2 border-b',
-          compact ? 'h-10 border-white/10 px-2' : 'h-12 px-4'
-        )}
-      >
-        <div className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{title}</span>
+      {compact ? (
+        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/10 pr-3 pl-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-9 shrink-0"
+            aria-label={t('editor.backToStagePreview')}
+            title={t('editor.backToStagePreview')}
+            onClick={onClose}
+          >
+            <ChevronLeft className="size-5" />
+          </Button>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
         </div>
-        <Button
-          type="button"
-          // Matches the stage preview: compact chrome is black, so use the transparent ghost style.
-          variant={compact ? 'ghost' : 'outline'}
-          size="sm"
-          className="shrink-0 gap-1.5 text-xs"
-          onClick={onClose}
-        >
-          <X className="size-3.5" />
-          {t('editor.backToStagePreview')}
-        </Button>
-      </div>
+      ) : (
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{title}</span>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-1.5 text-xs"
+            onClick={onClose}
+          >
+            <X className="size-3.5" />
+            {t('editor.backToStagePreview')}
+          </Button>
+        </div>
+      )}
       {backgroundAsset ? (
         <BackgroundImagePreview
           key={selection.key}
           projectPath={input.projectPath}
           asset={backgroundAsset}
           name={title}
+          compact={compact}
         />
       ) : (
         <ModelPreview
@@ -103,17 +105,54 @@ export function AssetPreviewPane({
   )
 }
 
+function StageFrame({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black [container-type:size]">
+      <div
+        className="relative overflow-hidden bg-neutral-950 ring-1 ring-white/10"
+        style={STAGE_FRAME_STYLE}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function BackgroundImagePreview({
   projectPath,
   asset,
-  name
+  name,
+  compact
 }: {
   projectPath: string
   asset: BackgroundAsset
   name: string
+  compact: boolean
 }): JSX.Element {
   const { t } = useTranslation()
   const [loadError, setLoadError] = useState<boolean>(false)
+  const url: string = projectAssetUrl(projectPath, asset.path)
+
+  if (compact) {
+    // The story crops backgrounds to cover the stage, so the frame shows the same crop.
+    return (
+      <StageFrame>
+        {loadError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/55">
+            <ImageIcon className="size-8 stroke-[1.5]" />
+            <span className="text-xs">{t('editor.failedToLoadImage')}</span>
+          </div>
+        ) : (
+          <img
+            src={url}
+            alt={name}
+            className="size-full object-cover"
+            onError={(): void => setLoadError(true)}
+          />
+        )}
+      </StageFrame>
+    )
+  }
 
   return (
     <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2">
@@ -135,7 +174,7 @@ function BackgroundImagePreview({
         </div>
       ) : (
         <img
-          src={projectAssetUrl(projectPath, asset.path)}
+          src={url}
           alt={name}
           className="relative z-10 max-h-full max-w-full rounded object-contain shadow-sm"
           onError={(): void => setLoadError(true)}
@@ -155,261 +194,190 @@ function ModelPreview({
   compact: boolean
 }): JSX.Element {
   const { t } = useTranslation()
-  const stageRef = useRef<HTMLDivElement | null>(null)
-  const modelRef = useRef<SekaiLive2DModel | null>(null)
-  const playbackTokenRef = useRef<number>(0)
-  const facialTokenRef = useRef<number>(0)
-  const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
-  const fitRef = useRef<(() => void) | null>(null)
-  const [status, setStatus] = useState<ModelPreviewStatus>('loading')
-  const [motion, setMotion] = useState<string>('')
-  const [facial, setFacial] = useState<string>('')
+  const { stageRef, controls }: ModelPreviewSession = useModelPreviewSession(modelKey, input)
 
-  const modelId: string | undefined = input.assets.models[modelKey]?.modelId
-  const anchor: number = input.assets.models[modelKey]?.anchor ?? 0.5
-  const normalScale: number = input.assets.models[modelKey]?.normalScale ?? 1
-  const registryEntry: ModelRegistry['models'][string] | undefined = modelId
-    ? input.modelRegistry.models[modelId]
-    : undefined
-  const motions: readonly string[] = registryEntry?.motions ?? []
-  const facials: readonly string[] = registryEntry?.facials ?? []
-  const renderPrecision: number = resolveRenderPrecision(input.settings)
-  // Keyed on the resolved URL so unrelated asset edits do not reload the model.
-  const modelUrl: string | null = useMemo((): string | null => {
-    try {
-      return resolveModelUrl(input.dataPath, input.assets, input.modelRegistry, modelKey).url
-    } catch {
-      return null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input.dataPath, modelId, registryEntry?.entry, modelKey])
+  const stage: JSX.Element = <div ref={stageRef} className="absolute inset-0" />
+  const statusLayer: JSX.Element | null =
+    controls.status === 'ready' ? null : (
+      <div
+        className={cn(
+          'pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs',
+          compact ? 'text-white/55' : 'text-muted-foreground'
+        )}
+      >
+        {controls.status === 'loading' ? <LoaderCircle className="size-5 animate-spin" /> : null}
+        <span>
+          {controls.status === 'loading'
+            ? t('editor.modelPreviewLoading')
+            : t('editor.modelPreviewFailed')}
+        </span>
+      </div>
+    )
 
-  useEffect((): void => {
-    layoutRef.current = { anchor, normalScale }
-    fitRef.current?.()
-  }, [anchor, normalScale])
-
-  useEffect((): (() => void) | undefined => {
-    const stageElement: HTMLDivElement | null = stageRef.current
-    if (!stageElement) return undefined
-    if (!modelUrl) {
-      setStatus('error')
-      return undefined
-    }
-
-    let disposed: boolean = false
-    let app: Application | null = null
-    let appInitialized: boolean = false
-    let model: SekaiLive2DModel | null = null
-    setStatus('loading')
-
-    function fit(): void {
-      if (!app || !model) return
-      const { anchor: modelAnchor, normalScale: modelScale }: ModelLayout = layoutRef.current
-      const { width, height } = app.screen
-      model.anchor.set(0.5, modelAnchor)
-      model.scale.set((height / model.internalModel.originalHeight) * modelScale)
-      model.position.set(
-        width * CENTER_POSITION_X,
-        height * (CENTER_POSITION_Y + MODEL_POSITION_Y_OFFSET)
-      )
-    }
-    fitRef.current = fit
-
-    async function initialize(url: string, element: HTMLDivElement): Promise<void> {
-      try {
-        await ensureSekaiLive2DReady()
-        if (disposed) return
-
-        const previewApp: Application = new Application()
-        app = previewApp
-        await previewApp.init({
-          resizeTo: element,
-          preference: 'webgl',
-          autoDensity: true,
-          resolution: renderPrecision,
-          backgroundAlpha: 0
-        })
-        appInitialized = true
-        if (disposed) {
-          previewApp.destroy(true, { children: true })
-          return
-        }
-        element.replaceChildren(previewApp.canvas)
-
-        const loaded: SekaiLive2DModel = await loadSekaiLive2DModel(url, {
-          ticker: previewApp.ticker
-        })
-        if (disposed) {
-          try {
-            loaded.destroy({ children: true })
-          } catch {
-            // The app (and its ticker) may already be destroyed by cleanup.
-          }
-          return
-        }
-        model = loaded
-        modelRef.current = loaded
-        previewApp.stage.addChild(loaded)
-        fit()
-        previewApp.renderer.on('resize', fit)
-        setStatus('ready')
-      } catch (error: unknown) {
-        if (disposed) return
-        logger.error('editor.asset_model_preview_failed', {
-          projectName: input.projectName,
-          modelKey,
-          error: describeError(error)
-        })
-        setStatus('error')
-      }
-    }
-
-    void initialize(modelUrl, stageElement)
-
-    return (): void => {
-      disposed = true
-      playbackTokenRef.current += 1
-      facialTokenRef.current += 1
-      modelRef.current = null
-      fitRef.current = null
-      // The model unregisters itself from the app ticker, so it must be destroyed before the app.
-      model?.destroy({ children: true })
-      model = null
-      if (app && appInitialized) {
-        app.renderer.off('resize', fit)
-        app.destroy(true, { children: true })
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelUrl, renderPrecision, modelKey])
-
-  const logPlaybackFailure = (error: unknown): void => {
-    logger.warn('editor.asset_model_preview_motion_failed', {
-      projectName: input.projectName,
-      modelKey,
-      error: describeError(error)
-    })
-  }
-
-  // Resolves once `whenFinish` holds, or when the playback it belongs to is superseded or disposed.
-  const createWaitUntil =
-    (tokenRef: RefObject<number>, token: number) =>
-    (whenFinish: () => boolean): Promise<void> =>
-      new Promise<void>((resolve): void => {
-        const check = (): void => {
-          if (tokenRef.current !== token || !modelRef.current || whenFinish()) {
-            resolve()
-            return
-          }
-          window.setTimeout(check, MOTION_POLL_INTERVAL_MS)
-        }
-        check()
-      })
-
-  const playPreview = (nextMotion: string, nextFacial: string): void => {
-    const model: SekaiLive2DModel | null = modelRef.current
-    if (!model) return
-
-    const token: number = ++playbackTokenRef.current
-    facialTokenRef.current += 1
-    if (!nextMotion && !nextFacial) {
-      stopModelMotions(model)
-      return
-    }
-
-    void applyAndWaitModelMotion(
-      model,
-      createWaitUntil(playbackTokenRef, token),
-      nextMotion || undefined,
-      nextFacial || undefined
-    ).catch(logPlaybackFailure)
-  }
-
-  // Changing the facial must not restart a body motion that is already playing.
-  const playFacialOnly = (nextFacial: string): void => {
-    const model: SekaiLive2DModel | null = modelRef.current
-    if (!model || !nextFacial) return
-
-    const token: number = ++facialTokenRef.current
-    void applyAndWaitModelFacial(model, createWaitUntil(facialTokenRef, token), nextFacial).catch(
-      logPlaybackFailure
+  if (compact) {
+    return (
+      <>
+        <StageFrame>
+          {stage}
+          {controls.status === 'ready' ? <PivotMarker /> : null}
+          {statusLayer}
+        </StageFrame>
+        <CompactModelControls controls={controls} />
+      </>
     )
   }
 
-  const ready: boolean = status === 'ready'
-
   return (
     <>
-      <div className={cn('relative min-h-0 flex-1', compact ? 'bg-black' : 'bg-muted/40')}>
-        <div ref={stageRef} className="absolute inset-0" />
-        {status !== 'ready' ? (
-          <div
-            className={cn(
-              'pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs',
-              compact ? 'text-white/60' : 'text-muted-foreground'
-            )}
-          >
-            {status === 'loading' ? <LoaderCircle className="size-5 animate-spin" /> : null}
-            <span>
-              {status === 'loading'
-                ? t('editor.modelPreviewLoading')
-                : t('editor.modelPreviewFailed')}
-            </span>
-          </div>
-        ) : null}
+      <div className="relative min-h-0 flex-1 bg-muted/40">
+        {stage}
+        {statusLayer}
       </div>
-      <div
-        className={cn(
-          'flex shrink-0 items-center border-t text-xs',
-          // Compact chrome keeps the bar one row (44px) so the canvas stays 16:9 like the stage.
-          compact ? 'h-11 gap-2 px-2' : 'flex-wrap gap-x-3 gap-y-2 px-3 py-2'
-        )}
-      >
-        <ModelPreviewSelect
-          label={t('snippetFields.motion')}
-          noneLabel={t('editor.modelPreviewNone')}
-          compact={compact}
-          value={motion}
-          options={motions}
-          disabled={!ready}
-          onChange={(value: string): void => {
-            setMotion(value)
-            playPreview(value, facial)
-          }}
-        />
-        <ModelPreviewSelect
-          label={t('snippetFields.facial')}
-          noneLabel={t('editor.modelPreviewNone')}
-          compact={compact}
-          value={facial}
-          options={facials}
-          disabled={!ready}
-          onChange={(value: string): void => {
-            setFacial(value)
-            playFacialOnly(value)
-          }}
-        />
-        <Button
-          type="button"
-          size="sm"
-          className="shrink-0 gap-1.5 text-xs"
-          aria-label={t('common.play')}
-          disabled={!ready || (!motion && !facial)}
-          onClick={(): void => playPreview(motion, facial)}
-        >
-          <Play className="size-3.5" />
-          {compact ? null : t('common.play')}
-        </Button>
-      </div>
+      <DesktopModelControls controls={controls} />
     </>
   )
 }
 
-function ModelPreviewSelect({
+/** Marks the model's anchor point, so the inspector's anchor and scale values read spatially. */
+function PivotMarker(): JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute size-3.5 -translate-x-1/2 -translate-y-1/2"
+      style={{
+        left: `${MODEL_PIVOT_POSITION.x * 100}%`,
+        top: `${MODEL_PIVOT_POSITION.y * 100}%`
+      }}
+    >
+      <span className="absolute top-1/2 left-0 h-px w-full -translate-y-1/2 bg-amber-400/80" />
+      <span className="absolute top-0 left-1/2 h-full w-px -translate-x-1/2 bg-amber-400/80" />
+    </span>
+  )
+}
+
+type OpenSheet = 'motion' | 'facial' | null
+
+function CompactModelControls({ controls }: { controls: ModelPreviewControls }): JSX.Element {
+  const { t } = useTranslation()
+  const [openSheet, setOpenSheet] = useState<OpenSheet>(null)
+  const ready: boolean = controls.status === 'ready'
+
+  return (
+    <div className="flex h-11 shrink-0 items-center gap-2 border-t border-white/10 px-2">
+      <PickerChip
+        label={t('snippetFields.motion')}
+        value={controls.motion}
+        disabled={!ready}
+        onClick={(): void => setOpenSheet('motion')}
+      />
+      <PickerChip
+        label={t('snippetFields.facial')}
+        value={controls.facial}
+        disabled={!ready}
+        onClick={(): void => setOpenSheet('facial')}
+      />
+      <Button
+        type="button"
+        size="icon"
+        className="size-9 shrink-0 rounded-full bg-white text-black hover:bg-white/90"
+        aria-label={t('common.play')}
+        title={t('common.play')}
+        disabled={!ready || (!controls.motion && !controls.facial)}
+        onClick={controls.replay}
+      >
+        <Play className="size-4 fill-current" />
+      </Button>
+      <ModelOptionSheet
+        open={openSheet === 'motion'}
+        onOpenChange={(open: boolean): void => setOpenSheet(open ? 'motion' : null)}
+        title={t('snippetFields.motion')}
+        options={controls.motions}
+        value={controls.motion}
+        noneLabel={t('editor.modelPreviewNone')}
+        onSelect={controls.selectMotion}
+      />
+      <ModelOptionSheet
+        open={openSheet === 'facial'}
+        onOpenChange={(open: boolean): void => setOpenSheet(open ? 'facial' : null)}
+        title={t('snippetFields.facial')}
+        options={controls.facials}
+        value={controls.facial}
+        noneLabel={t('editor.modelPreviewNone')}
+        onSelect={controls.selectFacial}
+      />
+    </div>
+  )
+}
+
+function PickerChip({
+  label,
+  value,
+  disabled,
+  onClick
+}: {
+  label: string
+  value: string
+  disabled: boolean
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={value ? `${label}: ${value}` : label}
+      disabled={disabled}
+      className={cn(
+        'flex h-9 min-w-0 flex-1 items-center gap-2 rounded-full border px-3 text-left text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-amber-400/60 disabled:opacity-40',
+        value
+          ? 'border-amber-400/60 bg-amber-400/10 text-white'
+          : 'border-white/15 text-white/60 active:bg-white/10'
+      )}
+      onClick={onClick}
+    >
+      <span className={cn('min-w-0 flex-1 truncate', value && 'font-mono')}>{value || label}</span>
+      <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+    </button>
+  )
+}
+
+function DesktopModelControls({ controls }: { controls: ModelPreviewControls }): JSX.Element {
+  const { t } = useTranslation()
+  const ready: boolean = controls.status === 'ready'
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t px-3 py-2 text-xs">
+      <DesktopSelect
+        label={t('snippetFields.motion')}
+        noneLabel={t('editor.modelPreviewNone')}
+        value={controls.motion}
+        options={controls.motions}
+        disabled={!ready}
+        onChange={controls.selectMotion}
+      />
+      <DesktopSelect
+        label={t('snippetFields.facial')}
+        noneLabel={t('editor.modelPreviewNone')}
+        value={controls.facial}
+        options={controls.facials}
+        disabled={!ready}
+        onChange={controls.selectFacial}
+      />
+      <Button
+        type="button"
+        size="sm"
+        className="shrink-0 gap-1.5 text-xs"
+        disabled={!ready || (!controls.motion && !controls.facial)}
+        onClick={controls.replay}
+      >
+        <Play className="size-3.5" />
+        {t('common.play')}
+      </Button>
+    </div>
+  )
+}
+
+function DesktopSelect({
   label,
   noneLabel,
-  compact,
   value,
   options,
   disabled,
@@ -417,32 +385,24 @@ function ModelPreviewSelect({
 }: {
   label: string
   noneLabel: string
-  compact: boolean
   value: string
   options: readonly string[]
   disabled: boolean
   onChange: (value: string) => void
 }): JSX.Element {
   return (
-    <label className={cn('flex min-w-0 items-center gap-1.5', compact && 'flex-1')}>
-      {compact ? null : <span className="shrink-0 text-muted-foreground">{label}</span>}
+    <label className="flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
       <select
         aria-label={label}
-        className={cn(
-          'h-8 min-w-0 rounded-md border px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50',
-          // Solid dark fill: native option lists inherit the select's colors.
-          compact
-            ? 'w-full border-white/15 bg-neutral-900 text-white'
-            : 'max-w-48 bg-background text-foreground'
-        )}
+        className="h-8 min-w-0 max-w-48 rounded-md border bg-background px-2 text-xs text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
         value={value}
         disabled={disabled}
         onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
           onChange(event.currentTarget.value)
         }
       >
-        {/* Without a visible label, the empty option doubles as the field's name. */}
-        <option value="">{compact ? label : noneLabel}</option>
+        <option value="">{noneLabel}</option>
         {options.map(
           (name: string): JSX.Element => (
             <option key={name} value={name}>

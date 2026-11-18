@@ -369,6 +369,8 @@ export const zhCN = {
     modelPreviewLoading: '正在加载模型',
     modelPreviewFailed: '模型加载失败',
     modelPreviewNone: '无',
+    modelPreviewSearch: '搜索',
+    modelPreviewNoMatch: '没有匹配项',
     assetModels: '模型',
     assetBackgrounds: '背景',
     assetVoices: '语音',

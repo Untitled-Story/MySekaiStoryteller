@@ -372,6 +372,8 @@ export const zhHK: LocaleShape = {
     modelPreviewLoading: '正在載入模型',
     modelPreviewFailed: '模型載入失敗',
     modelPreviewNone: '無',
+    modelPreviewSearch: '搜尋',
+    modelPreviewNoMatch: '沒有符合的項目',
     assetModels: '模型',
     assetBackgrounds: '背景',
     assetVoices: '語音',
