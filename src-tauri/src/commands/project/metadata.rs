@@ -4,7 +4,8 @@ use tauri::AppHandle;
 
 use super::{
     now_millis, project_path, projects_dir, read_metadata, validate_project_name,
-    write_default_project_files, write_metadata, AssetsSummary, ProjectMetadata,
+    validate_project_reference, write_default_project_files, write_metadata, AssetsSummary,
+    ProjectMetadata,
 };
 
 #[tauri::command]
@@ -101,7 +102,7 @@ pub fn delete_project(app: AppHandle, project_name: String) -> Result<(), String
         "project.delete started project={}",
         project_name
     );
-    validate_project_name(&project_name)?;
+    validate_project_reference(&project_name)?;
     let dir = projects_dir(&app)?;
     let project_path = dir.join(&project_name);
 
@@ -128,7 +129,7 @@ pub fn rename_project(app: AppHandle, old_name: String, new_name: String) -> Res
         old_name,
         new_name
     );
-    validate_project_name(&old_name)?;
+    validate_project_reference(&old_name)?;
     validate_project_name(&new_name)?;
     let dir = projects_dir(&app)?;
     let old_path = dir.join(&old_name);
