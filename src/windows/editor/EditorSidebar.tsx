@@ -95,6 +95,7 @@ type StoryContextMoves = {
 export function EditorSidebar({
   activePanel,
   searchQuery,
+  compactToolbar,
   touchMode,
   treeNodes,
   selectedNodeId,
@@ -121,6 +122,7 @@ export function EditorSidebar({
 }: {
   activePanel: EditorSidebarTab
   searchQuery: string
+  compactToolbar: boolean
   touchMode: boolean
   treeNodes: readonly FlatTreeNode[]
   selectedNodeId: string | null
@@ -155,51 +157,55 @@ export function EditorSidebar({
 
   return (
     <aside className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r bg-muted/20">
-      <div className="flex h-12 shrink-0 items-center border-b px-3">
-        <div className="flex h-8 items-center rounded-md bg-muted p-0.5">
-          <TabButton
-            active={activePanel === 'story'}
-            label={t('editor.story')}
-            onClick={(): void => onActivePanelChange('story')}
-          />
-          <TabButton
-            active={activePanel === 'assets'}
-            label={t('editor.assets')}
-            onClick={(): void => onActivePanelChange('assets')}
-          />
-        </div>
-        {activePanel === 'story' ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            data-tour="editor-add-snippet"
-            className="ml-auto size-8 shrink-0"
-            aria-label={t('editor.addSnippet')}
-            title={t('editor.addSnippet')}
-            onClick={(): void => onAddDialogOpenChange(true)}
-          >
-            <Plus className="size-4" />
-          </Button>
-        ) : (
-          <LibraryBig className="ml-auto size-4 shrink-0 text-muted-foreground" />
-        )}
-      </div>
+      {compactToolbar ? null : (
+        <>
+          <div className="flex h-12 shrink-0 items-center border-b px-3">
+            <div className="flex h-8 items-center rounded-md bg-muted p-0.5">
+              <TabButton
+                active={activePanel === 'story'}
+                label={t('editor.story')}
+                onClick={(): void => onActivePanelChange('story')}
+              />
+              <TabButton
+                active={activePanel === 'assets'}
+                label={t('editor.assets')}
+                onClick={(): void => onActivePanelChange('assets')}
+              />
+            </div>
+            {activePanel === 'story' ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                data-tour="editor-add-snippet"
+                className="ml-auto size-8 shrink-0"
+                aria-label={t('editor.addSnippet')}
+                title={t('editor.addSnippet')}
+                onClick={(): void => onAddDialogOpenChange(true)}
+              >
+                <Plus className="size-4" />
+              </Button>
+            ) : (
+              <LibraryBig className="ml-auto size-4 shrink-0 text-muted-foreground" />
+            )}
+          </div>
 
-      <div className="border-b p-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            aria-label={searchLabel}
-            placeholder={searchLabel}
-            value={searchQuery}
-            className="h-8 border-none bg-background pl-8 text-xs shadow-xs"
-            onChange={(event: ChangeEvent<HTMLInputElement>): void =>
-              onSearchQueryChange(event.currentTarget.value)
-            }
-          />
-        </div>
-      </div>
+          <div className="border-b p-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label={searchLabel}
+                placeholder={searchLabel}
+                value={searchQuery}
+                className="h-8 border-none bg-background pl-8 text-xs shadow-xs"
+                onChange={(event: ChangeEvent<HTMLInputElement>): void =>
+                  onSearchQueryChange(event.currentTarget.value)
+                }
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       {activePanel === 'story' ? (
         <StoryTree
@@ -217,6 +223,7 @@ export function EditorSidebar({
           dragEnabled={dragEnabled}
           touchRowDrag={touchRowDrag}
           dragDisabledHint={dragDisabledHint}
+          bottomInset={compactToolbar}
           onAdd={(): void => onAddDialogOpenChange(true)}
         />
       ) : (
@@ -230,6 +237,20 @@ export function EditorSidebar({
           onRegisterModel={onRegisterModel}
         />
       )}
+
+      {compactToolbar && activePanel === 'story' ? (
+        <Button
+          type="button"
+          size="icon"
+          data-tour="editor-add-snippet"
+          className="absolute right-4 bottom-4 z-10 size-12 rounded-full shadow-lg"
+          aria-label={t('editor.addSnippet')}
+          title={t('editor.addSnippet')}
+          onClick={(): void => onAddDialogOpenChange(true)}
+        >
+          <Plus className="size-5" />
+        </Button>
+      ) : null}
 
       <AddSnippetDialog
         open={addDialogOpen}
@@ -287,6 +308,7 @@ function StoryTree({
   dragEnabled,
   touchRowDrag,
   dragDisabledHint,
+  bottomInset,
   onAdd
 }: {
   nodes: readonly FlatTreeNode[]
@@ -303,6 +325,7 @@ function StoryTree({
   dragEnabled: boolean
   touchRowDrag: boolean
   dragDisabledHint: string
+  bottomInset: boolean
   onAdd: () => void
 }): JSX.Element {
   const { t } = useTranslation()
@@ -585,7 +608,10 @@ function StoryTree({
     <div
       ref={treeRef}
       data-tour="editor-story-tree"
-      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent"
+      className={cn(
+        'min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent',
+        bottomInset && 'pb-20'
+      )}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={finishPointerDrag}

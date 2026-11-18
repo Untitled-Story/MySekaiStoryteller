@@ -294,7 +294,6 @@ export const zhCN = {
     saveNow: '立即保存',
     saved: '已保存',
     unsavedChanges: '有未保存修改',
-    outline: '大纲',
     properties: '属性',
     pinOutline: '固定大纲',
     noProject: '没有打开项目',

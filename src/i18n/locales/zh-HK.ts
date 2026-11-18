@@ -297,7 +297,6 @@ export const zhHK: LocaleShape = {
     saveNow: '立即儲存',
     saved: '已儲存',
     unsavedChanges: '有未儲存的變更',
-    outline: '大綱',
     properties: '屬性',
     pinOutline: '固定大綱',
     noProject: '沒有開啟專案',

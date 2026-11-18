@@ -310,7 +310,6 @@ export const en: LocaleShape = {
     saveNow: 'Save now',
     saved: 'Saved',
     unsavedChanges: 'Unsaved changes',
-    outline: 'Outline',
     properties: 'Properties',
     pinOutline: 'Pin outline',
     noProject: 'No project open',

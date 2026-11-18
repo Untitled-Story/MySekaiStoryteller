@@ -306,7 +306,6 @@ export const ja: typeof en = {
     saveNow: '今すぐ保存',
     saved: '保存済み',
     unsavedChanges: '未保存の変更があります',
-    outline: 'アウトライン',
     properties: 'プロパティ',
     pinOutline: 'アウトラインを固定',
     noProject: 'プロジェクトが開かれていません',

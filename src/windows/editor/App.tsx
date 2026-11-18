@@ -1,5 +1,13 @@
 import type { ChangeEvent, JSX } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState
+} from 'react'
 import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog'
 import {
   getCurrentWindow,
@@ -19,6 +27,7 @@ import {
   Play,
   Redo2,
   Save,
+  Search,
   Undo2
 } from 'lucide-react'
 import { useIsLandscapeViewport, useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
@@ -187,6 +196,10 @@ export default function App({
   const mobileLandscapeLayout: boolean = isMobileRuntime() && landscapeViewport
   const [mobileBottomTab, setMobileBottomTab] = useState<'outline' | 'properties'>('outline')
   const [moreSheetOpen, setMoreSheetOpen] = useState<boolean>(false)
+  const [phoneSearchOpen, setPhoneSearchOpen] = useState<boolean>(false)
+  // The panel below the tabs swaps one render behind the tab indicator, so mounting a heavy
+  // panel does not delay the indicator's first frame.
+  const phonePanel: 'outline' | 'properties' = useDeferredValue(mobileBottomTab)
 
   const [history, dispatchHistory] = useReducer(
     editorHistoryReducer,
@@ -1162,6 +1175,7 @@ export default function App({
     <EditorSidebar
       activePanel={activePanel}
       searchQuery={searchQuery}
+      compactToolbar={phoneLayout}
       touchMode={touchMode}
       treeNodes={treeNodes}
       selectedNodeId={selectedNode?.id ?? null}
@@ -1298,6 +1312,29 @@ export default function App({
     </>
   )
   const phoneSaveFailed: boolean = phoneLayout && storySaveStatus === 'error'
+  const phoneTab: EditorSidebarTab | 'properties' =
+    mobileBottomTab === 'properties' ? 'properties' : activePanel
+  const phoneTabs: ReadonlyArray<{ value: EditorSidebarTab | 'properties'; label: string }> = [
+    { value: 'story', label: t('editor.story') },
+    { value: 'assets', label: t('editor.assets') },
+    { value: 'properties', label: t('editor.properties') }
+  ]
+  const searchLabel: string =
+    activePanel === 'story' ? t('editor.searchSnippets') : t('editor.searchAssets')
+
+  function selectPhoneTab(tab: EditorSidebarTab | 'properties'): void {
+    if (tab === 'properties') {
+      setMobileBottomTab('properties')
+      return
+    }
+    setActivePanel(tab)
+    setMobileBottomTab('outline')
+  }
+
+  function closePhoneSearch(): void {
+    setPhoneSearchOpen(false)
+    setSearchQuery('')
+  }
 
   return (
     <main
@@ -1472,37 +1509,86 @@ export default function App({
           <div className="h-[calc(56.25vw+5.25rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
             {previewNode}
           </div>
-          <div className="flex h-11 shrink-0 items-center gap-1 border-b bg-muted/25 px-3">
-            <div className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-              <button
+          {phoneSearchOpen && mobileBottomTab === 'outline' ? (
+            <div className="flex h-11 shrink-0 animate-in items-center gap-1 border-b bg-muted/25 px-2 duration-150 fade-in-0 motion-reduce:animate-none">
+              <Button
                 type="button"
-                className={cn(
-                  'h-9 rounded-md text-sm font-medium transition-colors',
-                  mobileBottomTab === 'outline'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground'
-                )}
-                onClick={(): void => setMobileBottomTab('outline')}
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0"
+                aria-label={t('common.back')}
+                title={t('common.back')}
+                onClick={closePhoneSearch}
               >
-                {t('editor.outline')}
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'h-9 rounded-md text-sm font-medium transition-colors',
-                  mobileBottomTab === 'properties'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground'
-                )}
-                onClick={(): void => setMobileBottomTab('properties')}
-              >
-                {t('editor.properties')}
-              </button>
+                <ArrowLeft className="size-4" />
+              </Button>
+              <Input
+                autoFocus
+                type="search"
+                aria-label={searchLabel}
+                placeholder={searchLabel}
+                value={searchQuery}
+                className="h-9 min-w-0 flex-1 bg-background text-sm"
+                onChange={(event: ChangeEvent<HTMLInputElement>): void =>
+                  setSearchQuery(event.currentTarget.value)
+                }
+              />
             </div>
-            <div className="flex shrink-0 items-center">{historyButtons}</div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden [&>aside]:border-r-0">
-            {mobileBottomTab === 'outline' ? sidebarNode : inspectorNode}
+          ) : (
+            <div className="flex h-11 shrink-0 animate-in items-center gap-1 border-b bg-muted/25 px-3 duration-150 fade-in-0 motion-reduce:animate-none">
+              <div className="relative grid min-w-0 flex-1 grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-1 left-1 w-[calc((100%-1rem)/3)] rounded-md bg-background shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none"
+                  style={{
+                    transform: `translateX(calc(${phoneTabs.findIndex((tab: { value: EditorSidebarTab | 'properties' }): boolean => tab.value === phoneTab)} * (100% + 0.25rem)))`
+                  }}
+                />
+                {phoneTabs.map(
+                  (tab: { value: EditorSidebarTab | 'properties'; label: string }): JSX.Element => (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      className={cn(
+                        'relative h-9 min-w-0 truncate rounded-md px-1 text-sm font-medium transition-colors duration-200 motion-reduce:transition-none',
+                        phoneTab === tab.value ? 'text-foreground' : 'text-muted-foreground'
+                      )}
+                      onClick={(): void => selectPhoneTab(tab.value)}
+                    >
+                      {tab.label}
+                    </button>
+                  )
+                )}
+              </div>
+              <div className="flex shrink-0 items-center">
+                <div
+                  inert={mobileBottomTab !== 'outline'}
+                  className={cn(
+                    'shrink-0 overflow-hidden transition-[width,opacity] delay-200 duration-200 ease-out motion-reduce:transition-none motion-reduce:delay-0',
+                    mobileBottomTab === 'outline' ? 'w-9 opacity-100' : 'w-0 opacity-0'
+                  )}
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-9"
+                    aria-label={searchLabel}
+                    title={searchLabel}
+                    onClick={(): void => setPhoneSearchOpen(true)}
+                  >
+                    <Search className="size-4" />
+                  </Button>
+                </div>
+                {historyButtons}
+              </div>
+            </div>
+          )}
+          <div
+            key={phonePanel}
+            className="min-h-0 flex-1 animate-in overflow-hidden duration-150 fade-in-0 motion-reduce:animate-none [&>aside]:border-r-0"
+          >
+            {phonePanel === 'outline' ? sidebarNode : inspectorNode}
           </div>
         </div>
       ) : tabletLayout ? (
