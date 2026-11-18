@@ -49,25 +49,21 @@ export function AssetPreviewPane({
     <section
       data-slot="asset-preview-pane"
       className={cn(
-        'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col overflow-hidden',
+        'absolute inset-0 z-20 flex min-h-0 min-w-0 animate-in flex-col overflow-hidden duration-150 fade-in-0 motion-reduce:animate-none',
         compact ? 'bg-black text-white' : 'bg-background'
       )}
     >
       {compact ? (
-        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/10 pr-3 pl-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-9 shrink-0"
-            aria-label={t('editor.backToStagePreview')}
-            title={t('editor.backToStagePreview')}
-            onClick={onClose}
-          >
-            <ChevronLeft className="size-5" />
-          </Button>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
-        </div>
+        <button
+          type="button"
+          className="absolute top-2 left-2 z-10 flex h-8 max-w-[70%] items-center gap-1 rounded-full bg-black/60 pr-3 pl-1.5 text-sm font-medium text-white outline-none backdrop-blur-sm focus-visible:ring-2 focus-visible:ring-white/60 active:bg-black/75"
+          aria-label={t('editor.backToStagePreview')}
+          title={t('editor.backToStagePreview')}
+          onClick={onClose}
+        >
+          <ChevronLeft className="size-4 shrink-0" />
+          <span className="min-w-0 truncate">{title}</span>
+        </button>
       ) : (
         <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <div className="min-w-0 flex-1">

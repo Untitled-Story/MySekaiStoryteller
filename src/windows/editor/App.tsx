@@ -1506,7 +1506,7 @@ export default function App({
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           inert={projectMutationInProgress}
         >
-          <div className="h-[calc(56.25vw+5.25rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
+          <div className="h-[calc(56.25vw+2.75rem)] max-h-[44dvh] w-full shrink-0 overflow-hidden border-b bg-black">
             {previewNode}
           </div>
           {phoneSearchOpen && mobileBottomTab === 'outline' ? (

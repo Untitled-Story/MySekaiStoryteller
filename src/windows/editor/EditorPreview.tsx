@@ -391,6 +391,65 @@ export function EditorPreview({
 
   const playing: boolean = status === 'running'
   const paused: boolean = status === 'paused'
+  const statusIndicator: JSX.Element = (
+    <>
+      {status === 'loading' ? (
+        <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+      ) : (
+        <span
+          className={cn(
+            'size-1.5 shrink-0 rounded-full',
+            playing ? 'bg-emerald-500' : paused ? 'bg-amber-500' : 'bg-muted-foreground/55'
+          )}
+        />
+      )}
+      <span className="truncate">{message}</span>
+    </>
+  )
+
+  const transportButtons: JSX.Element = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn('size-8', compact && 'size-9 rounded-full')}
+        aria-label={t('editor.replay')}
+        title={t('editor.replay')}
+        onClick={restart}
+      >
+        <RotateCcw className="size-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn('size-8', compact && 'size-9 rounded-full bg-white/15')}
+        aria-label={paused ? t('editor.resume') : t('editor.pause')}
+        title={paused ? t('editor.resume') : t('editor.pause')}
+        disabled={!playing && !paused}
+        onClick={togglePause}
+      >
+        {playing ? (
+          <Pause className="size-3.5 fill-current" />
+        ) : (
+          <Play className="size-3.5 fill-current" />
+        )}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn('size-8', compact && 'size-9 rounded-full')}
+        aria-label={t('editor.stop')}
+        title={t('editor.stop')}
+        disabled={status === 'stopped' || status === 'idle'}
+        onClick={stop}
+      >
+        <Square className="size-3.5 fill-current" />
+      </Button>
+    </>
+  )
 
   return (
     <section
@@ -400,34 +459,16 @@ export function EditorPreview({
         compact ? 'bg-black' : 'bg-background'
       )}
     >
-      <div
-        className={cn(
-          'flex shrink-0 items-center border-b',
-          compact ? 'h-10 border-white/10 bg-black px-2 text-white' : 'h-12 bg-background/70 px-4'
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm font-medium">{t('editor.previewPanel')}</span>
+      {compact ? null : (
+        <div className="flex h-12 shrink-0 items-center border-b bg-background/70 px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-sm font-medium">{t('editor.previewPanel')}</span>
+          </div>
+          <div className="ml-auto flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {statusIndicator}
+          </div>
         </div>
-        <div
-          className={cn(
-            'ml-auto flex min-w-0 items-center gap-1.5 text-xs',
-            compact ? 'text-white/60' : 'text-muted-foreground'
-          )}
-        >
-          {status === 'loading' ? (
-            <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
-          ) : (
-            <span
-              className={cn(
-                'size-1.5 shrink-0 rounded-full',
-                playing ? 'bg-emerald-500' : paused ? 'bg-amber-500' : 'bg-muted-foreground/55'
-              )}
-            />
-          )}
-          <span className="truncate">{message}</span>
-        </div>
-      </div>
+      )}
 
       <div
         className={cn(
@@ -456,63 +497,23 @@ export function EditorPreview({
         </div>
       </div>
 
-      <div
-        className={cn(
-          'flex shrink-0 items-center border-t',
-          compact ? 'h-11 border-white/10 bg-black px-2 text-white' : 'h-12 bg-background px-4'
-        )}
-      >
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={compact ? 'size-9' : 'size-8'}
-            aria-label={t('editor.replay')}
-            title={t('editor.replay')}
-            onClick={restart}
-          >
-            <RotateCcw className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={compact ? 'size-9' : 'size-8'}
-            aria-label={paused ? t('editor.resume') : t('editor.pause')}
-            title={paused ? t('editor.resume') : t('editor.pause')}
-            disabled={!playing && !paused}
-            onClick={togglePause}
-          >
-            {playing ? (
-              <Pause className="size-3.5 fill-current" />
-            ) : (
-              <Play className="size-3.5 fill-current" />
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={compact ? 'size-9' : 'size-8'}
-            aria-label={t('editor.stop')}
-            title={t('editor.stop')}
-            disabled={status === 'stopped' || status === 'idle'}
-            onClick={stop}
-          >
-            <Square className="size-3.5 fill-current" />
-          </Button>
+      {compact ? (
+        <div className="flex h-11 shrink-0 items-center border-t border-white/10 bg-black px-3 text-white">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-white/60">
+            {statusIndicator}
+          </div>
+          <div className="flex items-center gap-1.5">{transportButtons}</div>
+          <div className="flex-1" />
         </div>
-        <div className={cn('mx-3 h-px flex-1', compact ? 'bg-white/15' : 'bg-border')} />
-        <span
-          className={cn(
-            'font-mono text-[11px] uppercase',
-            compact ? 'text-white/55' : 'text-muted-foreground'
-          )}
-        >
-          {t(PREVIEW_STATUS_LABEL_KEYS[status])}
-        </span>
-      </div>
+      ) : (
+        <div className="flex h-12 shrink-0 items-center border-t bg-background px-4">
+          <div className="flex items-center gap-1">{transportButtons}</div>
+          <div className="mx-3 h-px flex-1 bg-border" />
+          <span className="font-mono text-[11px] text-muted-foreground uppercase">
+            {t(PREVIEW_STATUS_LABEL_KEYS[status])}
+          </span>
+        </div>
+      )}
     </section>
   )
 }
