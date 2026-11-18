@@ -124,10 +124,27 @@ export function resolveVoiceUrl(
 }
 
 export function destroyStoryRuntime(runtime: StoryRuntime): void {
-  runtime.clock.cancel()
-  runtime.scene.destroy()
+  try {
+    runtime.clock.cancel()
+  } catch (error: unknown) {
+    console.warn('Failed to cancel story clock', error)
+  }
+
+  // Tear down scene/VFX first so tick listeners are removed before Live2D release.
+  try {
+    runtime.scene.destroy()
+  } catch (error: unknown) {
+    console.warn('Failed to destroy story scene', error)
+  }
+
   for (const { model } of runtime.models.values()) {
-    model.destroy({ children: true })
+    try {
+      // Detach first to avoid parent containers re-destroying Live2D cores.
+      model.removeFromParent()
+      model.destroy({ children: true })
+    } catch (error: unknown) {
+      console.warn('Failed to destroy Live2D model', error)
+    }
   }
   runtime.models.clear()
 }

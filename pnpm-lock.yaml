@@ -13,6 +13,9 @@ importers:
       '@tauri-apps/plugin-dialog':
         specifier: ^2.2.3
         version: 2.7.0
+      '@tauri-apps/plugin-fs':
+        specifier: ^2.5.1
+        version: 2.5.1
       '@tauri-apps/plugin-global-shortcut':
         specifier: ^2.2.1
         version: 2.3.1
@@ -1224,6 +1227,12 @@ packages:
         integrity: sha512-hKL/jWf293UDSUN09rR69hrToyIXBb8CjGaWC7gfinvnQrBVvnLr08FeFi38gxtugAVyVcTa5/FD/Xnkb1siBw==
       }
 
+  '@tauri-apps/api@2.11.1':
+    resolution:
+      {
+        integrity: sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==
+      }
+
   '@tauri-apps/cli-darwin-arm64@2.10.1':
     resolution:
       {
@@ -1335,6 +1344,12 @@ packages:
     resolution:
       {
         integrity: sha512-4nS/hfGMGCXiAS3LtVjH9AgsSAPJeG/7R+q8agTFqytjnMa4Zq95Bq8WzVDkckpanX+yyRHXnRtrKXkANKDHvw==
+      }
+
+  '@tauri-apps/plugin-fs@2.5.1':
+    resolution:
+      {
+        integrity: sha512-9Lz+Jopp6QyeEWhlpkMx4R/+P9HgR+AVAI4vOZhlT8Xaymtz8iVI/Ov984/XTqgJz/5gz5NretqPB/XEMS3NhQ==
       }
 
   '@tauri-apps/plugin-global-shortcut@2.3.1':
@@ -4728,6 +4743,8 @@ snapshots:
 
   '@tauri-apps/api@2.10.1': {}
 
+  '@tauri-apps/api@2.11.1': {}
+
   '@tauri-apps/cli-darwin-arm64@2.10.1':
     optional: true
 
@@ -4778,6 +4795,10 @@ snapshots:
   '@tauri-apps/plugin-dialog@2.7.0':
     dependencies:
       '@tauri-apps/api': 2.10.1
+
+  '@tauri-apps/plugin-fs@2.5.1':
+    dependencies:
+      '@tauri-apps/api': 2.11.1
 
   '@tauri-apps/plugin-global-shortcut@2.3.1':
     dependencies:

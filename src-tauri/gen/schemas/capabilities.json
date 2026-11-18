@@ -3,7 +3,14 @@
     "identifier": "default",
     "description": "Capability for all windows",
     "local": true,
-    "windows": ["main", "editor", "player"],
+    "windows": [
+      "main",
+      "editor",
+      "player",
+      "export-coordinator",
+      "export-debug",
+      "export-worker-*"
+    ],
     "permissions": [
       "core:default",
       "core:window:allow-close",
@@ -39,14 +46,41 @@
     "description": "Mobile shell permissions used by the embedded player",
     "local": true,
     "windows": ["main"],
-    "permissions": ["core:window:allow-set-fullscreen"],
+    "permissions": [
+      "core:default",
+      "core:event:default",
+      "core:window:allow-set-fullscreen",
+      "dialog:default",
+      "fs:default",
+      "log:default",
+      "opener:default",
+      "fs:allow-write-file",
+      "fs:allow-read-file",
+      "fs:allow-remove",
+      "fs:allow-exists",
+      "fs:allow-mkdir",
+      "fs:allow-app-write",
+      "fs:allow-app-read",
+      "fs:allow-app-meta",
+      "fs:allow-appcache-write",
+      "fs:allow-appcache-read",
+      "fs:allow-appcache-meta",
+      "fs:allow-appcache-write-recursive",
+      "fs:allow-appcache-read-recursive",
+      "fs:allow-app-write-recursive",
+      "fs:allow-app-read-recursive",
+      {
+        "identifier": "fs:scope",
+        "allow": [{ "path": "$APPCACHE/**" }, { "path": "$APPLOCALDATA/**" }, { "path": "$APP/**" }]
+      }
+    ],
     "platforms": ["android", "iOS"]
   },
   "player": {
     "identifier": "player",
-    "description": "Additional permissions for the borderless player window",
+    "description": "Additional permissions for the borderless player and export windows",
     "local": true,
-    "windows": ["player"],
+    "windows": ["player", "export-coordinator", "export-debug", "export-worker-*"],
     "permissions": ["core:window:allow-start-dragging", "core:window:allow-set-fullscreen"]
   }
 }
