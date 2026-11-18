@@ -16,10 +16,18 @@ import type { EditorAssetSelection } from './editorCatalog'
 import type { EditorPreviewInput } from './EditorPreview'
 import { resolveRenderPrecision } from './resolveRenderPrecision'
 
-const MODEL_FIT_RATIO: number = 0.92
+// Mirrors the stage's Normal layout / Center placement (see layoutModel in story/scene.ts).
+const CENTER_POSITION_X: number = 0.5
+const CENTER_POSITION_Y: number = 0.5
+const MODEL_POSITION_Y_OFFSET: number = 0.3
 const MOTION_POLL_INTERVAL_MS: number = 50
 
 type ModelPreviewStatus = 'loading' | 'ready' | 'error'
+
+type ModelLayout = {
+  anchor: number
+  normalScale: number
+}
 
 export function AssetPreviewPane({
   selection,
@@ -167,11 +175,15 @@ function ModelPreview({
   const stageRef = useRef<HTMLDivElement | null>(null)
   const modelRef = useRef<SekaiLive2DModel | null>(null)
   const playbackTokenRef = useRef<number>(0)
+  const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
+  const fitRef = useRef<(() => void) | null>(null)
   const [status, setStatus] = useState<ModelPreviewStatus>('loading')
   const [motion, setMotion] = useState<string>('')
   const [facial, setFacial] = useState<string>('')
 
   const modelId: string | undefined = input.assets.models[modelKey]?.modelId
+  const anchor: number = input.assets.models[modelKey]?.anchor ?? 0.5
+  const normalScale: number = input.assets.models[modelKey]?.normalScale ?? 1
   const registryEntry = modelId ? input.modelRegistry.models[modelId] : undefined
   const motions: readonly string[] = registryEntry?.motions ?? []
   const facials: readonly string[] = registryEntry?.facials ?? []
@@ -185,6 +197,11 @@ function ModelPreview({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input.dataPath, modelId, registryEntry?.entry, modelKey])
+
+  useEffect((): void => {
+    layoutRef.current = { anchor, normalScale }
+    fitRef.current?.()
+  }, [anchor, normalScale])
 
   useEffect((): (() => void) | undefined => {
     const stageElement: HTMLDivElement | null = stageRef.current
@@ -202,14 +219,16 @@ function ModelPreview({
 
     function fit(): void {
       if (!app || !model) return
+      const { anchor: modelAnchor, normalScale: modelScale }: ModelLayout = layoutRef.current
       const { width, height } = app.screen
-      model.scale.set(1)
-      const baseWidth: number = model.width
-      const baseHeight: number = model.height
-      if (baseWidth <= 0 || baseHeight <= 0) return
-      model.scale.set(Math.min(width / baseWidth, height / baseHeight) * MODEL_FIT_RATIO)
-      model.position.set(width / 2, height / 2)
+      model.anchor.set(0.5, modelAnchor)
+      model.scale.set((height / model.internalModel.originalHeight) * modelScale)
+      model.position.set(
+        width * CENTER_POSITION_X,
+        height * (CENTER_POSITION_Y + MODEL_POSITION_Y_OFFSET)
+      )
     }
+    fitRef.current = fit
 
     async function initialize(url: string, element: HTMLDivElement): Promise<void> {
       try {
@@ -245,7 +264,6 @@ function ModelPreview({
         }
         model = loaded
         modelRef.current = loaded
-        loaded.anchor.set(0.5)
         previewApp.stage.addChild(loaded)
         fit()
         previewApp.renderer.on('resize', fit)
@@ -267,6 +285,7 @@ function ModelPreview({
       disposed = true
       playbackTokenRef.current += 1
       modelRef.current = null
+      fitRef.current = null
       // The model unregisters itself from the app ticker, so it must be destroyed before the app.
       model?.destroy({ children: true })
       model = null
