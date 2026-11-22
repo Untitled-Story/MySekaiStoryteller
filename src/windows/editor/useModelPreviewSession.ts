@@ -1,6 +1,7 @@
 import type { RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Application } from 'pixi.js'
+import { destroyPixiApp } from '@/lib/destroyPixiApp'
 import { describeError, logger } from '@/lib/logger'
 import { ensureSekaiLive2DReady, loadSekaiLive2DModel } from '@/lib/live2d'
 import { loadStaticModel } from '@/lib/staticModel'
@@ -133,7 +134,7 @@ export function useModelPreviewSession(
         })
         appInitialized = true
         if (disposed) {
-          previewApp.destroy(true, { children: true })
+          destroyPixiApp(previewApp)
           return
         }
         element.replaceChildren(previewApp.canvas)
@@ -179,7 +180,7 @@ export function useModelPreviewSession(
       model = null
       if (app && appInitialized) {
         app.renderer.off('resize', fit)
-        app.destroy(true, { children: true })
+        destroyPixiApp(app)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

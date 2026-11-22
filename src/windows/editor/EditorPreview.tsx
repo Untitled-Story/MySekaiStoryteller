@@ -4,6 +4,7 @@ import { Application } from 'pixi.js'
 import { LoaderCircle, Pause, Play, RotateCcw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/style'
+import { destroyPixiApp } from '@/lib/destroyPixiApp'
 import { describeError as describeLogError, logger } from '@/lib/logger'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
 import type { ModelRegistry } from '@/modelRegistry/schema'
@@ -129,7 +130,7 @@ export function EditorPreview({
       } else {
         destroyPreloadedModels()
       }
-      if (app && appInitialized) app.destroy(true, { children: true })
+      if (app && appInitialized) destroyPixiApp(app)
     }
 
     function disposeEngine(): void {
