@@ -13,6 +13,7 @@ import type {
   StoryLayers,
   StoryModelAppearOptions,
   StoryModelClearOptions,
+  StoryModelDisplay,
   StoryModelInstance,
   StoryModelMoveOptions,
   StoryModelParameterAnimation,
@@ -33,7 +34,8 @@ import {
   type LayoutModeData,
   type PositionData
 } from './schema'
-import type { SekaiLive2DModel } from '@/lib/live2d'
+import { playSekaiSound, type SekaiLive2DModel } from '@/lib/live2d'
+import { StaticModelSprite } from '@/lib/staticModel'
 import type { StoryPlaybackClock } from './playbackClock'
 import {
   createBuiltinVisualEffectRegistry,
@@ -803,7 +805,9 @@ export function createStoryScene({
   }
 
   function resetModelParameter(modelKey: string, paramId: string): void {
-    const model: SekaiLive2DModel = getModel(modelKey).model
+    const model: StoryModelDisplay = getModel(modelKey).model
+    if (!isLive2DModel(model)) return
+
     const parameters = getInternalModel(model).coreModel?.parameters
     const parameterIndex: number = parameters?.ids.indexOf(paramId) ?? -1
     setModelParameter(
@@ -892,7 +896,7 @@ function getStageSize(app: Application): [number, number] {
 }
 
 function setModelPositionRel(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   [stageWidth, stageHeight]: [number, number],
   position: PositionRel
 ): void {
@@ -900,7 +904,7 @@ function setModelPositionRel(
 }
 
 function moveModelBetween(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   stageSize: [number, number],
   from: PositionRel,
   to: PositionRel,
@@ -917,7 +921,7 @@ function moveModelBetween(
 }
 
 function showModelWithFade(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   timeMs: number,
   animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
@@ -929,7 +933,7 @@ function showModelWithFade(
 }
 
 function hideModelWithFade(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   timeMs: number,
   animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
@@ -1243,12 +1247,19 @@ function hideDisplayObject(
   })
 }
 
+/** Static portraits have no motion, facial or parameter layer, so those operations skip them. */
+function isLive2DModel(model: StoryModelDisplay): model is SekaiLive2DModel {
+  return !(model instanceof StaticModelSprite)
+}
+
 async function playModelLastFrame(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   waitUntil: (whenFinish: () => boolean) => Promise<void>,
   motion?: string,
   facial?: string
 ): Promise<void> {
+  if (!isLive2DModel(model)) return
+
   const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
     getParallelMotionManagers(model)
   stopMotionManagers(managers)
@@ -1270,10 +1281,12 @@ async function playModelLastFrame(
 }
 
 async function applyModelLastFrame(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   motion?: string,
   facial?: string
 ): Promise<void> {
+  if (!isLive2DModel(model)) return
+
   const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
     getParallelMotionManagers(model)
   stopMotionManagers(managers)
@@ -1286,11 +1299,13 @@ async function applyModelLastFrame(
 }
 
 export async function applyAndWaitModelMotion(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   waitUntil: (whenFinish: () => boolean) => Promise<void>,
   motion?: string,
   facial?: string
 ): Promise<void> {
+  if (!isLive2DModel(model)) return
+
   const managers: [ParallelMotionManagerLike, ParallelMotionManagerLike] =
     getParallelMotionManagers(model)
   stopMotionManagers(managers)
@@ -1322,10 +1337,12 @@ export async function applyAndWaitModelMotion(
 
 /** Replaces only the facial layer, leaving a running body motion untouched. */
 export async function applyAndWaitModelFacial(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   waitUntil: (whenFinish: () => boolean) => Promise<void>,
   facial: string
 ): Promise<void> {
+  if (!isLive2DModel(model)) return
+
   const facialManager: ParallelMotionManagerLike = getParallelMotionManagers(model)[1]
   facialManager.stopAllMotions()
   await facialManager.startMotion(facial, 0, MOTION_PRIORITY_FORCE, { loop: false })
@@ -1341,10 +1358,12 @@ function resolveMotionIgnoreParamIds(
 }
 
 function closeModelEyes(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   timeMs: number,
   animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
+  if (!isLive2DModel(model)) return Promise.resolve()
+
   return animateLinear((progress: number): void => {
     setModelEyeOpen(model, 1 - progress)
   }, timeMs)
@@ -1389,7 +1408,7 @@ function getEyeBlinkIds(internalModel: Live2DInternalModelLike): unknown[] {
   return ids.length > 0 ? ids : ['ParamEyeLOpen', 'ParamEyeROpen']
 }
 
-function getInternalModel(model: SekaiLive2DModel): Live2DInternalModelLike {
+function getInternalModel(model: StoryModelDisplay): Live2DInternalModelLike {
   return model.internalModel as Live2DInternalModelLike
 }
 
@@ -1417,7 +1436,9 @@ function stopMotionManagers(
   managers[1].stopAllMotions()
 }
 
-export function stopModelMotions(model: SekaiLive2DModel): void {
+export function stopModelMotions(model: StoryModelDisplay): void {
+  if (!isLive2DModel(model)) return
+
   stopMotionManagers(getParallelMotionManagers(model))
 }
 
@@ -1428,7 +1449,7 @@ function waitForModelMotion(
   return waitUntil(() => managers[0].isFinished() && managers[1].isFinished())
 }
 
-function ensureAlphaFilter(model: SekaiLive2DModel): AlphaFilter {
+function ensureAlphaFilter(model: StoryModelDisplay): AlphaFilter {
   const filters: Filter[] = model.filters ? [...model.filters] : []
   const existing: AlphaFilter | undefined = filters.find(
     (filter: Filter): filter is AlphaFilter => filter instanceof AlphaFilter
@@ -1462,10 +1483,12 @@ function ensureDisplayAlphaFilter(target: Container | Sprite | Text): AlphaFilte
 }
 
 function animateModelParameter(
-  model: SekaiLive2DModel,
+  model: StoryModelDisplay,
   param: StoryModelParameterAnimation,
   animateLinear: (animation: (progress: number) => void, timeMs: number) => Promise<void>
 ): Promise<void> {
+  if (!isLive2DModel(model)) return Promise.resolve()
+
   const runner: (animation: (progress: number) => void, timeMs: number) => Promise<void> =
     getCurveRunner(param.curve, animateLinear)
 
@@ -1490,7 +1513,9 @@ function getCurveRunner(
   return animateLinear
 }
 
-function setModelParameter(model: SekaiLive2DModel, paramId: string, value: number): void {
+function setModelParameter(model: StoryModelDisplay, paramId: string, value: number): void {
+  if (!isLive2DModel(model)) return
+
   const internalModel: Live2DInternalModelLike = getInternalModel(model)
   const coreModel: Live2DCoreModelLike | undefined = internalModel.coreModel
   if (!coreModel) return
@@ -1504,13 +1529,17 @@ function setModelParameter(model: SekaiLive2DModel, paramId: string, value: numb
   coreModel.setParamFloat?.(paramId, value)
 }
 
-function resetModelParameters(model: SekaiLive2DModel): void {
+function resetModelParameters(model: StoryModelDisplay): void {
+  if (!isLive2DModel(model)) return
+
   const parameters = getInternalModel(model).coreModel?.parameters
   if (!parameters || parameters.values.length !== parameters.defaultValues.length) return
   parameters.values.set(parameters.defaultValues)
 }
 
-function speakModel(model: SekaiLive2DModel, voiceUrl: string): Promise<void> {
+function speakModel(model: StoryModelDisplay, voiceUrl: string): Promise<void> {
+  if (!isLive2DModel(model)) return playSekaiSound(voiceUrl, VOICE_VOLUME)
+
   const speakableModel: SpeakableSekaiLive2DModel = model as SpeakableSekaiLive2DModel
 
   return new Promise<void>((resolve: () => void, reject: (reason?: unknown) => void): void => {
