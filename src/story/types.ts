@@ -14,16 +14,19 @@ import type {
 } from './schema'
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import type { SekaiLive2DModel } from '@/lib/live2d'
+import type { StaticModelSprite } from '@/lib/staticModel'
 import type { StoryVisualEffectRegistry } from './vfx'
 import type { StoryPlaybackClock } from './playbackClock'
 import type { StorySceneState } from './state'
 
 export type { LeafSnippetData, SnippetData, StoryData } from './schema'
 
+export type StoryModelDisplay = SekaiLive2DModel | StaticModelSprite
+
 export type StoryModelInstance = {
   key: string
   asset: ModelAsset
-  model: SekaiLive2DModel
+  model: StoryModelDisplay
 }
 
 export type ResolvedAsset<TAsset> = {

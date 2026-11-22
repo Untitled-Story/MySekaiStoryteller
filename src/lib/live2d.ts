@@ -80,6 +80,25 @@ export async function ensureSekaiLive2DReady(cubismMemorySizeMB = 32): Promise<L
   return engine
 }
 
+/**
+ * Plays a voice through the engine's SoundManager for models without a Live2D motion manager,
+ * so pausing the story pauses it like any other managed sound. Resolves when playback ends.
+ */
+export async function playSekaiSound(url: string, volume: number): Promise<void> {
+  const engine: Live2DEngine = await ensureSekaiLive2DReady()
+
+  return new Promise<void>((resolve: () => void, reject: (reason?: unknown) => void): void => {
+    void engine.SoundManager.add(url, reject).then((sound): void => {
+      if (!sound) {
+        resolve()
+        return
+      }
+      sound.volume = volume
+      engine.SoundManager.play(sound, resolve)
+    })
+  })
+}
+
 type ManagedLive2DSound = {
   isPlaying: boolean
   pause(): unknown

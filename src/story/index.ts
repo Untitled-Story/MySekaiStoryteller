@@ -155,6 +155,7 @@ export {
   type StoryLayers,
   type StoryModelAppearOptions,
   type StoryModelClearOptions,
+  type StoryModelDisplay,
   type StoryModelInstance,
   type StoryModelMoveOptions,
   type StoryModelParameterAnimation,

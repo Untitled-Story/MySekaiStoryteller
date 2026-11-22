@@ -218,7 +218,7 @@ function ModelPreview({
           {controls.status === 'ready' ? <PivotMarker /> : null}
           {statusLayer}
         </StageFrame>
-        <CompactModelControls controls={controls} />
+        {controls.animated ? <CompactModelControls controls={controls} /> : null}
       </>
     )
   }
@@ -229,7 +229,7 @@ function ModelPreview({
         {stage}
         {statusLayer}
       </div>
-      <DesktopModelControls controls={controls} />
+      {controls.animated ? <DesktopModelControls controls={controls} /> : null}
     </>
   )
 }
