@@ -62,6 +62,7 @@ import type {
   ModelRegistry
 } from '@/modelRegistry/schema'
 import { getModelRegistry, importGlobalModel, inspectModelArchive } from '@/modelRegistry/api'
+import { isStaticModelEntry } from '@/modelRegistry/isStaticModelEntry'
 import {
   deleteProjectAsset,
   getProjectAssetReferences,
@@ -1962,13 +1963,18 @@ function ModelRegistrationDialog({
         {
           name: t('editor.live2dModel'),
           extensions: mobileRuntime ? ['zip'] : ['json', 'zip']
+        },
+        {
+          name: t('editor.staticPortrait'),
+          extensions: ['png', 'jpg', 'jpeg', 'webp']
         }
       ]
     })
     if (typeof selected !== 'string') return
 
     setError('')
-    if (!mobileRuntime && !selected.toLocaleLowerCase().endsWith('.zip')) {
+    const isZip: boolean = selected.toLocaleLowerCase().endsWith('.zip')
+    if (isStaticModelEntry(selected) || (!mobileRuntime && !isZip)) {
       setSourcePath(selected)
       setArchiveEntry(undefined)
       return
@@ -2000,6 +2006,13 @@ function ModelRegistrationDialog({
       setSelectedArchiveEntry(firstCandidate.path)
       setArchiveSelectionOpen(true)
     } catch (inspectionError: unknown) {
+      if (mobileRuntime && !isZip) {
+        // A picked content URI carries no file extension, so it may be an image rather than a ZIP.
+        // The import command identifies the file by content and reports a precise error otherwise.
+        setSourcePath(selected)
+        setArchiveEntry(undefined)
+        return
+      }
       setSourcePath('')
       setArchiveEntry(undefined)
       setError(describeError(inspectionError, t('editor.inspectModelZipFailed')))
