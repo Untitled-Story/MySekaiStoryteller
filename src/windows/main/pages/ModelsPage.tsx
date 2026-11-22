@@ -1,7 +1,16 @@
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Box, FileEdit, Image as ImageIcon, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import {
+  Box,
+  Eye,
+  FileEdit,
+  Image as ImageIcon,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload
+} from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +53,9 @@ import type { ModelRegistry } from '@/modelRegistry/schema'
 import { ModelImportDialog } from '@/windows/main/components/ModelImportDialog'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
 
+// Pixi and the Live2D engine are only needed once a model is previewed.
+const ModelPreviewDialog = lazy(() => import('@/windows/main/components/ModelPreviewDialog'))
+
 type ModelRow = {
   id: string
   name: string
@@ -82,6 +94,7 @@ export default function ModelsPage(): JSX.Element {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
 
   function showNotice(message: string, variant: ToastVariant): void {
     setNotice({ id: Date.now(), message, variant })
@@ -230,8 +243,19 @@ export default function ModelsPage(): JSX.Element {
                 <ContextMenu key={row.id}>
                   <ContextMenuTrigger className={phoneLayout ? 'block' : undefined}>
                     <div
+                      role="button"
+                      tabIndex={0}
+                      aria-label={t('models.previewAria', { name: row.name })}
+                      onClick={(): void => setPreviewId(row.id)}
+                      onKeyDown={(event): void => {
+                        if (event.target !== event.currentTarget) return
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setPreviewId(row.id)
+                        }
+                      }}
                       className={cn(
-                        'group -mx-2 flex cursor-default items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-accent/50',
+                        'group -mx-2 flex cursor-pointer items-center gap-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 rounded-md px-2 py-3 transition-colors hover:bg-accent/50',
                         phoneLayout &&
                           'mx-0 min-h-16 rounded-xl border bg-card px-3 py-2 shadow-xs active:bg-accent/70'
                       )}
@@ -262,7 +286,10 @@ export default function ModelsPage(): JSX.Element {
                           className={phoneLayout ? 'size-10' : 'size-9'}
                           aria-label={t('common.rename')}
                           title={t('common.rename')}
-                          onClick={(): void => setRenameTarget({ id: row.id, name: row.name })}
+                          onClick={(event): void => {
+                            event.stopPropagation()
+                            setRenameTarget({ id: row.id, name: row.name })
+                          }}
                         >
                           <FileEdit className="size-3.5" />
                         </Button>
@@ -272,7 +299,10 @@ export default function ModelsPage(): JSX.Element {
                           className={phoneLayout ? 'size-10' : 'size-9'}
                           aria-label={t('common.delete')}
                           title={t('common.delete')}
-                          onClick={(): void => requestDelete(row)}
+                          onClick={(event): void => {
+                            event.stopPropagation()
+                            requestDelete(row)
+                          }}
                         >
                           <Trash2 className="size-3.5" />
                         </Button>
@@ -280,6 +310,10 @@ export default function ModelsPage(): JSX.Element {
                     </div>
                   </ContextMenuTrigger>
                   <ContextMenuContent className="select-none font-medium">
+                    <ContextMenuItem onClick={(): void => setPreviewId(row.id)}>
+                      <Eye className="mr-2 size-4" />
+                      {t('models.preview')}
+                    </ContextMenuItem>
                     <ContextMenuItem
                       onClick={(): void => setRenameTarget({ id: row.id, name: row.name })}
                     >
@@ -306,6 +340,22 @@ export default function ModelsPage(): JSX.Element {
           </div>
         )}
       </div>
+
+      {previewId !== null && registry?.models[previewId] ? (
+        <Suspense fallback={null}>
+          <ModelPreviewDialog
+            modelId={previewId}
+            name={registry.models[previewId].name ?? previewId}
+            entry={registry.models[previewId]}
+            description={`${
+              isStaticModelEntry(registry.models[previewId].entry)
+                ? t('models.kindStatic')
+                : t('models.kindLive2d')
+            } · ${previewId}`}
+            onClose={(): void => setPreviewId(null)}
+          />
+        </Suspense>
+      ) : null}
 
       <ModelImportDialog
         open={importOpen}
