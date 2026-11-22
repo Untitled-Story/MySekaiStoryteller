@@ -51,14 +51,14 @@ export default function ModelPreviewDialog({
       }}
     >
       <DialogContent className="max-w-3xl min-w-0 select-none">
-        <DialogHeader className="min-w-0">
+        <DialogHeader className="min-w-0 pr-6 text-left">
           <DialogTitle className="truncate">{name}</DialogTitle>
           <DialogDescription className="truncate">{description}</DialogDescription>
         </DialogHeader>
         <div
           className={cn(
-            'flex h-[min(65vh,32rem)] min-w-0 flex-col overflow-hidden rounded-md border',
-            compact ? 'bg-black text-white' : 'bg-background'
+            'flex min-w-0 flex-col overflow-hidden rounded-lg border bg-background',
+            compact ? 'h-[min(62dvh,36rem)]' : 'h-[min(65vh,32rem)]'
           )}
         >
           {dataPath === null ? (
@@ -88,6 +88,7 @@ function PreviewBody({
   const layout: ModelLayout = defaultModelLayout(staticPortrait)
   const session: ModelPreviewSession = useModelPreview({
     modelUrl: localAssetUrl(dataPath, `models/${modelId}/${entry.entry}`),
+    framing: 'fit',
     staticPortrait,
     anchor: layout.anchor,
     normalScale: layout.normalScale,
@@ -97,7 +98,7 @@ function PreviewBody({
     logContext: { modelId }
   })
 
-  return <ModelPreviewView session={session} compact={compact} />
+  return <ModelPreviewView session={session} compact={compact} fill />
 }
 
 function LoadingMessage(): JSX.Element {

@@ -22,6 +22,8 @@ const CENTER_POSITION_X: number = 0.5
 const CENTER_POSITION_Y: number = 0.5
 const MODEL_POSITION_Y_OFFSET: number = 0.3
 const MOTION_POLL_INTERVAL_MS: number = 50
+/** Share of the preview a `fit` framed model may fill, leaving a little air around it. */
+const FIT_FRAMING_MARGIN: number = 0.94
 
 /** Where the model's anchor point sits in the stage frame, as fractions of its width and height. */
 export const MODEL_PIVOT_POSITION: { readonly x: number; readonly y: number } = {
@@ -58,6 +60,11 @@ export type ModelPreviewSession = {
 /** What a preview needs to show one model, independent of any project. */
 export type ModelPreviewTarget = {
   modelUrl: string | null
+  /**
+   * `stage` frames the model as the story does (anchor and scale apply); `fit` shows the whole
+   * model centered in the preview.
+   */
+  framing: 'stage' | 'fit'
   staticPortrait: boolean
   anchor: number
   normalScale: number
@@ -88,6 +95,7 @@ export function useModelPreviewSession(
 
   return useModelPreview({
     modelUrl,
+    framing: 'stage',
     staticPortrait: registryEntry ? isStaticModelEntry(registryEntry.entry) : false,
     anchor: input.assets.models[modelKey]?.anchor ?? 0.5,
     normalScale: input.assets.models[modelKey]?.normalScale ?? 1,
@@ -100,6 +108,7 @@ export function useModelPreviewSession(
 
 export function useModelPreview({
   modelUrl,
+  framing,
   staticPortrait,
   anchor,
   normalScale,
@@ -113,6 +122,7 @@ export function useModelPreview({
   const playbackTokenRef = useRef<number>(0)
   const facialTokenRef = useRef<number>(0)
   const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
+  const framingRef = useRef<ModelPreviewTarget['framing']>(framing)
   const fitRef = useRef<(() => void) | null>(null)
   const [status, setStatus] = useState<ModelPreviewStatus>('loading')
   const [motion, setMotion] = useState<string>('')
@@ -120,8 +130,9 @@ export function useModelPreview({
 
   useEffect((): void => {
     layoutRef.current = { anchor, normalScale }
+    framingRef.current = framing
     fitRef.current?.()
-  }, [anchor, normalScale])
+  }, [anchor, normalScale, framing])
 
   useEffect((): (() => void) | undefined => {
     const stageElement: HTMLDivElement | null = stageRef.current
@@ -141,6 +152,15 @@ export function useModelPreview({
       if (!app || !model) return
       const { anchor: modelAnchor, normalScale: modelScale }: ModelLayout = layoutRef.current
       const { width, height } = app.screen
+      if (framingRef.current === 'fit') {
+        const { originalWidth, originalHeight } = model.internalModel
+        model.anchor.set(0.5)
+        model.scale.set(
+          Math.min(width / originalWidth, height / originalHeight) * FIT_FRAMING_MARGIN
+        )
+        model.position.set(width / 2, height / 2)
+        return
+      }
       model.anchor.set(0.5, modelAnchor)
       model.scale.set((height / model.internalModel.originalHeight) * modelScale)
       model.position.set(width * MODEL_PIVOT_POSITION.x, height * MODEL_PIVOT_POSITION.y)
