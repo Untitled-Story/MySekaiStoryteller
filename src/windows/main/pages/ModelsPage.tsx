@@ -49,12 +49,16 @@ import {
   renameGlobalModel
 } from '@/modelRegistry/api'
 import { isStaticModelEntry } from '@/modelRegistry/isStaticModelEntry'
-import type { ModelRegistry } from '@/modelRegistry/schema'
+import { MAX_MODEL_NAME_CHARS } from '@/modelRegistry/limits'
+import type { ModelRegistry, ModelRegistryEntry } from '@/modelRegistry/schema'
 import { ModelImportDialog } from '@/windows/main/components/ModelImportDialog'
 import { useSpinOnce } from '@/windows/main/hooks/useSpinOnce'
 
 // Pixi and the Live2D engine are only needed once a model is previewed.
 const ModelPreviewDialog = lazy(() => import('@/windows/main/components/ModelPreviewDialog'))
+
+/** How long a deleted row takes to collapse before it leaves the list. */
+const ROW_LEAVE_MS: number = 200
 
 type ModelRow = {
   id: string
@@ -80,6 +84,11 @@ type DeleteTarget = {
   references: string[] | null
 }
 
+type PreviewState = {
+  id: string
+  open: boolean
+}
+
 export default function ModelsPage(): JSX.Element {
   const { t } = useTranslation()
   const { spinning, spin } = useSpinOnce()
@@ -88,13 +97,20 @@ export default function ModelsPage(): JSX.Element {
   const mobileRuntime: boolean = isMobileRuntime()
 
   const [registry, setRegistry] = useState<ModelRegistry | null>(null)
+  const [loadFailed, setLoadFailed] = useState<boolean>(false)
+  // Rows present when the list first appears do not animate in; rows added later do.
+  const [listSettled, setListSettled] = useState<boolean>(false)
+  const [leavingIds, setLeavingIds] = useState<ReadonlySet<string>>(new Set())
   const [importOpen, setImportOpen] = useState<boolean>(false)
+  // The targets outlive their dialogs so the content stays put while the dialog fades out.
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
+  const [renameOpen, setRenameOpen] = useState<boolean>(false)
   const [isRenaming, setIsRenaming] = useState<boolean>(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState<boolean>(false)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
   const [notice, setNotice] = useState<Notice | null>(null)
-  const [previewId, setPreviewId] = useState<string | null>(null)
+  const [preview, setPreview] = useState<PreviewState | null>(null)
 
   function showNotice(message: string, variant: ToastVariant): void {
     setNotice({ id: Date.now(), message, variant })
@@ -103,8 +119,10 @@ export default function ModelsPage(): JSX.Element {
   async function loadRegistry(): Promise<void> {
     try {
       setRegistry(await getModelRegistry())
+      setLoadFailed(false)
     } catch (error: unknown) {
       logger.error('models.load_failed', { error: describeError(error) })
+      setLoadFailed(true)
       showNotice(t('models.loadFailed'), 'error')
     }
   }
@@ -114,6 +132,10 @@ export default function ModelsPage(): JSX.Element {
     // Load once when the page opens; later changes come from the mutation results.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect((): void => {
+    if (registry !== null) setListSettled(true)
+  }, [registry])
 
   const rows: ModelRow[] = Object.entries(registry?.models ?? {})
     .map(
@@ -125,6 +147,15 @@ export default function ModelsPage(): JSX.Element {
     )
     .sort((left: ModelRow, right: ModelRow): number => left.name.localeCompare(right.name))
 
+  function openPreview(id: string): void {
+    setPreview({ id, open: true })
+  }
+
+  function openRename(row: ModelRow): void {
+    setRenameTarget({ id: row.id, name: row.name })
+    setRenameOpen(true)
+  }
+
   async function confirmRename(): Promise<void> {
     if (!renameTarget || isRenaming) return
     const name: string = renameTarget.name.trim()
@@ -133,7 +164,7 @@ export default function ModelsPage(): JSX.Element {
     setIsRenaming(true)
     try {
       setRegistry(await renameGlobalModel(renameTarget.id, name))
-      setRenameTarget(null)
+      setRenameOpen(false)
     } catch (error: unknown) {
       showNotice(
         t('models.renameFailed', { error: errorMessage(error, t('common.unknownError')) }),
@@ -146,13 +177,14 @@ export default function ModelsPage(): JSX.Element {
 
   function requestDelete(row: ModelRow): void {
     setDeleteTarget({ id: row.id, name: row.name, references: null })
+    setDeleteOpen(true)
     getModelReferences(row.id).then(
       (references: string[]): void =>
         setDeleteTarget((current: DeleteTarget | null): DeleteTarget | null =>
           current?.id === row.id ? { ...current, references } : current
         ),
       (error: unknown): void => {
-        setDeleteTarget(null)
+        setDeleteOpen(false)
         showNotice(
           t('models.deleteFailed', { error: errorMessage(error, t('common.unknownError')) }),
           'error'
@@ -164,22 +196,37 @@ export default function ModelsPage(): JSX.Element {
   async function confirmDelete(): Promise<void> {
     if (!deleteTarget || isDeleting) return
 
+    const { id }: DeleteTarget = deleteTarget
     setIsDeleting(true)
     try {
-      setRegistry(await deleteGlobalModel(deleteTarget.id))
-      setDeleteTarget(null)
+      const next: ModelRegistry = await deleteGlobalModel(id)
+      setDeleteOpen(false)
+      // Collapse the row first so the rows below it slide up instead of jumping.
+      setLeavingIds((current: ReadonlySet<string>): ReadonlySet<string> => new Set(current).add(id))
+      await new Promise<void>((resolve: () => void): void => {
+        window.setTimeout(resolve, ROW_LEAVE_MS)
+      })
+      setRegistry(next)
+      setLeavingIds((current: ReadonlySet<string>): ReadonlySet<string> => {
+        const remaining: Set<string> = new Set(current)
+        remaining.delete(id)
+        return remaining
+      })
     } catch (error: unknown) {
       showNotice(
         t('models.deleteFailed', { error: errorMessage(error, t('common.unknownError')) }),
         'error'
       )
-      setDeleteTarget(null)
+      setDeleteOpen(false)
     } finally {
       setIsDeleting(false)
     }
   }
 
   const deleteInUse: boolean = (deleteTarget?.references?.length ?? 0) > 0
+  const previewEntry: ModelRegistryEntry | undefined = preview
+    ? registry?.models[preview.id]
+    : undefined
 
   return (
     <div className="flex h-full select-none flex-col">
@@ -230,93 +277,109 @@ export default function ModelsPage(): JSX.Element {
         )}
       >
         {registry === null ? (
-          <ModelListSkeleton />
+          loadFailed ? (
+            <div className="flex h-full flex-col items-center justify-center pb-16 text-center">
+              <Box className="mb-4 size-12 text-muted-foreground/60" />
+              <p className="mb-4 text-sm text-muted-foreground">{t('models.loadFailed')}</p>
+              <Button size="sm" variant="outline" onClick={(): void => void loadRegistry()}>
+                <RefreshCw className="mr-1 size-4" />
+                {t('common.retry')}
+              </Button>
+            </div>
+          ) : (
+            <ModelListSkeleton />
+          )
         ) : rows.length > 0 ? (
-          <div
-            className={cn(
-              'divide-y divide-border',
-              phoneLayout && 'flex flex-col gap-3 divide-y-0'
-            )}
-          >
+          <div className="animate-in divide-y divide-border duration-150 fade-in-0 motion-reduce:animate-none">
             {rows.map(
               (row: ModelRow): JSX.Element => (
                 <ContextMenu key={row.id}>
                   <ContextMenuTrigger className={phoneLayout ? 'block' : undefined}>
                     <div
-                      role="button"
-                      tabIndex={0}
-                      aria-label={t('models.previewAria', { name: row.name })}
-                      onClick={(): void => setPreviewId(row.id)}
-                      onKeyDown={(event): void => {
-                        if (event.target !== event.currentTarget) return
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          setPreviewId(row.id)
-                        }
-                      }}
                       className={cn(
-                        'group -mx-2 flex cursor-pointer items-center gap-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 rounded-md px-2 py-3 transition-colors hover:bg-accent/50',
-                        phoneLayout &&
-                          'mx-0 min-h-16 rounded-xl border bg-card px-3 py-2 shadow-xs active:bg-accent/70'
+                        'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                        !phoneLayout && '-mx-2',
+                        listSettled && 'starting:grid-rows-[0fr] starting:opacity-0',
+                        leavingIds.has(row.id)
+                          ? 'grid-rows-[0fr] opacity-0'
+                          : 'grid-rows-[1fr] opacity-100'
                       )}
                     >
-                      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                        {row.staticPortrait ? (
-                          <ImageIcon className="size-5" />
-                        ) : (
-                          <Box className="size-5" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{row.name}</p>
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {row.staticPortrait ? t('models.kindStatic') : t('models.kindLive2d')} ·{' '}
-                          <span className="font-mono">{row.id}</span>
-                        </p>
-                      </div>
-                      <div
-                        className={cn(
-                          'flex items-center gap-1 transition-opacity motion-reduce:transition-none',
-                          mobileRuntime ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                        )}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={phoneLayout ? 'size-10' : 'size-9'}
-                          aria-label={t('common.rename')}
-                          title={t('common.rename')}
-                          onClick={(event): void => {
-                            event.stopPropagation()
-                            setRenameTarget({ id: row.id, name: row.name })
-                          }}
-                        >
-                          <FileEdit className="size-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={phoneLayout ? 'size-10' : 'size-9'}
-                          aria-label={t('common.delete')}
-                          title={t('common.delete')}
-                          onClick={(event): void => {
-                            event.stopPropagation()
-                            requestDelete(row)
-                          }}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
+                      <div className="min-h-0 overflow-hidden">
+                        <div className={phoneLayout ? 'pb-3' : undefined}>
+                          <div
+                            className={cn(
+                              'group relative flex cursor-pointer items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-accent/50',
+                              phoneLayout &&
+                                'min-h-16 rounded-xl border bg-card px-3 py-2 shadow-xs active:bg-accent/70'
+                            )}
+                          >
+                            {/* The preview button stretches over the whole row; the actions sit above it. */}
+                            <button
+                              type="button"
+                              aria-label={t('models.previewAria', { name: row.name })}
+                              onClick={(): void => openPreview(row.id)}
+                              className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] text-left outline-none after:absolute after:inset-0 after:rounded-[inherit] focus-visible:after:ring-[3px] focus-visible:after:ring-ring/50 focus-visible:after:ring-inset"
+                            >
+                              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                                {row.staticPortrait ? (
+                                  <ImageIcon className="size-5" />
+                                ) : (
+                                  <Box className="size-5" />
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium">
+                                  {row.name}
+                                </span>
+                                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                  {row.staticPortrait
+                                    ? t('models.kindStatic')
+                                    : t('models.kindLive2d')}{' '}
+                                  · <span className="font-mono">{row.id}</span>
+                                </span>
+                              </span>
+                            </button>
+                            <div
+                              className={cn(
+                                'relative z-10 flex items-center gap-1 transition-opacity motion-reduce:transition-none',
+                                mobileRuntime
+                                  ? 'opacity-100'
+                                  : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+                              )}
+                            >
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={phoneLayout ? 'size-10' : 'size-9'}
+                                aria-label={t('common.rename')}
+                                title={t('common.rename')}
+                                onClick={(): void => openRename(row)}
+                              >
+                                <FileEdit className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={phoneLayout ? 'size-10' : 'size-9'}
+                                aria-label={t('common.delete')}
+                                title={t('common.delete')}
+                                onClick={(): void => requestDelete(row)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </ContextMenuTrigger>
                   <ContextMenuContent className="select-none font-medium">
-                    <ContextMenuItem onClick={(): void => setPreviewId(row.id)}>
+                    <ContextMenuItem onClick={(): void => openPreview(row.id)}>
                       <Eye className="mr-2 size-4" />
                       {t('models.preview')}
                     </ContextMenuItem>
-                    <ContextMenuItem
-                      onClick={(): void => setRenameTarget({ id: row.id, name: row.name })}
-                    >
+                    <ContextMenuItem onClick={(): void => openRename(row)}>
                       <FileEdit className="mr-2 size-4" />
                       {t('common.rename')}
                     </ContextMenuItem>
@@ -330,7 +393,7 @@ export default function ModelsPage(): JSX.Element {
             )}
           </div>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center pb-16 text-center">
+          <div className="flex h-full animate-in flex-col items-center justify-center pb-16 text-center duration-150 fade-in-0 motion-reduce:animate-none">
             <Box className="mb-4 size-12 text-muted-foreground/60" />
             <p className="mb-4 text-sm text-muted-foreground">{t('models.empty')}</p>
             <Button size="sm" onClick={(): void => setImportOpen(true)}>
@@ -341,18 +404,23 @@ export default function ModelsPage(): JSX.Element {
         )}
       </div>
 
-      {previewId !== null && registry?.models[previewId] ? (
+      {preview && previewEntry ? (
         <Suspense fallback={null}>
           <ModelPreviewDialog
-            modelId={previewId}
-            name={registry.models[previewId].name ?? previewId}
-            entry={registry.models[previewId]}
+            open={preview.open}
+            modelId={preview.id}
+            name={previewEntry.name ?? preview.id}
+            entry={previewEntry}
             description={`${
-              isStaticModelEntry(registry.models[previewId].entry)
+              isStaticModelEntry(previewEntry.entry)
                 ? t('models.kindStatic')
                 : t('models.kindLive2d')
-            } · ${previewId}`}
-            onClose={(): void => setPreviewId(null)}
+            } · ${preview.id}`}
+            onClose={(): void =>
+              setPreview((current: PreviewState | null): PreviewState | null =>
+                current ? { ...current, open: false } : current
+              )
+            }
           />
         </Suspense>
       ) : null}
@@ -366,12 +434,7 @@ export default function ModelsPage(): JSX.Element {
         }}
       />
 
-      <Dialog
-        open={renameTarget !== null}
-        onOpenChange={(open: boolean): void => {
-          if (!open) setRenameTarget(null)
-        }}
-      >
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent className="select-none">
           <DialogHeader>
             <DialogTitle>{t('models.renameTitle')}</DialogTitle>
@@ -379,6 +442,7 @@ export default function ModelsPage(): JSX.Element {
           <Input
             value={renameTarget?.name ?? ''}
             placeholder={t('models.renamePlaceholder')}
+            maxLength={MAX_MODEL_NAME_CHARS}
             disabled={isRenaming}
             onChange={(event): void => {
               const name: string = event.currentTarget.value
@@ -394,7 +458,7 @@ export default function ModelsPage(): JSX.Element {
             <Button
               variant="outline"
               disabled={isRenaming}
-              onClick={(): void => setRenameTarget(null)}
+              onClick={(): void => setRenameOpen(false)}
             >
               {t('common.cancel')}
             </Button>
@@ -409,9 +473,9 @@ export default function ModelsPage(): JSX.Element {
       </Dialog>
 
       <AlertDialog
-        open={deleteTarget !== null}
+        open={deleteOpen}
         onOpenChange={(open: boolean): void => {
-          if (!open && !isDeleting) setDeleteTarget(null)
+          if (!open && !isDeleting) setDeleteOpen(false)
         }}
       >
         <AlertDialogContent className="select-none">

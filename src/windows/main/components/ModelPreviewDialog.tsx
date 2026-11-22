@@ -10,6 +10,7 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
+import { describeError, logger } from '@/lib/logger'
 import { localAssetUrl } from '@/lib/projectAssetUrl'
 import { cn } from '@/lib/style'
 import { isStaticModelEntry } from '@/modelRegistry/isStaticModelEntry'
@@ -22,12 +23,15 @@ import { getDataPath } from '@/workspace/api'
 
 /** Previews one global model on a stage, with its motions and facials where it has any. */
 export default function ModelPreviewDialog({
+  open,
   modelId,
   name,
   entry,
   description,
   onClose
 }: {
+  /** Controlled so the dialog can fade out; the heavy preview only lives while it is open. */
+  open: boolean
   modelId: string
   name: string
   entry: ModelRegistryEntry
@@ -35,16 +39,20 @@ export default function ModelPreviewDialog({
   onClose: () => void
 }): JSX.Element {
   const [dataPath, setDataPath] = useState<string | null>(null)
+  const [dataPathFailed, setDataPathFailed] = useState<boolean>(false)
   const viewportMode: ViewportMode = useViewportMode()
   const compact: boolean = viewportMode === 'phone'
 
   useEffect((): void => {
-    void getDataPath().then(setDataPath)
+    getDataPath().then(setDataPath, (error: unknown): void => {
+      logger.error('models.preview_data_path_failed', { error: describeError(error) })
+      setDataPathFailed(true)
+    })
   }, [])
 
   return (
     <Dialog
-      open
+      open={open}
       onOpenChange={(open: boolean): void => {
         if (!open) onClose()
       }}
@@ -61,7 +69,7 @@ export default function ModelPreviewDialog({
           )}
         >
           {dataPath === null ? (
-            <LoadingMessage />
+            <PreviewMessage failed={dataPathFailed} />
           ) : (
             <PreviewBody dataPath={dataPath} modelId={modelId} entry={entry} compact={compact} />
           )}
@@ -97,12 +105,12 @@ function PreviewBody({
   return <ModelPreviewView session={session} compact={compact} fill />
 }
 
-function LoadingMessage(): JSX.Element {
+function PreviewMessage({ failed }: { failed: boolean }): JSX.Element {
   const { t } = useTranslation()
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-      <LoaderCircle className="size-5 animate-spin motion-reduce:animate-none" />
-      <span>{t('editor.modelPreviewLoading')}</span>
+      {failed ? null : <LoaderCircle className="size-5 animate-spin motion-reduce:animate-none" />}
+      <span>{failed ? t('editor.modelPreviewFailed') : t('editor.modelPreviewLoading')}</span>
     </div>
   )
 }
