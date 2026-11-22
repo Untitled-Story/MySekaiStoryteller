@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { z } from 'zod'
 import {
   ImportedModelResultSchema,
   ModelArchiveInspectionSchema,
@@ -35,6 +36,26 @@ export async function importGlobalModel(
       return ImportedModelResultSchema.parse(raw)
     }
   )
+}
+
+export async function renameGlobalModel(modelId: string, name: string): Promise<ModelRegistry> {
+  return runLoggedOperation('model.rename', {}, async (): Promise<ModelRegistry> => {
+    const raw: unknown = await invoke<unknown>('rename_global_model', { modelId, name })
+    return ModelRegistrySchema.parse(raw)
+  })
+}
+
+export async function deleteGlobalModel(modelId: string): Promise<ModelRegistry> {
+  return runLoggedOperation('model.delete', {}, async (): Promise<ModelRegistry> => {
+    const raw: unknown = await invoke<unknown>('delete_global_model', { modelId })
+    return ModelRegistrySchema.parse(raw)
+  })
+}
+
+/** Names of the projects that still register the model. */
+export async function getModelReferences(modelId: string): Promise<string[]> {
+  const raw: unknown = await invoke<unknown>('get_model_references', { modelId })
+  return z.array(z.string()).parse(raw)
 }
 
 export async function inspectModelArchive(sourcePath: string): Promise<ModelArchiveInspection> {
