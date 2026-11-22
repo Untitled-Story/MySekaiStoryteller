@@ -22,6 +22,8 @@ const CENTER_POSITION_X: number = 0.5
 const CENTER_POSITION_Y: number = 0.5
 const MODEL_POSITION_Y_OFFSET: number = 0.3
 const MOTION_POLL_INTERVAL_MS: number = 50
+/** Share of the preview a `fit` framed model may fill, leaving a little air around it. */
+const FIT_FRAMING_MARGIN: number = 0.94
 
 /** Where the model's anchor point sits in the stage frame, as fractions of its width and height. */
 export const MODEL_PIVOT_POSITION: { readonly x: number; readonly y: number } = {
@@ -55,30 +57,30 @@ export type ModelPreviewSession = {
   controls: ModelPreviewControls
 }
 
+/** What a preview needs to show one model, independent of any project. */
+export type ModelPreviewTarget = {
+  modelUrl: string | null
+  /**
+   * `stage` frames the model as the story does, with the project's anchor and scale; `fit` shows
+   * the whole model centered in the preview.
+   */
+  framing: { kind: 'fit' } | ({ kind: 'stage' } & ModelLayout)
+  staticPortrait: boolean
+  motions: readonly string[]
+  facials: readonly string[]
+  renderPrecision: number
+  /** Added to every log entry so a failure can be traced to its model. */
+  logContext: Readonly<Record<string, string>>
+}
+
 export function useModelPreviewSession(
   modelKey: string,
   input: EditorPreviewInput
 ): ModelPreviewSession {
-  const stageRef = useRef<HTMLDivElement | null>(null)
-  const modelRef = useRef<StoryModelDisplay | null>(null)
-  const playbackTokenRef = useRef<number>(0)
-  const facialTokenRef = useRef<number>(0)
-  const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
-  const fitRef = useRef<(() => void) | null>(null)
-  const [status, setStatus] = useState<ModelPreviewStatus>('loading')
-  const [motion, setMotion] = useState<string>('')
-  const [facial, setFacial] = useState<string>('')
-
   const modelId: string | undefined = input.assets.models[modelKey]?.modelId
-  const anchor: number = input.assets.models[modelKey]?.anchor ?? 0.5
-  const normalScale: number = input.assets.models[modelKey]?.normalScale ?? 1
   const registryEntry: ModelRegistry['models'][string] | undefined = modelId
     ? input.modelRegistry.models[modelId]
     : undefined
-  const staticPortrait: boolean = registryEntry ? isStaticModelEntry(registryEntry.entry) : false
-  const motions: readonly string[] = registryEntry?.motions ?? []
-  const facials: readonly string[] = registryEntry?.facials ?? []
-  const renderPrecision: number = resolveRenderPrecision(input.settings)
   // Keyed on the resolved URL so unrelated asset edits do not reload the model.
   const modelUrl: string | null = useMemo((): string | null => {
     try {
@@ -89,10 +91,49 @@ export function useModelPreviewSession(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input.dataPath, modelId, registryEntry?.entry, modelKey])
 
+  return useModelPreview({
+    modelUrl,
+    framing: {
+      kind: 'stage',
+      anchor: input.assets.models[modelKey]?.anchor ?? 0.5,
+      normalScale: input.assets.models[modelKey]?.normalScale ?? 1
+    },
+    staticPortrait: registryEntry ? isStaticModelEntry(registryEntry.entry) : false,
+    motions: registryEntry?.motions ?? [],
+    facials: registryEntry?.facials ?? [],
+    renderPrecision: resolveRenderPrecision(input.settings?.playback?.renderPrecision),
+    logContext: { projectName: input.projectName, modelKey }
+  })
+}
+
+export function useModelPreview({
+  modelUrl,
+  framing,
+  staticPortrait,
+  motions,
+  facials,
+  renderPrecision,
+  logContext
+}: ModelPreviewTarget): ModelPreviewSession {
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const modelRef = useRef<StoryModelDisplay | null>(null)
+  const playbackTokenRef = useRef<number>(0)
+  const facialTokenRef = useRef<number>(0)
+  const framingRef = useRef<ModelPreviewTarget['framing']>(framing)
+  const fitRef = useRef<(() => void) | null>(null)
+  const [status, setStatus] = useState<ModelPreviewStatus>('loading')
+  const [motion, setMotion] = useState<string>('')
+  const [facial, setFacial] = useState<string>('')
+
+  // `framing` is a new object each render, so the effect watches its fields.
+  const stageLayout: ModelLayout | null = framing.kind === 'stage' ? framing : null
+  const stageAnchor: number | undefined = stageLayout?.anchor
+  const stageScale: number | undefined = stageLayout?.normalScale
   useEffect((): void => {
-    layoutRef.current = { anchor, normalScale }
+    framingRef.current = framing
     fitRef.current?.()
-  }, [anchor, normalScale])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [framing.kind, stageAnchor, stageScale])
 
   useEffect((): (() => void) | undefined => {
     const stageElement: HTMLDivElement | null = stageRef.current
@@ -110,10 +151,19 @@ export function useModelPreviewSession(
 
     function fit(): void {
       if (!app || !model) return
-      const { anchor: modelAnchor, normalScale: modelScale }: ModelLayout = layoutRef.current
+      const currentFraming: ModelPreviewTarget['framing'] = framingRef.current
       const { width, height } = app.screen
-      model.anchor.set(0.5, modelAnchor)
-      model.scale.set((height / model.internalModel.originalHeight) * modelScale)
+      if (currentFraming.kind === 'fit') {
+        const { originalWidth, originalHeight } = model.internalModel
+        model.anchor.set(0.5)
+        model.scale.set(
+          Math.min(width / originalWidth, height / originalHeight) * FIT_FRAMING_MARGIN
+        )
+        model.position.set(width / 2, height / 2)
+        return
+      }
+      model.anchor.set(0.5, currentFraming.anchor)
+      model.scale.set((height / model.internalModel.originalHeight) * currentFraming.normalScale)
       model.position.set(width * MODEL_PIVOT_POSITION.x, height * MODEL_PIVOT_POSITION.y)
     }
     fitRef.current = fit
@@ -159,8 +209,7 @@ export function useModelPreviewSession(
       } catch (error: unknown) {
         if (disposed) return
         logger.error('editor.asset_model_preview_failed', {
-          projectName: input.projectName,
-          modelKey,
+          ...logContext,
           error: describeError(error)
         })
         setStatus('error')
@@ -184,12 +233,11 @@ export function useModelPreviewSession(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelUrl, renderPrecision, modelKey, staticPortrait])
+  }, [modelUrl, renderPrecision, staticPortrait])
 
   const logPlaybackFailure = (error: unknown): void => {
     logger.warn('editor.asset_model_preview_motion_failed', {
-      projectName: input.projectName,
-      modelKey,
+      ...logContext,
       error: describeError(error)
     })
   }

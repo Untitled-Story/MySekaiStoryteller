@@ -47,6 +47,7 @@ export const ja: typeof en = {
   nav: {
     home: 'ホーム',
     projects: 'プロジェクト',
+    models: 'モデル',
     settings: '設定',
     about: 'このアプリについて',
     mainNavigation: 'メインナビゲーション',
@@ -127,6 +128,33 @@ export const ja: typeof en = {
     refresh: '一覧を更新',
     noMatch: '一致するプロジェクトがありません',
     empty: 'プロジェクトはまだありません。新しく作成しましょう。'
+  },
+  models: {
+    title: 'モデル',
+    count: '{{count}}件のモデル',
+    description: 'すべてのプロジェクトで共有するLive2Dモデルと立ち絵を管理します。',
+    preview: 'プレビュー',
+    previewAria: '{{name}}をプレビュー',
+    refresh: 'モデルを更新',
+    import: 'インポート',
+    importTitle: 'モデルをインポート',
+    importDescription: 'Live2Dモデルまたは静止画の立ち絵を共有モデルライブラリにインポートします。',
+    importFailed: 'モデルをインポートできませんでした',
+    imported: 'モデルをインポートしました',
+    empty: 'モデルがありません。インポートして始めましょう。',
+    kindLive2d: 'Live2D',
+    kindStatic: '静止画の立ち絵',
+    renameTitle: 'モデル名を変更',
+    renamePlaceholder: 'モデル名',
+    renameFailed: 'モデル名を変更できませんでした：{{error}}',
+    deleteTitle: 'モデルを削除',
+    deleteChecking: 'このモデルを使用しているプロジェクトを確認中…',
+    deleteDescription:
+      '共有ライブラリから「{{name}}」とそのファイルを削除しますか？この操作は元に戻せません。',
+    deleteInUse:
+      '「{{name}}」は次のプロジェクトで使用中のため削除できません：{{projects}}。先にこれらのプロジェクトから外してください。',
+    deleteFailed: 'モデルを削除できませんでした：{{error}}',
+    loadFailed: 'モデル一覧を読み込めませんでした'
   },
   settings: {
     ...en.settings,

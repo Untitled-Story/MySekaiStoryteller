@@ -52,6 +52,7 @@ export const en: LocaleShape = {
   nav: {
     home: 'Home',
     projects: 'Projects',
+    models: 'Models',
     settings: 'Settings',
     about: 'About',
     mainNavigation: 'Main navigation',
@@ -131,6 +132,34 @@ export const en: LocaleShape = {
     refresh: 'Refresh projects',
     noMatch: 'No matching projects',
     empty: 'No projects yet. Create one to get started.'
+  },
+  models: {
+    title: 'Models',
+    count: '{{count}} models',
+    description: 'Manage the Live2D models and portraits shared by all projects.',
+    preview: 'Preview',
+    previewAria: 'Preview {{name}}',
+    refresh: 'Refresh models',
+    import: 'Import',
+    importTitle: 'Import model',
+    importDescription:
+      'Import a Live2D model or a static portrait image into the shared model library.',
+    importFailed: 'Could not import the model',
+    imported: 'Model imported',
+    empty: 'No models yet. Import one to get started.',
+    kindLive2d: 'Live2D',
+    kindStatic: 'Static portrait',
+    renameTitle: 'Rename model',
+    renamePlaceholder: 'Model name',
+    renameFailed: 'Could not rename the model: {{error}}',
+    deleteTitle: 'Delete model',
+    deleteChecking: 'Checking which projects use this model…',
+    deleteDescription:
+      'Delete “{{name}}” and its files from the shared library? This cannot be undone.',
+    deleteInUse:
+      '“{{name}}” is used by these projects and cannot be deleted: {{projects}}. Remove it from them first.',
+    deleteFailed: 'Could not delete the model: {{error}}',
+    loadFailed: 'Could not load the model list'
   },
   settings: {
     storage: 'Data storage',

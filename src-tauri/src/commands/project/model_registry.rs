@@ -385,6 +385,122 @@ pub fn import_global_model(
     Ok(ImportedModelResult { model_id, registry })
 }
 
+/// Names of the projects whose `assets.json` registers the global model.
+#[tauri::command]
+pub fn get_model_references(app: AppHandle, model_id: String) -> Result<Vec<String>, String> {
+    validate_model_id(&model_id)?;
+    projects_referencing_model(&super::projects_dir(&app)?, &model_id)
+}
+
+#[tauri::command]
+pub fn rename_global_model(
+    app: AppHandle,
+    model_id: String,
+    name: String,
+) -> Result<Value, String> {
+    validate_model_id(&model_id)?;
+    let display_name = validate_model_name(&name)?;
+
+    let models_dir = data_dir(&app)?.join("models");
+    let mut registry = get_model_registry(app.clone())?;
+    registry
+        .get_mut("models")
+        .and_then(Value::as_object_mut)
+        .and_then(|models| models.get_mut(&model_id))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "全局模型注册表中不存在该模型".to_string())?
+        .insert("name".to_string(), Value::String(display_name));
+    write_model_registry(&models_dir, &registry)?;
+    log::info!(target: "backend::model", "model.rename completed model_id={model_id}");
+    get_model_registry(app)
+}
+
+/// Deletes a global model. A model a project still registers is refused, because removing its
+/// files would leave that project with an asset that can no longer be loaded.
+#[tauri::command]
+pub fn delete_global_model(app: AppHandle, model_id: String) -> Result<Value, String> {
+    let models_dir = data_dir(&app)?.join("models");
+    delete_model_files(&models_dir, &super::projects_dir(&app)?, &model_id)?;
+
+    // The directory scan is the source of truth, so rewriting the index from it drops the entry.
+    let registry = get_model_registry(app)?;
+    write_model_registry(&models_dir, &registry)?;
+    log::info!(target: "backend::model", "model.delete completed model_id={model_id}");
+    Ok(registry)
+}
+
+fn delete_model_files(
+    models_dir: &Path,
+    projects_dir: &Path,
+    model_id: &str,
+) -> Result<(), String> {
+    validate_model_id(model_id)?;
+    let referencing = projects_referencing_model(projects_dir, model_id)?;
+    if !referencing.is_empty() {
+        return Err(format!("模型正被项目使用: {}", referencing.join("、")));
+    }
+
+    let model_dir = models_dir.join(model_id);
+    let metadata = fs::symlink_metadata(&model_dir).map_err(|_| "模型不存在".to_string())?;
+    if !metadata.is_dir() {
+        return Err("模型目录无效".into());
+    }
+    fs::remove_dir_all(&model_dir).map_err(|error| format!("删除模型失败: {error}"))
+}
+
+fn projects_referencing_model(projects_dir: &Path, model_id: &str) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(projects_dir)
+        .map_err(|error| format!("读取项目目录失败: {error}"))?
+        .filter_map(|entry| entry.ok())
+    {
+        let assets_path = entry.path().join("assets.json");
+        if !assets_path.is_file() {
+            continue;
+        }
+        let project_name = entry.file_name().to_string_lossy().to_string();
+        // An unreadable project could still register the model, so it must not be skipped.
+        let assets = read_json_file(&assets_path)
+            .map_err(|error| format!("无法确认项目“{project_name}”是否使用该模型: {error}"))?;
+        let references = assets
+            .get("models")
+            .and_then(Value::as_object)
+            .is_some_and(|models| {
+                models
+                    .values()
+                    .any(|model| model.get("modelId").and_then(Value::as_str) == Some(model_id))
+            });
+        if references {
+            names.push(project_name);
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+pub(crate) fn validate_model_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id == "." || id == ".." || id.contains(['/', '\\']) || id.contains('\0') {
+        return Err(format!("模型 ID 无效: {id}"));
+    }
+    Ok(())
+}
+
+const MAX_MODEL_NAME_CHARS: usize = 100;
+
+fn validate_model_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("模型名称不能为空".into());
+    }
+    if name.chars().count() > MAX_MODEL_NAME_CHARS {
+        return Err(format!("模型名称不能超过 {MAX_MODEL_NAME_CHARS} 个字符"));
+    }
+    if name.chars().any(char::is_control) {
+        return Err("模型名称不能包含控制字符".into());
+    }
+    Ok(name.to_string())
+}
+
 fn picked_source_kind(source_path: &str) -> &'static str {
     let normalized = source_path.to_ascii_lowercase();
     if normalized.starts_with("content://") {
@@ -810,10 +926,11 @@ fn unique_suffix() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_archive_model, find_model_entry_file, image_extension_from_signature,
-        inspect_archive, is_image_entry_name, is_live2d_entry_name, is_model_entry_json,
-        is_zip_archive, motion_catalog_from_json, next_model_id, normalize_model_id,
-        read_archive_json, select_archive_entry,
+        delete_model_files, extract_archive_model, find_model_entry_file,
+        image_extension_from_signature, inspect_archive, is_image_entry_name, is_live2d_entry_name,
+        is_model_entry_json, is_zip_archive, motion_catalog_from_json, next_model_id,
+        normalize_model_id, projects_referencing_model, read_archive_json, select_archive_entry,
+        validate_model_name,
     };
     use serde_json::json;
     use std::fs;
@@ -859,6 +976,99 @@ mod tests {
         assert_eq!(image_extension_from_signature(&webp).unwrap(), Some("webp"));
         assert_eq!(image_extension_from_signature(&text).unwrap(), None);
         fs::remove_dir_all(root).expect("remove image test directory");
+    }
+
+    #[test]
+    fn finds_projects_referencing_a_model() {
+        let root = std::env::temp_dir().join(format!("mss-refs-test-{}", super::unique_suffix()));
+        let write_assets = |project: &str, body: &str| {
+            fs::create_dir_all(root.join(project)).expect("create project directory");
+            fs::write(root.join(project).join("assets.json"), body).expect("write assets");
+        };
+        write_assets("b-uses", r#"{"models":{"k":{"modelId":"hero"}}}"#);
+        write_assets(
+            "a-uses",
+            r#"{"models":{"x":{"modelId":"hero"},"y":{"modelId":"villain"}}}"#,
+        );
+        write_assets("other", r#"{"models":{"k":{"modelId":"villain"}}}"#);
+        fs::create_dir_all(root.join("no-assets")).expect("create project without assets");
+
+        assert_eq!(
+            projects_referencing_model(&root, "hero").unwrap(),
+            vec!["a-uses".to_string(), "b-uses".to_string()]
+        );
+        assert!(projects_referencing_model(&root, "unused")
+            .unwrap()
+            .is_empty());
+        fs::remove_dir_all(root).expect("remove references test directory");
+    }
+
+    #[test]
+    fn deletes_an_unused_model_and_refuses_a_used_or_invalid_one() {
+        let root = std::env::temp_dir().join(format!("mss-delete-test-{}", super::unique_suffix()));
+        let models = root.join("models");
+        let projects = root.join("projects");
+        for id in ["free", "used"] {
+            fs::create_dir_all(models.join(id)).expect("create model directory");
+            fs::write(models.join(id).join("portrait.png"), "png").expect("write portrait");
+        }
+        fs::create_dir_all(projects.join("story")).expect("create project directory");
+        fs::write(
+            projects.join("story").join("assets.json"),
+            r#"{"models":{"k":{"modelId":"used"}}}"#,
+        )
+        .expect("write assets");
+
+        let used = delete_model_files(&models, &projects, "used").unwrap_err();
+        assert!(used.contains("story"), "names the project: {used}");
+        assert!(models.join("used").exists());
+
+        delete_model_files(&models, &projects, "free").expect("delete unused model");
+        assert!(!models.join("free").exists());
+        assert!(delete_model_files(&models, &projects, "free").is_err());
+        assert!(delete_model_files(&models, &projects, "../models").is_err());
+
+        fs::write(models.join("index.json"), "{}").expect("write index file");
+        assert!(delete_model_files(&models, &projects, "index.json").is_err());
+        assert!(models.join("index.json").exists());
+        fs::remove_dir_all(root).expect("remove delete test directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_to_delete_a_symlinked_model_directory() {
+        let root = std::env::temp_dir().join(format!("mss-link-test-{}", super::unique_suffix()));
+        let models = root.join("models");
+        let outside = root.join("outside");
+        fs::create_dir_all(&models).expect("create models directory");
+        fs::create_dir_all(root.join("projects")).expect("create projects directory");
+        fs::create_dir_all(&outside).expect("create outside directory");
+        fs::write(outside.join("keep.txt"), "keep").expect("write outside file");
+        std::os::unix::fs::symlink(&outside, models.join("linked")).expect("create symlink");
+
+        assert!(delete_model_files(&models, &root.join("projects"), "linked").is_err());
+        assert!(outside.join("keep.txt").exists());
+        fs::remove_dir_all(root).expect("remove link test directory");
+    }
+
+    #[test]
+    fn reports_which_project_cannot_be_checked() {
+        let root = std::env::temp_dir().join(format!("mss-broken-test-{}", super::unique_suffix()));
+        fs::create_dir_all(root.join("broken")).expect("create project directory");
+        fs::write(root.join("broken").join("assets.json"), "{ not json").expect("write assets");
+
+        let error = projects_referencing_model(&root, "hero").unwrap_err();
+        assert!(error.contains("broken"), "names the project: {error}");
+        fs::remove_dir_all(root).expect("remove broken test directory");
+    }
+
+    #[test]
+    fn validates_model_names() {
+        assert_eq!(validate_model_name("  Shiho  ").unwrap(), "Shiho");
+        assert!(validate_model_name("   ").is_err());
+        assert!(validate_model_name("line\nbreak").is_err());
+        assert!(validate_model_name(&"a".repeat(101)).is_err());
+        assert!(validate_model_name(&"志".repeat(100)).is_ok());
     }
 
     #[test]

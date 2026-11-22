@@ -4,6 +4,7 @@ import { Assets, Sprite, type Texture } from 'pixi.js'
 export type StaticModelBounds = {
   readonly width: number
   readonly height: number
+  readonly originalWidth: number
   readonly originalHeight: number
 }
 
@@ -20,6 +21,7 @@ export class StaticModelSprite extends Sprite {
     this.internalModel = {
       width: texture.width,
       height: texture.height,
+      originalWidth: texture.width,
       originalHeight: texture.height
     }
   }
