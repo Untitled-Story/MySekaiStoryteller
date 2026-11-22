@@ -2,13 +2,16 @@ import type { RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Application } from 'pixi.js'
 import { describeError, logger } from '@/lib/logger'
-import { ensureSekaiLive2DReady, loadSekaiLive2DModel, type SekaiLive2DModel } from '@/lib/live2d'
+import { ensureSekaiLive2DReady, loadSekaiLive2DModel } from '@/lib/live2d'
+import { loadStaticModel } from '@/lib/staticModel'
+import { isStaticModelEntry } from '@/modelRegistry/isStaticModelEntry'
 import type { ModelRegistry } from '@/modelRegistry/schema'
 import {
   applyAndWaitModelFacial,
   applyAndWaitModelMotion,
   resolveModelUrl,
-  stopModelMotions
+  stopModelMotions,
+  type StoryModelDisplay
 } from '@/story'
 import type { EditorPreviewInput } from './EditorPreview'
 import { resolveRenderPrecision } from './resolveRenderPrecision'
@@ -34,6 +37,8 @@ type ModelLayout = {
 
 export type ModelPreviewControls = {
   status: ModelPreviewStatus
+  /** False for a static portrait, which has no motion or facial to choose from. */
+  animated: boolean
   motions: readonly string[]
   facials: readonly string[]
   motion: string
@@ -54,7 +59,7 @@ export function useModelPreviewSession(
   input: EditorPreviewInput
 ): ModelPreviewSession {
   const stageRef = useRef<HTMLDivElement | null>(null)
-  const modelRef = useRef<SekaiLive2DModel | null>(null)
+  const modelRef = useRef<StoryModelDisplay | null>(null)
   const playbackTokenRef = useRef<number>(0)
   const facialTokenRef = useRef<number>(0)
   const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
@@ -69,6 +74,7 @@ export function useModelPreviewSession(
   const registryEntry: ModelRegistry['models'][string] | undefined = modelId
     ? input.modelRegistry.models[modelId]
     : undefined
+  const staticPortrait: boolean = registryEntry ? isStaticModelEntry(registryEntry.entry) : false
   const motions: readonly string[] = registryEntry?.motions ?? []
   const facials: readonly string[] = registryEntry?.facials ?? []
   const renderPrecision: number = resolveRenderPrecision(input.settings)
@@ -98,7 +104,7 @@ export function useModelPreviewSession(
     let disposed: boolean = false
     let app: Application | null = null
     let appInitialized: boolean = false
-    let model: SekaiLive2DModel | null = null
+    let model: StoryModelDisplay | null = null
     setStatus('loading')
 
     function fit(): void {
@@ -113,7 +119,7 @@ export function useModelPreviewSession(
 
     async function initialize(url: string, element: HTMLDivElement): Promise<void> {
       try {
-        await ensureSekaiLive2DReady()
+        if (!staticPortrait) await ensureSekaiLive2DReady()
         if (disposed) return
 
         const previewApp: Application = new Application()
@@ -132,9 +138,9 @@ export function useModelPreviewSession(
         }
         element.replaceChildren(previewApp.canvas)
 
-        const loaded: SekaiLive2DModel = await loadSekaiLive2DModel(url, {
-          ticker: previewApp.ticker
-        })
+        const loaded: StoryModelDisplay = staticPortrait
+          ? await loadStaticModel(url)
+          : await loadSekaiLive2DModel(url, { ticker: previewApp.ticker })
         if (disposed) {
           try {
             loaded.destroy({ children: true })
@@ -177,7 +183,7 @@ export function useModelPreviewSession(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelUrl, renderPrecision, modelKey])
+  }, [modelUrl, renderPrecision, modelKey, staticPortrait])
 
   const logPlaybackFailure = (error: unknown): void => {
     logger.warn('editor.asset_model_preview_motion_failed', {
@@ -203,7 +209,7 @@ export function useModelPreviewSession(
       })
 
   const playPreview = (nextMotion: string, nextFacial: string): void => {
-    const model: SekaiLive2DModel | null = modelRef.current
+    const model: StoryModelDisplay | null = modelRef.current
     if (!model) return
 
     const token: number = ++playbackTokenRef.current
@@ -223,7 +229,7 @@ export function useModelPreviewSession(
 
   // Changing the facial must not restart a body motion that is already playing.
   const playFacialOnly = (nextFacial: string): void => {
-    const model: SekaiLive2DModel | null = modelRef.current
+    const model: StoryModelDisplay | null = modelRef.current
     if (!model || !nextFacial) return
 
     const token: number = ++facialTokenRef.current
@@ -236,6 +242,7 @@ export function useModelPreviewSession(
     stageRef,
     controls: {
       status,
+      animated: !staticPortrait,
       motions,
       facials,
       motion,
