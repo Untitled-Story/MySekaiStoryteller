@@ -763,7 +763,7 @@ fn project_model_ids(assets: &Value) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
-fn validate_model_id(id: &str) -> Result<(), String> {
+pub(crate) fn validate_model_id(id: &str) -> Result<(), String> {
     if id.is_empty() || id == "." || id == ".." || id.contains(['/', '\\']) || id.contains('\0') {
         return Err(format!("模型 ID 无效: {id}"));
     }
