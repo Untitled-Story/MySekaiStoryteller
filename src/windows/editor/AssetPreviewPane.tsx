@@ -189,8 +189,26 @@ function ModelPreview({
   input: EditorPreviewInput
   compact: boolean
 }): JSX.Element {
+  const session: ModelPreviewSession = useModelPreviewSession(modelKey, input)
+  return <ModelPreviewView session={session} compact={compact} showPivot />
+}
+
+/** The stage and motion / facial controls of a model preview. */
+export function ModelPreviewView({
+  session,
+  compact,
+  showPivot = false,
+  fill = false
+}: {
+  session: ModelPreviewSession
+  compact: boolean
+  /** Marks the anchor point; only meaningful where the anchor can be edited. */
+  showPivot?: boolean
+  /** Fills the space with the app theme instead of the story's 16:9 stage on black. */
+  fill?: boolean
+}): JSX.Element {
   const { t } = useTranslation()
-  const { stageRef, controls }: ModelPreviewSession = useModelPreviewSession(modelKey, input)
+  const { stageRef, controls }: ModelPreviewSession = session
 
   const stage: JSX.Element = <div ref={stageRef} className="absolute inset-0" />
   const statusLayer: JSX.Element | null =
@@ -198,7 +216,7 @@ function ModelPreview({
       <div
         className={cn(
           'pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs',
-          compact ? 'text-white/55' : 'text-muted-foreground'
+          compact && !fill ? 'text-white/55' : 'text-muted-foreground'
         )}
       >
         {controls.status === 'loading' ? <LoaderCircle className="size-5 animate-spin" /> : null}
@@ -210,15 +228,27 @@ function ModelPreview({
       </div>
     )
 
-  if (compact) {
+  if (compact && !fill) {
     return (
       <>
         <StageFrame>
           {stage}
-          {controls.status === 'ready' ? <PivotMarker /> : null}
+          {showPivot && controls.status === 'ready' ? <PivotMarker /> : null}
           {statusLayer}
         </StageFrame>
         {controls.animated ? <CompactModelControls controls={controls} /> : null}
+      </>
+    )
+  }
+
+  if (compact) {
+    return (
+      <>
+        <div className="relative min-h-0 flex-1 bg-muted/40">
+          {stage}
+          {statusLayer}
+        </div>
+        {controls.animated ? <CompactModelControls controls={controls} themed /> : null}
       </>
     )
   }
@@ -253,23 +283,37 @@ function PivotMarker(): JSX.Element {
 
 type OpenSheet = 'motion' | 'facial' | null
 
-function CompactModelControls({ controls }: { controls: ModelPreviewControls }): JSX.Element {
+function CompactModelControls({
+  controls,
+  themed = false
+}: {
+  controls: ModelPreviewControls
+  /** Uses the app theme instead of the dark editor stage styling. */
+  themed?: boolean
+}): JSX.Element {
   const { t } = useTranslation()
   const [openSheet, setOpenSheet] = useState<OpenSheet>(null)
   const ready: boolean = controls.status === 'ready'
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-t border-white/10 px-2">
+    <div
+      className={cn(
+        'flex shrink-0 items-center gap-2 border-t px-2',
+        themed ? 'h-14' : 'h-11 border-white/10'
+      )}
+    >
       <PickerChip
         label={t('snippetFields.motion')}
         value={controls.motion}
         disabled={!ready}
+        themed={themed}
         onClick={(): void => setOpenSheet('motion')}
       />
       <PickerChip
         label={t('snippetFields.facial')}
         value={controls.facial}
         disabled={!ready}
+        themed={themed}
         onClick={(): void => setOpenSheet('facial')}
       />
       <Button
@@ -310,11 +354,13 @@ function PickerChip({
   label,
   value,
   disabled,
+  themed,
   onClick
 }: {
   label: string
   value: string
   disabled: boolean
+  themed: boolean
   onClick: () => void
 }): JSX.Element {
   return (
@@ -324,9 +370,15 @@ function PickerChip({
       disabled={disabled}
       className={cn(
         'flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border px-3 text-left text-xs outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40',
+        themed ? 'h-10' : null,
         value
-          ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
-          : 'border-white/15 text-white/70 active:bg-white/10'
+          ? cn(
+              'border-amber-500/50 bg-amber-500/10',
+              themed ? 'text-amber-700 dark:text-amber-300' : 'text-amber-300'
+            )
+          : themed
+            ? 'border-input text-muted-foreground active:bg-accent'
+            : 'border-white/15 text-white/70 active:bg-white/10'
       )}
       onClick={onClick}
     >
