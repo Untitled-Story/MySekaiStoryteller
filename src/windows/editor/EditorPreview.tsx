@@ -159,7 +159,7 @@ export function EditorPreview({
           resizeTo: stageElement,
           preference: 'webgl',
           autoDensity: true,
-          resolution: resolveRenderPrecision(input.settings),
+          resolution: resolveRenderPrecision(input.settings?.playback?.renderPrecision),
           backgroundAlpha: 0
         })
         appInitialized = true
@@ -167,7 +167,7 @@ export function EditorPreview({
         stageElement.replaceChildren(previewApp.canvas)
         logger.info('editor.preview_pixi_ready', {
           projectName: input.projectName,
-          resolution: resolveRenderPrecision(input.settings)
+          resolution: resolveRenderPrecision(input.settings?.playback?.renderPrecision)
         })
 
         setMessage(t('editor.loadingResources'))

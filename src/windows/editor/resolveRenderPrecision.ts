@@ -1,7 +1,6 @@
-import type { AppSettings, RenderPrecision } from '@/settings/types'
+import type { RenderPrecision } from '@/settings/types'
 
-export function resolveRenderPrecision(settings: AppSettings | null): number {
-  const precision: RenderPrecision | undefined = settings?.playback?.renderPrecision
+export function resolveRenderPrecision(precision: RenderPrecision | undefined): number {
   if (typeof precision === 'number' && Number.isFinite(precision) && precision > 0) {
     return precision
   }

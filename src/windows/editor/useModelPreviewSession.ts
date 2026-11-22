@@ -55,30 +55,27 @@ export type ModelPreviewSession = {
   controls: ModelPreviewControls
 }
 
+/** What a preview needs to show one model, independent of any project. */
+export type ModelPreviewTarget = {
+  modelUrl: string | null
+  staticPortrait: boolean
+  anchor: number
+  normalScale: number
+  motions: readonly string[]
+  facials: readonly string[]
+  renderPrecision: number
+  /** Added to every log entry so a failure can be traced to its model. */
+  logContext: Readonly<Record<string, string>>
+}
+
 export function useModelPreviewSession(
   modelKey: string,
   input: EditorPreviewInput
 ): ModelPreviewSession {
-  const stageRef = useRef<HTMLDivElement | null>(null)
-  const modelRef = useRef<StoryModelDisplay | null>(null)
-  const playbackTokenRef = useRef<number>(0)
-  const facialTokenRef = useRef<number>(0)
-  const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
-  const fitRef = useRef<(() => void) | null>(null)
-  const [status, setStatus] = useState<ModelPreviewStatus>('loading')
-  const [motion, setMotion] = useState<string>('')
-  const [facial, setFacial] = useState<string>('')
-
   const modelId: string | undefined = input.assets.models[modelKey]?.modelId
-  const anchor: number = input.assets.models[modelKey]?.anchor ?? 0.5
-  const normalScale: number = input.assets.models[modelKey]?.normalScale ?? 1
   const registryEntry: ModelRegistry['models'][string] | undefined = modelId
     ? input.modelRegistry.models[modelId]
     : undefined
-  const staticPortrait: boolean = registryEntry ? isStaticModelEntry(registryEntry.entry) : false
-  const motions: readonly string[] = registryEntry?.motions ?? []
-  const facials: readonly string[] = registryEntry?.facials ?? []
-  const renderPrecision: number = resolveRenderPrecision(input.settings)
   // Keyed on the resolved URL so unrelated asset edits do not reload the model.
   const modelUrl: string | null = useMemo((): string | null => {
     try {
@@ -88,6 +85,38 @@ export function useModelPreviewSession(
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input.dataPath, modelId, registryEntry?.entry, modelKey])
+
+  return useModelPreview({
+    modelUrl,
+    staticPortrait: registryEntry ? isStaticModelEntry(registryEntry.entry) : false,
+    anchor: input.assets.models[modelKey]?.anchor ?? 0.5,
+    normalScale: input.assets.models[modelKey]?.normalScale ?? 1,
+    motions: registryEntry?.motions ?? [],
+    facials: registryEntry?.facials ?? [],
+    renderPrecision: resolveRenderPrecision(input.settings?.playback?.renderPrecision),
+    logContext: { projectName: input.projectName, modelKey }
+  })
+}
+
+export function useModelPreview({
+  modelUrl,
+  staticPortrait,
+  anchor,
+  normalScale,
+  motions,
+  facials,
+  renderPrecision,
+  logContext
+}: ModelPreviewTarget): ModelPreviewSession {
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const modelRef = useRef<StoryModelDisplay | null>(null)
+  const playbackTokenRef = useRef<number>(0)
+  const facialTokenRef = useRef<number>(0)
+  const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
+  const fitRef = useRef<(() => void) | null>(null)
+  const [status, setStatus] = useState<ModelPreviewStatus>('loading')
+  const [motion, setMotion] = useState<string>('')
+  const [facial, setFacial] = useState<string>('')
 
   useEffect((): void => {
     layoutRef.current = { anchor, normalScale }
@@ -159,8 +188,7 @@ export function useModelPreviewSession(
       } catch (error: unknown) {
         if (disposed) return
         logger.error('editor.asset_model_preview_failed', {
-          projectName: input.projectName,
-          modelKey,
+          ...logContext,
           error: describeError(error)
         })
         setStatus('error')
@@ -184,12 +212,11 @@ export function useModelPreviewSession(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelUrl, renderPrecision, modelKey, staticPortrait])
+  }, [modelUrl, renderPrecision, staticPortrait])
 
   const logPlaybackFailure = (error: unknown): void => {
     logger.warn('editor.asset_model_preview_motion_failed', {
-      projectName: input.projectName,
-      modelKey,
+      ...logContext,
       error: describeError(error)
     })
   }
