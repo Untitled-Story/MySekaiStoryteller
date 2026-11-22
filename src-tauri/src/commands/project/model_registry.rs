@@ -9,6 +9,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use zip::ZipArchive;
 
+use super::archive::validate_model_id;
 use super::{data_dir, read_json_file};
 
 fn default_model_registry_json() -> Value {
@@ -383,6 +384,91 @@ pub fn import_global_model(
         started_at.elapsed().as_millis()
     );
     Ok(ImportedModelResult { model_id, registry })
+}
+
+/// Names of the projects whose `assets.json` registers the global model.
+#[tauri::command]
+pub fn get_model_references(app: AppHandle, model_id: String) -> Result<Vec<String>, String> {
+    validate_model_id(&model_id)?;
+    projects_referencing_model(&super::projects_dir(&app)?, &model_id)
+}
+
+#[tauri::command]
+pub fn rename_global_model(
+    app: AppHandle,
+    model_id: String,
+    name: String,
+) -> Result<Value, String> {
+    validate_model_id(&model_id)?;
+    let display_name = name.trim();
+    if display_name.is_empty() {
+        return Err("模型名称不能为空".into());
+    }
+
+    let models_dir = data_dir(&app)?.join("models");
+    let mut registry = get_model_registry(app.clone())?;
+    registry
+        .get_mut("models")
+        .and_then(Value::as_object_mut)
+        .and_then(|models| models.get_mut(&model_id))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "全局模型注册表中不存在该模型".to_string())?
+        .insert("name".to_string(), Value::String(display_name.to_string()));
+    write_model_registry(&models_dir, &registry)?;
+    log::info!(target: "backend::model", "model.rename completed model_id={model_id}");
+    get_model_registry(app)
+}
+
+/// Deletes a global model. A model a project still registers is refused, because removing its
+/// files would leave that project with an asset that can no longer be loaded.
+#[tauri::command]
+pub fn delete_global_model(app: AppHandle, model_id: String) -> Result<Value, String> {
+    validate_model_id(&model_id)?;
+    let referencing = projects_referencing_model(&super::projects_dir(&app)?, &model_id)?;
+    if !referencing.is_empty() {
+        return Err(format!("模型正被项目使用: {}", referencing.join("、")));
+    }
+
+    let models_dir = data_dir(&app)?.join("models");
+    let model_dir = models_dir.join(&model_id);
+    let metadata = fs::symlink_metadata(&model_dir).map_err(|_| "模型不存在".to_string())?;
+    if !metadata.is_dir() {
+        return Err("模型目录无效".into());
+    }
+    fs::remove_dir_all(&model_dir).map_err(|error| format!("删除模型失败: {error}"))?;
+
+    // The directory scan is the source of truth, so rewriting the index from it drops the entry.
+    let registry = get_model_registry(app)?;
+    write_model_registry(&models_dir, &registry)?;
+    log::info!(target: "backend::model", "model.delete completed model_id={model_id}");
+    Ok(registry)
+}
+
+fn projects_referencing_model(projects_dir: &Path, model_id: &str) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(projects_dir)
+        .map_err(|error| format!("读取项目目录失败: {error}"))?
+        .filter_map(|entry| entry.ok())
+    {
+        let assets_path = entry.path().join("assets.json");
+        if !assets_path.is_file() {
+            continue;
+        }
+        let assets = read_json_file(&assets_path)?;
+        let references = assets
+            .get("models")
+            .and_then(Value::as_object)
+            .is_some_and(|models| {
+                models
+                    .values()
+                    .any(|model| model.get("modelId").and_then(Value::as_str) == Some(model_id))
+            });
+        if references {
+            names.push(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    names.sort();
+    Ok(names)
 }
 
 fn picked_source_kind(source_path: &str) -> &'static str {
@@ -813,7 +899,7 @@ mod tests {
         extract_archive_model, find_model_entry_file, image_extension_from_signature,
         inspect_archive, is_image_entry_name, is_live2d_entry_name, is_model_entry_json,
         is_zip_archive, motion_catalog_from_json, next_model_id, normalize_model_id,
-        read_archive_json, select_archive_entry,
+        projects_referencing_model, read_archive_json, select_archive_entry,
     };
     use serde_json::json;
     use std::fs;
@@ -859,6 +945,31 @@ mod tests {
         assert_eq!(image_extension_from_signature(&webp).unwrap(), Some("webp"));
         assert_eq!(image_extension_from_signature(&text).unwrap(), None);
         fs::remove_dir_all(root).expect("remove image test directory");
+    }
+
+    #[test]
+    fn finds_projects_referencing_a_model() {
+        let root = std::env::temp_dir().join(format!("mss-refs-test-{}", super::unique_suffix()));
+        let write_assets = |project: &str, body: &str| {
+            fs::create_dir_all(root.join(project)).expect("create project directory");
+            fs::write(root.join(project).join("assets.json"), body).expect("write assets");
+        };
+        write_assets("b-uses", r#"{"models":{"k":{"modelId":"hero"}}}"#);
+        write_assets(
+            "a-uses",
+            r#"{"models":{"x":{"modelId":"hero"},"y":{"modelId":"villain"}}}"#,
+        );
+        write_assets("other", r#"{"models":{"k":{"modelId":"villain"}}}"#);
+        fs::create_dir_all(root.join("no-assets")).expect("create project without assets");
+
+        assert_eq!(
+            projects_referencing_model(&root, "hero").unwrap(),
+            vec!["a-uses".to_string(), "b-uses".to_string()]
+        );
+        assert!(projects_referencing_model(&root, "unused")
+            .unwrap()
+            .is_empty());
+        fs::remove_dir_all(root).expect("remove references test directory");
     }
 
     #[test]
