@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router'
 import logo from '@/assets/logo.png'
 import type { LucideIcon } from 'lucide-react'
-import { BadgeInfo, BookOpen, Folder, Menu, Settings, X } from 'lucide-react'
+import { BadgeInfo, BookOpen, Box, Folder, Menu, Settings, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/style'
@@ -28,6 +28,7 @@ export default function LeftSidebar({ mode = 'rail' }: { mode?: LeftSidebarMode 
   const navItems: readonly SidebarNavItem[] = [
     { to: '/', icon: BookOpen, label: t('nav.home') },
     { to: '/projects', icon: Folder, label: t('nav.projects') },
+    { to: '/models', icon: Box, label: t('nav.models') },
     { to: '/settings', icon: Settings, label: t('nav.settings') },
     { to: '/about', icon: BadgeInfo, label: t('nav.about') }
   ]
