@@ -14,6 +14,7 @@ import {
 import { closePlayerWindow } from '@/windows/api'
 import { useWindowProjectName } from '@/windows/useWindowProjectName'
 import { cn } from '@/lib/style'
+import { destroyPixiApp } from '@/lib/destroyPixiApp'
 import { ensureSekaiLive2DReady } from '@/lib/live2d'
 import {
   createStoryRuntime,
@@ -322,7 +323,7 @@ export default function App({
     function destroyInitializedApp(): void {
       if (!app || !appInitialized || appDestroyed) return
       appDestroyed = true
-      app.destroy(true, { children: true })
+      destroyPixiApp(app)
     }
 
     async function startStory(): Promise<void> {
