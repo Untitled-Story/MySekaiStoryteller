@@ -10,7 +10,7 @@ use super::{
     default_assets_json, project_path, read_project_json_or_default, resolve_project_file,
     update_assets_summary, write_project_json, STORY_FILE,
 };
-use crate::commands::project::model_registry::get_model_registry;
+use crate::commands::project::model_registry::{get_model_registry, is_image_entry_name};
 
 const BACKGROUND_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
 const VOICE_EXTENSIONS: &[&str] = &["ogg", "mp3", "wav", "m4a"];
@@ -195,6 +195,17 @@ pub fn register_project_model(
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or(&model_id);
+    // A static portrait is cropped to the character, unlike a Live2D canvas padded around it, so
+    // it fills the stage height at scale 1 and is anchored near its feet.
+    let is_static_portrait = registry_entry
+        .get("entry")
+        .and_then(Value::as_str)
+        .is_some_and(is_image_entry_name);
+    let (normal_scale, small_scale, anchor) = if is_static_portrait {
+        (1.0, 0.86, 0.8)
+    } else {
+        (2.1, 1.8, 0.5)
+    };
     let project_path = project_path(&app, &project_name)?;
     let mut assets = read_assets(&project_path)?;
     let resolved_key = match key {
@@ -220,9 +231,9 @@ pub fn register_project_model(
         json!({
             "name": asset_name,
             "modelId": model_id,
-            "normalScale": 2.1,
-            "smallScale": 1.8,
-            "anchor": 0.5,
+            "normalScale": normal_scale,
+            "smallScale": small_scale,
+            "anchor": anchor,
         }),
     )?;
     write_project_json(&project_path, "assets.json", &assets)?;
