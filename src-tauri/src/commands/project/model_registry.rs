@@ -165,7 +165,13 @@ pub fn get_model_registry(app: AppHandle) -> Result<Value, String> {
         }
         if let Some(selected_entry) = stored_entry.get("entry").and_then(Value::as_str) {
             let selected_path = models_dir.join(model_id).join(selected_entry);
-            if is_live2d_entry_name(selected_entry) && selected_path.is_file() {
+            let scanned_entry_name = entry.get("entry").and_then(Value::as_str);
+            if is_restorable_image_entry(scanned_entry_name, selected_entry, &selected_path) {
+                entry.insert(
+                    "entry".to_string(),
+                    Value::String(selected_entry.to_string()),
+                );
+            } else if is_live2d_entry_name(selected_entry) && selected_path.is_file() {
                 let selected_json = read_json_file(&selected_path)?;
                 if is_model_entry_json(&selected_json) {
                     let (motions, facials) = motion_catalog_from_json(&selected_json);
@@ -180,6 +186,18 @@ pub fn get_model_registry(app: AppHandle) -> Result<Value, String> {
         }
     }
     Ok(scanned)
+}
+
+/// A saved image entry is restored only for a directory without a Live2D entry, where the scan
+/// picks an image on its own and so cannot tell which of several the model was saved with.
+fn is_restorable_image_entry(
+    scanned_entry: Option<&str>,
+    selected_entry: &str,
+    selected_path: &Path,
+) -> bool {
+    scanned_entry.is_some_and(is_image_entry_name)
+        && is_image_entry_name(selected_entry)
+        && selected_path.is_file()
 }
 
 #[tauri::command]
@@ -812,8 +830,8 @@ mod tests {
     use super::{
         extract_archive_model, find_model_entry_file, image_extension_from_signature,
         inspect_archive, is_image_entry_name, is_live2d_entry_name, is_model_entry_json,
-        is_zip_archive, motion_catalog_from_json, next_model_id, normalize_model_id,
-        read_archive_json, select_archive_entry,
+        is_restorable_image_entry, is_zip_archive, motion_catalog_from_json, next_model_id,
+        normalize_model_id, read_archive_json, select_archive_entry,
     };
     use serde_json::json;
     use std::fs;
@@ -859,6 +877,32 @@ mod tests {
         assert_eq!(image_extension_from_signature(&webp).unwrap(), Some("webp"));
         assert_eq!(image_extension_from_signature(&text).unwrap(), None);
         fs::remove_dir_all(root).expect("remove image test directory");
+    }
+
+    #[test]
+    fn restores_a_saved_image_entry_only_without_a_live2d_entry() {
+        let root = std::env::temp_dir().join(format!("mss-saved-test-{}", super::unique_suffix()));
+        fs::create_dir_all(&root).expect("create saved entry test directory");
+        fs::write(root.join("b.png"), "png").expect("write image");
+
+        let saved = root.join("b.png");
+        assert!(is_restorable_image_entry(Some("a.png"), "b.png", &saved));
+        assert!(!is_restorable_image_entry(
+            Some("a.model3.json"),
+            "b.png",
+            &saved
+        ));
+        assert!(!is_restorable_image_entry(
+            Some("a.png"),
+            "b.model3.json",
+            &saved
+        ));
+        assert!(!is_restorable_image_entry(
+            Some("a.png"),
+            "gone.png",
+            &root.join("gone.png")
+        ));
+        fs::remove_dir_all(root).expect("remove saved entry test directory");
     }
 
     #[test]

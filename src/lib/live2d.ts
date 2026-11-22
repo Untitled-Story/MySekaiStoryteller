@@ -10,6 +10,8 @@ let cubismConfigured = false
 const DEFAULT_EYE_BLINK_PARAMETER_IDS: readonly string[] = ['ParamEyeLOpen', 'ParamEyeROpen']
 const pausedSoundOwners: Set<object> = new Set()
 const pausedSounds: Set<ManagedLive2DSound> = new Set()
+/** Voices that finished loading while the story was paused; they start on resume. */
+const deferredSoundStarts: Set<() => void> = new Set()
 
 export type SekaiLive2DModel = Live2DModel
 
@@ -94,7 +96,12 @@ export async function playSekaiSound(url: string, volume: number): Promise<void>
         return
       }
       sound.volume = volume
-      engine.SoundManager.play(sound, resolve)
+      const start = (): void => engine.SoundManager.play(sound, resolve)
+      if (pausedSoundOwners.size > 0) {
+        deferredSoundStarts.add(start)
+      } else {
+        start()
+      }
     })
   })
 }
@@ -131,12 +138,17 @@ export function resumeSekaiLive2DSounds(owner: object): void {
     audio.resume()
   }
   pausedSounds.clear()
+  for (const start of deferredSoundStarts) {
+    start()
+  }
+  deferredSoundStarts.clear()
 }
 
 function getLive2DSoundManager(): Live2DSoundManager | null {
   if (!live2DEngine) return null
+  // SoundManager is a class whose state lives in static members, so it is a function, not an object.
   const candidate: unknown = live2DEngine.SoundManager
-  if (!candidate || typeof candidate !== 'object') return null
+  if (!candidate || (typeof candidate !== 'object' && typeof candidate !== 'function')) return null
 
   const audios: unknown = (candidate as Record<string, unknown>).audios
   if (!Array.isArray(audios)) return null
