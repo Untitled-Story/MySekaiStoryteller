@@ -189,8 +189,23 @@ function ModelPreview({
   input: EditorPreviewInput
   compact: boolean
 }): JSX.Element {
+  const session: ModelPreviewSession = useModelPreviewSession(modelKey, input)
+  return <ModelPreviewView session={session} compact={compact} showPivot />
+}
+
+/** The stage and motion / facial controls of a model preview. */
+export function ModelPreviewView({
+  session,
+  compact,
+  showPivot = false
+}: {
+  session: ModelPreviewSession
+  compact: boolean
+  /** Marks the anchor point; only meaningful where the anchor can be edited. */
+  showPivot?: boolean
+}): JSX.Element {
   const { t } = useTranslation()
-  const { stageRef, controls }: ModelPreviewSession = useModelPreviewSession(modelKey, input)
+  const { stageRef, controls }: ModelPreviewSession = session
 
   const stage: JSX.Element = <div ref={stageRef} className="absolute inset-0" />
   const statusLayer: JSX.Element | null =
@@ -215,7 +230,7 @@ function ModelPreview({
       <>
         <StageFrame>
           {stage}
-          {controls.status === 'ready' ? <PivotMarker /> : null}
+          {showPivot && controls.status === 'ready' ? <PivotMarker /> : null}
           {statusLayer}
         </StageFrame>
         {controls.animated ? <CompactModelControls controls={controls} /> : null}
