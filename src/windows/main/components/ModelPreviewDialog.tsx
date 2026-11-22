@@ -12,7 +12,6 @@ import {
 import { useViewportMode, type ViewportMode } from '@/hooks/useViewportMode'
 import { localAssetUrl } from '@/lib/projectAssetUrl'
 import { cn } from '@/lib/style'
-import { defaultModelLayout, type ModelLayout } from '@/modelRegistry/defaultModelLayout'
 import { isStaticModelEntry } from '@/modelRegistry/isStaticModelEntry'
 import type { ModelRegistryEntry } from '@/modelRegistry/schema'
 import { useSettings } from '@/settings/useSettings'
@@ -85,13 +84,10 @@ function PreviewBody({
 }): JSX.Element {
   const { playback } = useSettings()
   const staticPortrait: boolean = isStaticModelEntry(entry.entry)
-  const layout: ModelLayout = defaultModelLayout(staticPortrait)
   const session: ModelPreviewSession = useModelPreview({
     modelUrl: localAssetUrl(dataPath, `models/${modelId}/${entry.entry}`),
-    framing: 'fit',
+    framing: { kind: 'fit' },
     staticPortrait,
-    anchor: layout.anchor,
-    normalScale: layout.normalScale,
     motions: entry.motions,
     facials: entry.facials,
     renderPrecision: resolveRenderPrecision(playback.renderPrecision),

@@ -61,13 +61,11 @@ export type ModelPreviewSession = {
 export type ModelPreviewTarget = {
   modelUrl: string | null
   /**
-   * `stage` frames the model as the story does (anchor and scale apply); `fit` shows the whole
-   * model centered in the preview.
+   * `stage` frames the model as the story does, with the project's anchor and scale; `fit` shows
+   * the whole model centered in the preview.
    */
-  framing: 'stage' | 'fit'
+  framing: { kind: 'fit' } | ({ kind: 'stage' } & ModelLayout)
   staticPortrait: boolean
-  anchor: number
-  normalScale: number
   motions: readonly string[]
   facials: readonly string[]
   renderPrecision: number
@@ -95,10 +93,12 @@ export function useModelPreviewSession(
 
   return useModelPreview({
     modelUrl,
-    framing: 'stage',
+    framing: {
+      kind: 'stage',
+      anchor: input.assets.models[modelKey]?.anchor ?? 0.5,
+      normalScale: input.assets.models[modelKey]?.normalScale ?? 1
+    },
     staticPortrait: registryEntry ? isStaticModelEntry(registryEntry.entry) : false,
-    anchor: input.assets.models[modelKey]?.anchor ?? 0.5,
-    normalScale: input.assets.models[modelKey]?.normalScale ?? 1,
     motions: registryEntry?.motions ?? [],
     facials: registryEntry?.facials ?? [],
     renderPrecision: resolveRenderPrecision(input.settings?.playback?.renderPrecision),
@@ -110,8 +110,6 @@ export function useModelPreview({
   modelUrl,
   framing,
   staticPortrait,
-  anchor,
-  normalScale,
   motions,
   facials,
   renderPrecision,
@@ -121,18 +119,21 @@ export function useModelPreview({
   const modelRef = useRef<StoryModelDisplay | null>(null)
   const playbackTokenRef = useRef<number>(0)
   const facialTokenRef = useRef<number>(0)
-  const layoutRef = useRef<ModelLayout>({ anchor: 0.5, normalScale: 1 })
   const framingRef = useRef<ModelPreviewTarget['framing']>(framing)
   const fitRef = useRef<(() => void) | null>(null)
   const [status, setStatus] = useState<ModelPreviewStatus>('loading')
   const [motion, setMotion] = useState<string>('')
   const [facial, setFacial] = useState<string>('')
 
+  // `framing` is a new object each render, so the effect watches its fields.
+  const stageLayout: ModelLayout | null = framing.kind === 'stage' ? framing : null
+  const stageAnchor: number | undefined = stageLayout?.anchor
+  const stageScale: number | undefined = stageLayout?.normalScale
   useEffect((): void => {
-    layoutRef.current = { anchor, normalScale }
     framingRef.current = framing
     fitRef.current?.()
-  }, [anchor, normalScale, framing])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [framing.kind, stageAnchor, stageScale])
 
   useEffect((): (() => void) | undefined => {
     const stageElement: HTMLDivElement | null = stageRef.current
@@ -150,9 +151,9 @@ export function useModelPreview({
 
     function fit(): void {
       if (!app || !model) return
-      const { anchor: modelAnchor, normalScale: modelScale }: ModelLayout = layoutRef.current
+      const currentFraming: ModelPreviewTarget['framing'] = framingRef.current
       const { width, height } = app.screen
-      if (framingRef.current === 'fit') {
+      if (currentFraming.kind === 'fit') {
         const { originalWidth, originalHeight } = model.internalModel
         model.anchor.set(0.5)
         model.scale.set(
@@ -161,8 +162,8 @@ export function useModelPreview({
         model.position.set(width / 2, height / 2)
         return
       }
-      model.anchor.set(0.5, modelAnchor)
-      model.scale.set((height / model.internalModel.originalHeight) * modelScale)
+      model.anchor.set(0.5, currentFraming.anchor)
+      model.scale.set((height / model.internalModel.originalHeight) * currentFraming.normalScale)
       model.position.set(width * MODEL_PIVOT_POSITION.x, height * MODEL_PIVOT_POSITION.y)
     }
     fitRef.current = fit
