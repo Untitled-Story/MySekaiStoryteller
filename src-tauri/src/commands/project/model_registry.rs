@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use zip::ZipArchive;
@@ -36,10 +36,13 @@ fn model_registry_from_dirs(models_dir: &Path) -> Result<Value, String> {
         let Some(model_entry) = find_model_entry_file(&entry.path())? else {
             continue;
         };
-        let (motions, facials): (Vec<String>, Vec<String>) =
+        let (motions, facials): (Vec<String>, Vec<String>) = if is_image_entry_name(&model_entry) {
+            Default::default()
+        } else {
             read_json_file(&entry.path().join(&model_entry))
                 .map(|entry_json: Value| motion_catalog_from_json(&entry_json))
-                .unwrap_or_default();
+                .unwrap_or_default()
+        };
         models.insert(
             model_id,
             serde_json::json!({
@@ -56,9 +59,13 @@ fn model_registry_from_dirs(models_dir: &Path) -> Result<Value, String> {
     ])))
 }
 
-pub(crate) fn find_unique_model_entry_file(model_dir: &Path) -> Result<String, String> {
+/// Lists the root files of a model directory accepted by `predicate`, sorted by name.
+fn root_files_matching(
+    model_dir: &Path,
+    predicate: fn(&str) -> bool,
+) -> Result<Vec<String>, String> {
     let entries = fs::read_dir(model_dir).map_err(|error| error.to_string())?;
-    let mut model_entries: Vec<String> = entries
+    let mut names: Vec<String> = entries
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
             entry
@@ -68,42 +75,38 @@ pub(crate) fn find_unique_model_entry_file(model_dir: &Path) -> Result<String, S
         })
         .filter_map(|entry| {
             let file_name: String = entry.file_name().to_string_lossy().to_string();
-            is_model_entry_name(&file_name).then_some(file_name)
+            predicate(&file_name).then_some(file_name)
         })
         .collect();
+    names.sort();
+    Ok(names)
+}
 
-    model_entries.sort();
+/// A Live2D model directory also holds texture images at its root, so a static image is only
+/// the entry when no Live2D entry exists.
+pub(crate) fn find_unique_model_entry_file(model_dir: &Path) -> Result<String, String> {
+    let mut model_entries = root_files_matching(model_dir, is_live2d_entry_name)?;
+    if model_entries.is_empty() {
+        model_entries = root_files_matching(model_dir, is_image_entry_name)?;
+    }
     match model_entries.len() {
         1 => Ok(model_entries.remove(0)),
-        0 => Err(format!(
-            "模型目录缺少 Live2D 模型入口: {}",
-            model_dir.display()
-        )),
+        0 => Err(format!("模型目录缺少模型入口: {}", model_dir.display())),
         _ => Err(format!(
-            "模型目录包含多个 Live2D 模型入口，无法确定要使用的模型: {}",
+            "模型目录包含多个模型入口，无法确定要使用的模型: {}",
             model_dir.display()
         )),
     }
 }
 
 pub(crate) fn find_model_entry_file(model_dir: &Path) -> Result<Option<String>, String> {
-    let entries = fs::read_dir(model_dir).map_err(|error| error.to_string())?;
-    let mut model_entries: Vec<String> = entries
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .file_type()
-                .map(|file_type| file_type.is_file())
-                .unwrap_or(false)
-        })
-        .filter_map(|entry| {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            is_model_entry_name(&file_name).then_some(file_name)
-        })
-        .collect();
-
-    model_entries.sort();
-    Ok(model_entries.into_iter().next())
+    let live2d_entries = root_files_matching(model_dir, is_live2d_entry_name)?;
+    if let Some(entry) = live2d_entries.into_iter().next() {
+        return Ok(Some(entry));
+    }
+    Ok(root_files_matching(model_dir, is_image_entry_name)?
+        .into_iter()
+        .next())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +130,12 @@ pub struct ModelArchiveInspection {
 }
 
 const MAX_ARCHIVE_FILES: usize = 20_000;
+
+enum ModelSource {
+    Archive(String),
+    Directory(PathBuf),
+    Image(PathBuf),
+}
 const MAX_ARCHIVE_UNCOMPRESSED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[tauri::command]
@@ -156,7 +165,7 @@ pub fn get_model_registry(app: AppHandle) -> Result<Value, String> {
         }
         if let Some(selected_entry) = stored_entry.get("entry").and_then(Value::as_str) {
             let selected_path = models_dir.join(model_id).join(selected_entry);
-            if is_model_entry_name(selected_entry) && selected_path.is_file() {
+            if is_live2d_entry_name(selected_entry) && selected_path.is_file() {
                 let selected_json = read_json_file(&selected_path)?;
                 if is_model_entry_json(&selected_json) {
                     let (motions, facials) = motion_catalog_from_json(&selected_json);
@@ -237,7 +246,23 @@ pub fn import_global_model(
         .map_err(|error| format!("读取全局模型目录失败: {error}"))?;
 
     let is_archive = is_zip_archive(&source_entry)?;
-    let (entry_name, directory_name, source_dir, selected_archive_entry) = if is_archive {
+    let image_extension = if is_archive {
+        None
+    } else {
+        image_extension_from_signature(&source_entry)?
+    };
+    let (entry_name, directory_name, source) = if let Some(extension) = image_extension {
+        let directory_name = source_entry
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("portrait")
+            .to_string();
+        (
+            format!("portrait.{extension}"),
+            directory_name,
+            ModelSource::Image(source_entry.clone()),
+        )
+    } else if is_archive {
         let inspection = inspect_archive(&source_entry)?;
         let selected = select_archive_entry(&inspection, archive_entry.as_deref())?;
         let selected_entry_name = selected
@@ -245,7 +270,7 @@ pub fn import_global_model(
             .next()
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "ZIP 模型入口路径无效".to_string())?;
-        if !is_model_entry_name(selected_entry_name) {
+        if !is_live2d_entry_name(selected_entry_name) {
             return Err("ZIP 中请选择有效的 Live2D 模型入口".into());
         }
         let entry_json = read_archive_json(&source_entry, &selected)?;
@@ -262,7 +287,7 @@ pub fn import_global_model(
             .or_else(|| source_entry.file_stem().and_then(|value| value.to_str()))
             .unwrap_or("model")
             .to_string();
-        (entry_name, directory_name, None, Some(selected))
+        (entry_name, directory_name, ModelSource::Archive(selected))
     } else {
         if materialized.copied {
             return Err(
@@ -275,8 +300,11 @@ pub fn import_global_model(
             .and_then(|value| value.to_str())
             .ok_or_else(|| "模型入口文件名无效".to_string())?
             .to_string();
-        if !is_model_entry_name(&entry_name) {
-            return Err("请选择 *.model3.json、*.model.json、model.json 或 *.zip".into());
+        if !is_live2d_entry_name(&entry_name) {
+            return Err(
+                "请选择 *.model3.json、*.model.json、model.json、*.zip 或 PNG/JPEG/WebP 图片"
+                    .into(),
+            );
         }
         let raw_entry = fs::read_to_string(&source_entry)
             .map_err(|error| format!("读取模型入口失败: {error}"))?;
@@ -298,7 +326,11 @@ pub fn import_global_model(
             .and_then(|value| value.to_str())
             .unwrap_or("model")
             .to_string();
-        (entry_name, directory_name, Some(source_dir), None)
+        (
+            entry_name,
+            directory_name,
+            ModelSource::Directory(source_dir),
+        )
     };
 
     let model_id = next_model_id(&models_dir, &normalize_model_id(&directory_name));
@@ -316,12 +348,12 @@ pub fn import_global_model(
     }
     models.insert(model_id.clone(), Value::Object(registry_entry));
 
-    let prepare_result = if let Some(selected) = selected_archive_entry {
-        extract_archive_model(&source_entry, &selected, &entry_name, &temporary)
-    } else if let Some(source_dir) = source_dir {
-        copy_model_directory(&source_dir, &temporary)
-    } else {
-        Err("无法确定模型导入来源".to_string())
+    let prepare_result = match &source {
+        ModelSource::Archive(selected) => {
+            extract_archive_model(&source_entry, selected, &entry_name, &temporary)
+        }
+        ModelSource::Directory(source_dir) => copy_model_directory(source_dir, &temporary),
+        ModelSource::Image(image) => copy_static_portrait(image, &entry_name, &temporary),
     };
     if let Err(error) = prepare_result {
         let _ = fs::remove_dir_all(&temporary);
@@ -413,7 +445,7 @@ fn inspect_archive(source: &Path) -> Result<ModelArchiveInspection, String> {
         }
         let file_name = path.rsplit('/').next().unwrap_or(&path);
         candidates.push(ModelArchiveCandidate {
-            recognized: is_model_entry_name(file_name),
+            recognized: is_live2d_entry_name(file_name),
             path,
         });
     }
@@ -585,11 +617,44 @@ fn validate_archive_name(value: &str) -> Result<String, String> {
     Ok(path.to_string())
 }
 
-pub(crate) fn is_model_entry_name(file_name: &str) -> bool {
+pub(crate) fn is_live2d_entry_name(file_name: &str) -> bool {
     let normalized = file_name.to_ascii_lowercase();
     normalized.ends_with(".model3.json")
         || normalized == "model.json"
         || normalized.ends_with(".model.json")
+}
+
+pub(crate) fn is_image_entry_name(file_name: &str) -> bool {
+    let normalized = file_name.to_ascii_lowercase();
+    [".png", ".jpg", ".jpeg", ".webp"]
+        .iter()
+        .any(|extension| normalized.ends_with(extension))
+}
+
+pub(crate) fn is_model_entry_name(file_name: &str) -> bool {
+    is_live2d_entry_name(file_name) || is_image_entry_name(file_name)
+}
+
+/// Identifies a static portrait by its signature instead of its name, because files picked on
+/// Android arrive with provider-generated names that may lack an extension.
+fn image_extension_from_signature(path: &Path) -> Result<Option<&'static str>, String> {
+    let mut file = File::open(path).map_err(|error| format!("读取立绘文件失败: {error}"))?;
+    let mut header = [0_u8; 12];
+    let read = file
+        .read(&mut header)
+        .map_err(|error| format!("读取立绘文件失败: {error}"))?;
+    let header = &header[..read];
+    Ok(
+        if header.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+            Some("png")
+        } else if header.starts_with(&[0xff, 0xd8, 0xff]) {
+            Some("jpg")
+        } else if header.len() == 12 && &header[..4] == b"RIFF" && &header[8..] == b"WEBP" {
+            Some("webp")
+        } else {
+            None
+        },
+    )
 }
 
 pub(crate) fn is_model_entry_json(entry: &Value) -> bool {
@@ -666,6 +731,15 @@ fn next_model_id(models_dir: &Path, base: &str) -> String {
     }
 }
 
+fn copy_static_portrait(source: &Path, entry_name: &str, destination: &Path) -> Result<(), String> {
+    fs::create_dir(destination).map_err(|error| format!("创建模型导入目录失败: {error}"))?;
+    fs::copy(source, destination.join(entry_name)).map_err(|error| {
+        let _ = fs::remove_dir_all(destination);
+        format!("复制立绘文件失败: {error}")
+    })?;
+    Ok(())
+}
+
 fn copy_model_directory(source: &Path, destination: &Path) -> Result<(), String> {
     fs::create_dir(destination).map_err(|error| format!("创建模型导入目录失败: {error}"))?;
     let result = (|| -> Result<(), String> {
@@ -736,7 +810,8 @@ fn unique_suffix() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_archive_model, inspect_archive, is_model_entry_json, is_model_entry_name,
+        extract_archive_model, find_model_entry_file, image_extension_from_signature,
+        inspect_archive, is_image_entry_name, is_live2d_entry_name, is_model_entry_json,
         is_zip_archive, motion_catalog_from_json, next_model_id, normalize_model_id,
         read_archive_json, select_archive_entry,
     };
@@ -750,9 +825,57 @@ mod tests {
 
     #[test]
     fn accepts_live2d_entry_names() {
-        assert!(is_model_entry_name("Hatsune.model3.json"));
-        assert!(is_model_entry_name("model.json"));
-        assert!(!is_model_entry_name("settings.json"));
+        assert!(is_live2d_entry_name("Hatsune.model3.json"));
+        assert!(is_live2d_entry_name("model.json"));
+        assert!(!is_live2d_entry_name("settings.json"));
+        assert!(!is_live2d_entry_name("portrait.png"));
+    }
+
+    #[test]
+    fn accepts_static_image_entry_names() {
+        assert!(is_image_entry_name("portrait.PNG"));
+        assert!(is_image_entry_name("a.webp"));
+        assert!(!is_image_entry_name("model3.json"));
+    }
+
+    #[test]
+    fn detects_image_format_from_signature() {
+        let root = std::env::temp_dir().join(format!("mss-image-test-{}", super::unique_suffix()));
+        fs::create_dir_all(&root).expect("create image test directory");
+        let write = |name: &str, bytes: &[u8]| {
+            let path = root.join(name);
+            fs::write(&path, bytes).expect("write image fixture");
+            path
+        };
+        let png = write(
+            "no-extension",
+            &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0],
+        );
+        let jpeg = write("b.bin", &[0xff, 0xd8, 0xff, 0xe0, 0, 0]);
+        let webp = write("c", b"RIFF\0\0\0\0WEBPVP8 ");
+        let text = write("d.png", b"not an image");
+        assert_eq!(image_extension_from_signature(&png).unwrap(), Some("png"));
+        assert_eq!(image_extension_from_signature(&jpeg).unwrap(), Some("jpg"));
+        assert_eq!(image_extension_from_signature(&webp).unwrap(), Some("webp"));
+        assert_eq!(image_extension_from_signature(&text).unwrap(), None);
+        fs::remove_dir_all(root).expect("remove image test directory");
+    }
+
+    #[test]
+    fn prefers_live2d_entry_over_root_textures() {
+        let root = std::env::temp_dir().join(format!("mss-entry-test-{}", super::unique_suffix()));
+        fs::create_dir_all(&root).expect("create entry test directory");
+        fs::write(root.join("texture_00.png"), "png").expect("write texture");
+        assert_eq!(
+            find_model_entry_file(&root).unwrap().as_deref(),
+            Some("texture_00.png")
+        );
+        fs::write(root.join("z.model3.json"), "{}").expect("write entry");
+        assert_eq!(
+            find_model_entry_file(&root).unwrap().as_deref(),
+            Some("z.model3.json")
+        );
+        fs::remove_dir_all(root).expect("remove entry test directory");
     }
 
     #[test]

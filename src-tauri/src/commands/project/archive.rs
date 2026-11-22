@@ -11,8 +11,8 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::assets::validate_assets;
 use super::model_registry::{
-    find_unique_model_entry_file, get_model_registry, is_model_entry_json, is_model_entry_name,
-    write_model_registry,
+    find_unique_model_entry_file, get_model_registry, is_image_entry_name, is_model_entry_json,
+    is_model_entry_name, write_model_registry,
 };
 use super::{
     data_dir, materialize_picked_file, now_millis, project_path, projects_dir, read_json_file,
@@ -776,6 +776,12 @@ fn validate_model_directory(
     expected_entry: &str,
 ) -> Result<(), String> {
     validate_model_entry(expected_entry, model_id)?;
+    if is_image_entry_name(expected_entry) {
+        if !directory.join(expected_entry).is_file() {
+            return Err(format!("模型入口无法识别: {model_id}"));
+        }
+        return Ok(());
+    }
     let entry_json = read_json_file(&directory.join(expected_entry))?;
     if !is_model_entry_json(&entry_json) {
         return Err(format!("模型入口无法识别: {model_id}"));
