@@ -20,8 +20,6 @@ import {
   CirclePlay,
   Clapperboard,
   Ellipsis,
-  FileJson,
-  FileArchive,
   LoaderCircle,
   Package,
   Play,
@@ -56,13 +54,9 @@ import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/style'
 import { isMobileRuntime } from '@/lib/platform'
 import { describeError as describeLogError, logger } from '@/lib/logger'
-import type {
-  ImportedModelResult,
-  ModelArchiveCandidate,
-  ModelRegistry
-} from '@/modelRegistry/schema'
-import { getModelRegistry, importGlobalModel, inspectModelArchive } from '@/modelRegistry/api'
-import { isStaticModelEntry } from '@/modelRegistry/isStaticModelEntry'
+import { ModelSourcePicker, type ModelSource } from '@/components/ModelSourcePicker'
+import type { ImportedModelResult, ModelRegistry } from '@/modelRegistry/schema'
+import { getModelRegistry, importGlobalModel } from '@/modelRegistry/api'
 import {
   deleteProjectAsset,
   getProjectAssetReferences,
@@ -1916,7 +1910,6 @@ function ModelRegistrationDialog({
   ) => Promise<void>
 }): JSX.Element {
   const { t } = useTranslation()
-  const mobileRuntime: boolean = isMobileRuntime()
   const modelEntries = useMemo(
     (): [string, ModelRegistry['models'][string]][] =>
       Object.entries(registry.models).sort(([left], [right]): number => left.localeCompare(right)),
@@ -1925,13 +1918,7 @@ function ModelRegistrationDialog({
   const firstModelId: string = modelEntries[0]?.[0] ?? ''
   const [mode, setMode] = useState<'existing' | 'import'>('existing')
   const [modelId, setModelId] = useState<string>('')
-  const [sourcePath, setSourcePath] = useState<string>('')
-  const [archiveEntry, setArchiveEntry] = useState<string | undefined>(undefined)
-  const [pendingArchivePath, setPendingArchivePath] = useState<string>('')
-  const [archiveCandidates, setArchiveCandidates] = useState<readonly ModelArchiveCandidate[]>([])
-  const [selectedArchiveEntry, setSelectedArchiveEntry] = useState<string>('')
-  const [archiveSelectionOpen, setArchiveSelectionOpen] = useState<boolean>(false)
-  const [inspectingArchive, setInspectingArchive] = useState<boolean>(false)
+  const [source, setSource] = useState<ModelSource | null>(null)
   const [key, setKey] = useState<string>('')
   const [name, setName] = useState<string>('')
   const [submitting, setSubmitting] = useState<boolean>(false)
@@ -1941,85 +1928,12 @@ function ModelRegistrationDialog({
     if (!open) return
     setMode('existing')
     setModelId(firstModelId)
-    setSourcePath('')
-    setArchiveEntry(undefined)
-    setPendingArchivePath('')
-    setArchiveCandidates([])
-    setSelectedArchiveEntry('')
-    setArchiveSelectionOpen(false)
-    setInspectingArchive(false)
+    setSource(null)
     setKey('')
     setName('')
     setSubmitting(false)
     setError('')
   }, [firstModelId, open])
-
-  async function chooseModelEntry(): Promise<void> {
-    const selected = await openFileDialog({
-      multiple: false,
-      directory: false,
-      title: t('editor.chooseLive2dEntry'),
-      filters: [
-        {
-          name: t('editor.live2dModel'),
-          extensions: mobileRuntime ? ['zip'] : ['json', 'zip']
-        },
-        {
-          name: t('editor.staticPortrait'),
-          extensions: ['png', 'jpg', 'jpeg', 'webp']
-        }
-      ]
-    })
-    if (typeof selected !== 'string') return
-
-    setError('')
-    const isZip: boolean = selected.toLocaleLowerCase().endsWith('.zip')
-    if (isStaticModelEntry(selected) || (!mobileRuntime && !isZip)) {
-      setSourcePath(selected)
-      setArchiveEntry(undefined)
-      return
-    }
-
-    setSourcePath('')
-    setArchiveEntry(undefined)
-    setInspectingArchive(true)
-    try {
-      const inspection = await inspectModelArchive(selected)
-      const recognized: ModelArchiveCandidate[] = inspection.candidates.filter(
-        (candidate: ModelArchiveCandidate): boolean => candidate.recognized
-      )
-      if (recognized.length === 1) {
-        setSourcePath(selected)
-        setArchiveEntry(recognized[0].path)
-        return
-      }
-
-      const firstCandidate: ModelArchiveCandidate | undefined =
-        recognized[0] ?? inspection.candidates[0]
-      if (!firstCandidate) {
-        setError(t('editor.noJsonEntry'))
-        return
-      }
-
-      setPendingArchivePath(selected)
-      setArchiveCandidates(recognized.length > 1 ? recognized : inspection.candidates)
-      setSelectedArchiveEntry(firstCandidate.path)
-      setArchiveSelectionOpen(true)
-    } catch (inspectionError: unknown) {
-      if (mobileRuntime && !isZip) {
-        // A picked content URI carries no file extension, so it may be an image rather than a ZIP.
-        // The import command identifies the file by content and reports a precise error otherwise.
-        setSourcePath(selected)
-        setArchiveEntry(undefined)
-        return
-      }
-      setSourcePath('')
-      setArchiveEntry(undefined)
-      setError(describeError(inspectionError, t('editor.inspectModelZipFailed')))
-    } finally {
-      setInspectingArchive(false)
-    }
-  }
 
   async function submit(): Promise<void> {
     if (submitting) return
@@ -2028,8 +1942,8 @@ function ModelRegistrationDialog({
     try {
       if (mode === 'existing') {
         await onRegister(modelId, key, name)
-      } else {
-        await onImport(sourcePath, archiveEntry, key, name)
+      } else if (source) {
+        await onImport(source.sourcePath, source.archiveEntry, key, name)
       }
     } catch (submitError: unknown) {
       setError(
@@ -2114,31 +2028,12 @@ function ModelRegistrationDialog({
               )}
             </label>
           ) : (
-            <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-dashed p-4">
-              <p className="text-sm font-medium">{t('editor.chooseModelSource')}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {mobileRuntime ? t('editor.mobileModelZipHint') : t('editor.desktopModelHint')}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                disabled={submitting || inspectingArchive}
-                onClick={(): void => void chooseModelEntry()}
-              >
-                {inspectingArchive ? t('editor.inspectingZip') : t('common.chooseFile')}
-              </Button>
-              {sourcePath && (
-                <p
-                  className="mt-3 block w-full min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-muted-foreground"
-                  title={sourcePath}
-                >
-                  {fileNameFromPath(sourcePath)}
-                  {archiveEntry ? ` · ${archiveEntry}` : ''}
-                </p>
-              )}
-            </div>
+            <ModelSourcePicker
+              value={source}
+              disabled={submitting}
+              onChange={setSource}
+              onError={setError}
+            />
           )}
 
           <label className="block min-w-0 text-xs font-medium text-muted-foreground">
@@ -2186,9 +2081,7 @@ function ModelRegistrationDialog({
           </Button>
           <Button
             type="button"
-            disabled={
-              submitting || inspectingArchive || (mode === 'existing' ? !modelId : !sourcePath)
-            }
+            disabled={submitting || (mode === 'existing' ? !modelId : !source)}
             onClick={(): void => void submit()}
           >
             {submitting
@@ -2198,79 +2091,6 @@ function ModelRegistrationDialog({
                 : t('editor.importAndAdd')}
           </Button>
         </DialogFooter>
-        <Dialog open={archiveSelectionOpen} onOpenChange={setArchiveSelectionOpen}>
-          <DialogContent className="max-w-xl min-w-0 overflow-hidden">
-            <DialogHeader>
-              <DialogTitle>{t('editor.chooseZipEntry')}</DialogTitle>
-              <DialogDescription>
-                {archiveCandidates.some(
-                  (candidate: ModelArchiveCandidate): boolean => candidate.recognized
-                )
-                  ? t('editor.chooseRecognizedEntry')
-                  : t('editor.chooseJsonEntry')}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="max-h-80 space-y-1 overflow-y-auto rounded-md border bg-muted/15 p-1.5 scrollbar-thin scrollbar-thumb-muted-foreground/25 scrollbar-track-transparent">
-              {archiveCandidates.map(
-                (candidate: ModelArchiveCandidate): JSX.Element => (
-                  <button
-                    key={candidate.path}
-                    type="button"
-                    className={cn(
-                      'flex w-full min-w-0 items-center gap-3 rounded-sm px-3 py-2 text-left transition-colors',
-                      selectedArchiveEntry === candidate.path
-                        ? 'bg-emerald-500/10 ring-1 ring-emerald-500/40'
-                        : 'hover:bg-accent'
-                    )}
-                    onClick={(): void => setSelectedArchiveEntry(candidate.path)}
-                  >
-                    {candidate.recognized ? (
-                      <FileArchive className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    ) : (
-                      <FileJson className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                    )}
-                    <span
-                      className="min-w-0 flex-1 truncate font-mono text-xs"
-                      title={candidate.path}
-                    >
-                      {candidate.path}
-                    </span>
-                    <span
-                      className={cn(
-                        'shrink-0 rounded-sm px-1.5 py-0.5 text-[10px]',
-                        candidate.recognized
-                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                      )}
-                    >
-                      {candidate.recognized ? t('editor.recognized') : t('editor.plainJson')}
-                    </span>
-                  </button>
-                )
-              )}
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={(): void => setArchiveSelectionOpen(false)}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type="button"
-                disabled={!selectedArchiveEntry}
-                onClick={(): void => {
-                  setSourcePath(pendingArchivePath)
-                  setArchiveEntry(selectedArchiveEntry)
-                  setArchiveSelectionOpen(false)
-                }}
-              >
-                {t('editor.useEntry')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </DialogContent>
     </Dialog>
   )
@@ -2345,8 +2165,4 @@ function waitForDelay(delayMs: number): Promise<void> {
   return new Promise<void>((resolve: () => void): void => {
     window.setTimeout(resolve, delayMs)
   })
-}
-
-function fileNameFromPath(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 }
