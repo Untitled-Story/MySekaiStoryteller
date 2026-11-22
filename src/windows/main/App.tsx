@@ -3,6 +3,7 @@ import LeftSidebar from '@/windows/main/components/LeftSidebar'
 import { Route, Routes, useLocation } from 'react-router'
 import HomePage from '@/windows/main/pages/HomePage'
 import ProjectsPage from '@/windows/main/pages/ProjectsPage'
+import ModelsPage from '@/windows/main/pages/ModelsPage'
 import SettingsPage from '@/windows/main/pages/SettingsPage'
 import AboutPage from '@/windows/main/pages/AboutPage'
 import { SettingsProvider } from '@/settings/SettingsProvider'
@@ -102,6 +103,7 @@ function AppContent(): React.JSX.Element {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/models" element={<ModelsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/about" element={<AboutPage />} />
           {inAppNavigation ? (
