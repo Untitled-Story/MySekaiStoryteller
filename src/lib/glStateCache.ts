@@ -114,6 +114,10 @@ export function installWebGLStateShadowCache(gl: AnyWebGLContext | null | undefi
     hasCurrentProgram = false
     shadow.vaoElementBuffer.clear()
     shadow.vaoAttribEnabled.clear()
+    curActiveTexEnum = -1
+    curActiveTexUnit = -1
+    realActiveTexEnum = -1
+    tex2dByUnit.fill(undefined)
   }
 
   let currentProgram: WebGLProgram | null = null
@@ -390,6 +394,7 @@ export function installWebGLStateShadowCache(gl: AnyWebGLContext | null | undefi
 
   let curActiveTexEnum: number = -1
   let curActiveTexUnit: number = -1
+  let realActiveTexEnum: number = -1
   const tex2dByUnit: (WebGLTexture | null | undefined)[] = new Array<
     WebGLTexture | null | undefined
   >(32)
@@ -416,6 +421,13 @@ export function installWebGLStateShadowCache(gl: AnyWebGLContext | null | undefi
   let curBlendSrcAlpha: number = -1
   let curBlendDstAlpha: number = -1
 
+  const flushActiveTexture = (): void => {
+    if (curActiveTexEnum !== -1 && realActiveTexEnum !== curActiveTexEnum) {
+      realActiveTexEnum = curActiveTexEnum
+      origActiveTexture(curActiveTexEnum)
+    }
+  }
+
   gl.activeTexture = (texture: number): void => {
     if (curActiveTexEnum === texture) {
       return
@@ -423,7 +435,6 @@ export function installWebGLStateShadowCache(gl: AnyWebGLContext | null | undefi
     curActiveTexEnum = texture
     curActiveTexUnit = texture - gl.TEXTURE0
     shadow.params.set(gl.ACTIVE_TEXTURE, texture)
-    origActiveTexture(texture)
   }
 
   gl.bindTexture = (target: number, texture: WebGLTexture | null): void => {
@@ -442,8 +453,35 @@ export function installWebGLStateShadowCache(gl: AnyWebGLContext | null | undefi
         shadow.tex2dBindings.set(unit, texture)
       }
     }
+    flushActiveTexture()
     origBindTexture(target, texture)
   }
+
+  const origTexParameteri: typeof gl.texParameteri = gl.texParameteri.bind(gl)
+  gl.texParameteri = (target: number, pname: number, param: number): void => {
+    flushActiveTexture()
+    origTexParameteri(target, pname, param)
+  }
+  const origTexParameterf: typeof gl.texParameterf = gl.texParameterf.bind(gl)
+  gl.texParameterf = (target: number, pname: number, param: number): void => {
+    flushActiveTexture()
+    origTexParameterf(target, pname, param)
+  }
+  const origGenerateMipmap: typeof gl.generateMipmap = gl.generateMipmap.bind(gl)
+  gl.generateMipmap = (target: number): void => {
+    flushActiveTexture()
+    origGenerateMipmap(target)
+  }
+  const origTexImage2D: typeof gl.texImage2D = gl.texImage2D.bind(gl)
+  gl.texImage2D = ((...args: unknown[]): void => {
+    flushActiveTexture()
+    ;(origTexImage2D as (...a: unknown[]) => void)(...args)
+  }) as typeof gl.texImage2D
+  const origTexSubImage2D: typeof gl.texSubImage2D = gl.texSubImage2D.bind(gl)
+  gl.texSubImage2D = ((...args: unknown[]): void => {
+    flushActiveTexture()
+    ;(origTexSubImage2D as (...a: unknown[]) => void)(...args)
+  }) as typeof gl.texSubImage2D
 
   gl.bindBuffer = (target: number, buffer: WebGLBuffer | null): void => {
     if (target === gl.ARRAY_BUFFER) {

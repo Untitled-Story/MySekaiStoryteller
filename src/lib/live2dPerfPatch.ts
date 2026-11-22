@@ -26,8 +26,24 @@ type ModelColorRgba = {
   a: number
 }
 
+type UnifiedModelGeometry = {
+  drawableCount: number
+  vtxFloatOffsets: Int32Array
+  vtxFloatCounts: Int32Array
+  idxByteOffsets: Int32Array
+  idxCounts: Int32Array
+  packedVertices: Float32Array
+  dynamicVtxBuf: WebGLBuffer
+  staticUvBuf: WebGLBuffer
+  staticIdxBuf: WebGLBuffer
+  vaos: Map<number, WebGLVertexArrayObject>
+  firstFrame: boolean
+  lastVao: WebGLVertexArrayObject | null
+}
+
 type CubismRendererLike = {
   gl: WebGL2RenderingContext | WebGLRenderingContext | null
+  _model?: unknown
   _modelColor?: ModelColorRgba
   _bufferData?: CubismRendererBufferData
   __staticUvBuffers?: (WebGLBuffer | null)[]
@@ -36,8 +52,11 @@ type CubismRendererLike = {
   __vertexBufferVersions?: number[]
   __lastVertexData?: (Float32Array | undefined)[]
   __drawableVaosByProgram?: Map<WebGLProgram, (WebGLVertexArrayObject | null)[]>
+  __unifiedGeom?: UnifiedModelGeometry | null
+  __unifiedGeomFailed?: boolean
   __skipState?: SkipUploadState
   __drawVersion?: number
+  getModel?: () => unknown
   isPremultipliedAlpha?: () => boolean
   getModelColor?: () => ModelColorRgba
   getModelColorWithOpacity?: (opacity: number) => ModelColorRgba
@@ -78,6 +97,20 @@ type Live2DModelPatchTarget = {
 type SkipUploadState = {
   inDrawMesh: boolean
   activeIndex: number
+  unified: UnifiedModelGeometry | null
+  attribCount: number
+  posLoc: number
+  texLoc: number
+  origBindBuffer: (target: number, buffer: WebGLBuffer | null) => void
+  origEnableVertexAttribArray: (index: number) => void
+  origVertexAttribPointer: (
+    index: number,
+    size: number,
+    type: number,
+    normalized: boolean,
+    stride: number,
+    offset: number
+  ) => void
   activeVaosByProgram: Map<WebGLProgram, (WebGLVertexArrayObject | null)[]> | null
   lastVaosMap: Map<WebGLProgram, (WebGLVertexArrayObject | null)[]> | null
   lastProgram: WebGLProgram | null
@@ -107,9 +140,25 @@ function getSkipState(gl: WebGL2RenderingContext | WebGLRenderingContext): SkipU
     typeof (gl as WebGL2RenderingContext).createVertexArray === 'function'
       ? (gl as WebGL2RenderingContext)
       : null
+  const origBindBuffer: typeof gl.bindBuffer = gl.bindBuffer.bind(gl)
+  const origBufferData: typeof gl.bufferData = gl.bufferData.bind(gl)
+  const origBufferSubData: typeof gl.bufferSubData = gl.bufferSubData.bind(gl)
+  const origEnableVertexAttribArray: typeof gl.enableVertexAttribArray =
+    gl.enableVertexAttribArray.bind(gl)
+  const origVertexAttribPointer: typeof gl.vertexAttribPointer = gl.vertexAttribPointer.bind(gl)
+  const origUseProgram: typeof gl.useProgram = gl.useProgram.bind(gl)
+  const origDrawElements: typeof gl.drawElements = gl.drawElements.bind(gl)
+
   state = {
     inDrawMesh: false,
     activeIndex: 0,
+    unified: null,
+    attribCount: 0,
+    posLoc: 0,
+    texLoc: 1,
+    origBindBuffer,
+    origEnableVertexAttribArray,
+    origVertexAttribPointer,
     activeVaosByProgram: null,
     lastVaosMap: null,
     lastProgram: null,
@@ -126,20 +175,16 @@ function getSkipState(gl: WebGL2RenderingContext | WebGLRenderingContext): SkipU
   }
   SKIP_STATE_BY_GL.set(gl, state)
 
-  const origBindBuffer: typeof gl.bindBuffer = gl.bindBuffer.bind(gl)
-  const origBufferData: typeof gl.bufferData = gl.bufferData.bind(gl)
-  const origBufferSubData: typeof gl.bufferSubData = gl.bufferSubData.bind(gl)
-  const origEnableVertexAttribArray: typeof gl.enableVertexAttribArray =
-    gl.enableVertexAttribArray.bind(gl)
-  const origVertexAttribPointer: typeof gl.vertexAttribPointer = gl.vertexAttribPointer.bind(gl)
-  const origUseProgram: typeof gl.useProgram = gl.useProgram.bind(gl)
-
   gl.useProgram = (program: WebGLProgram | null): void => {
     if (state!.inDrawMesh) {
       if (program === null) {
         return
       }
       origUseProgram(program)
+      if (state!.unified) {
+        state!.attribCount = 0
+        return
+      }
       const vaosByProgram: Map<WebGLProgram, (WebGLVertexArrayObject | null)[]> | null =
         state!.activeVaosByProgram
       const ctx2: WebGL2RenderingContext | null = state!.gl2
@@ -181,6 +226,9 @@ function getSkipState(gl: WebGL2RenderingContext | WebGLRenderingContext): SkipU
   }
 
   gl.bindBuffer = (target: number, buffer: WebGLBuffer | null): void => {
+    if (state!.unified && state!.inDrawMesh) {
+      return
+    }
     if (target === gl.ARRAY_BUFFER) {
       state!.boundArrayBuf = buffer
     } else if (target === gl.ELEMENT_ARRAY_BUFFER) {
@@ -207,6 +255,15 @@ function getSkipState(gl: WebGL2RenderingContext | WebGLRenderingContext): SkipU
   }
 
   gl.enableVertexAttribArray = (index: number): void => {
+    if (state!.unified && state!.inDrawMesh) {
+      if (state!.attribCount === 0) {
+        state!.posLoc = index
+      } else if (state!.attribCount === 1) {
+        state!.texLoc = index
+      }
+      state!.attribCount += 1
+      return
+    }
     if (state!.vaoActive) {
       return
     }
@@ -221,10 +278,44 @@ function getSkipState(gl: WebGL2RenderingContext | WebGLRenderingContext): SkipU
     stride: number,
     offset: number
   ): void => {
-    if (state!.vaoActive) {
+    if ((state!.unified && state!.inDrawMesh) || state!.vaoActive) {
       return
     }
     origVertexAttribPointer(index, size, type, normalized, stride, offset)
+  }
+
+  gl.drawElements = (mode: number, count: number, type: number, offset: number): void => {
+    const unified: UnifiedModelGeometry | null = state!.unified
+    if (unified && state!.inDrawMesh) {
+      const ctx2: WebGL2RenderingContext | null = state!.gl2
+      if (ctx2) {
+        const key: number = (state!.posLoc << 8) | state!.texLoc
+        let vao: WebGLVertexArrayObject | undefined = unified.vaos.get(key)
+        if (!vao) {
+          const created: WebGLVertexArrayObject | null = ctx2.createVertexArray()
+          if (created) {
+            vao = created
+            unified.vaos.set(key, vao)
+            ctx2.bindVertexArray(vao)
+            origBindBuffer(gl.ARRAY_BUFFER, unified.dynamicVtxBuf)
+            origEnableVertexAttribArray(state!.posLoc)
+            origVertexAttribPointer(state!.posLoc, 2, gl.FLOAT, false, 0, 0)
+            origBindBuffer(gl.ARRAY_BUFFER, unified.staticUvBuf)
+            origEnableVertexAttribArray(state!.texLoc)
+            origVertexAttribPointer(state!.texLoc, 2, gl.FLOAT, false, 0, 0)
+            origBindBuffer(gl.ELEMENT_ARRAY_BUFFER, unified.staticIdxBuf)
+            unified.lastVao = vao
+          }
+        } else if (unified.lastVao !== vao) {
+          ctx2.bindVertexArray(vao)
+          unified.lastVao = vao
+        }
+        const idx: number = state!.activeIndex
+        origDrawElements(mode, unified.idxCounts[idx], type, unified.idxByteOffsets[idx])
+        return
+      }
+    }
+    origDrawElements(mode, count, type, offset)
   }
 
   gl.bufferData = ((
@@ -234,6 +325,9 @@ function getSkipState(gl: WebGL2RenderingContext | WebGLRenderingContext): SkipU
     srcOffset?: number,
     length?: number
   ): void => {
+    if (state!.unified && state!.inDrawMesh) {
+      return
+    }
     if (target === gl.ARRAY_BUFFER) {
       if (state!.vtxBuf !== null && state!.boundArrayBuf === state!.vtxBuf) {
         if (state!.vtxNeedsSubData && srcData !== null && typeof srcData !== 'number') {
@@ -296,6 +390,148 @@ function getSkipState(gl: WebGL2RenderingContext | WebGLRenderingContext): SkipU
   return state
 }
 
+type UnifiedCoreModelLike = InternalCoreModelLike & {
+  getDrawableVertexUvs?: (index: number) => Float32Array
+  getDrawableVertexIndices?: (index: number) => Uint16Array
+  getDrawableDynamicFlagVertexPositionsDidChange?: (index: number) => boolean
+}
+
+function buildUnifiedModelGeometry(
+  gl: WebGL2RenderingContext,
+  coreModel: UnifiedCoreModelLike
+): UnifiedModelGeometry | null {
+  if (
+    typeof coreModel.getDrawableCount !== 'function' ||
+    typeof coreModel.getDrawableVertices !== 'function' ||
+    typeof coreModel.getDrawableVertexUvs !== 'function' ||
+    typeof coreModel.getDrawableVertexIndices !== 'function'
+  ) {
+    return null
+  }
+  const drawableCount: number = coreModel.getDrawableCount()
+  if (drawableCount <= 0) {
+    return null
+  }
+
+  let totalVerts: number = 0
+  let totalIndices: number = 0
+  for (let i: number = 0; i < drawableCount; i += 1) {
+    const verts: Float32Array = coreModel.getDrawableVertices!(i)
+    const indices: Uint16Array = coreModel.getDrawableVertexIndices(i)
+    totalVerts += verts.length >> 1
+    totalIndices += indices.length
+  }
+
+  if (totalVerts <= 0 || totalVerts > 65535 || totalIndices <= 0) {
+    return null
+  }
+
+  const vtxFloatOffsets: Int32Array = new Int32Array(drawableCount)
+  const vtxFloatCounts: Int32Array = new Int32Array(drawableCount)
+  const idxByteOffsets: Int32Array = new Int32Array(drawableCount)
+  const idxCounts: Int32Array = new Int32Array(drawableCount)
+  const packedVertices: Float32Array = new Float32Array(totalVerts * 2)
+  const packedUvs: Float32Array = new Float32Array(totalVerts * 2)
+  const packedIndices: Uint16Array = new Uint16Array(totalIndices)
+
+  let vtxVertCursor: number = 0
+  let idxCursor: number = 0
+  for (let i: number = 0; i < drawableCount; i += 1) {
+    const verts: Float32Array = coreModel.getDrawableVertices!(i)
+    const uvs: Float32Array = coreModel.getDrawableVertexUvs(i)
+    const indices: Uint16Array = coreModel.getDrawableVertexIndices(i)
+    const floatOffset: number = vtxVertCursor * 2
+
+    vtxFloatOffsets[i] = floatOffset
+    vtxFloatCounts[i] = verts.length
+    packedVertices.set(verts, floatOffset)
+    packedUvs.set(uvs, floatOffset)
+
+    idxByteOffsets[i] = idxCursor * 2
+    idxCounts[i] = indices.length
+    for (let j: number = 0; j < indices.length; j += 1) {
+      packedIndices[idxCursor + j] = indices[j] + vtxVertCursor
+    }
+
+    vtxVertCursor += verts.length >> 1
+    idxCursor += indices.length
+  }
+
+  const dynamicVtxBuf: WebGLBuffer | null = gl.createBuffer()
+  const staticUvBuf: WebGLBuffer | null = gl.createBuffer()
+  const staticIdxBuf: WebGLBuffer | null = gl.createBuffer()
+  if (!dynamicVtxBuf || !staticUvBuf || !staticIdxBuf) {
+    if (dynamicVtxBuf) gl.deleteBuffer(dynamicVtxBuf)
+    if (staticUvBuf) gl.deleteBuffer(staticUvBuf)
+    if (staticIdxBuf) gl.deleteBuffer(staticIdxBuf)
+    return null
+  }
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, dynamicVtxBuf)
+  gl.bufferData(gl.ARRAY_BUFFER, packedVertices, gl.DYNAMIC_DRAW)
+  gl.bindBuffer(gl.ARRAY_BUFFER, staticUvBuf)
+  gl.bufferData(gl.ARRAY_BUFFER, packedUvs, gl.STATIC_DRAW)
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, staticIdxBuf)
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, packedIndices, gl.STATIC_DRAW)
+
+  return {
+    drawableCount,
+    vtxFloatOffsets,
+    vtxFloatCounts,
+    idxByteOffsets,
+    idxCounts,
+    packedVertices,
+    dynamicVtxBuf,
+    staticUvBuf,
+    staticIdxBuf,
+    vaos: new Map<number, WebGLVertexArrayObject>(),
+    firstFrame: true,
+    lastVao: null
+  }
+}
+
+function syncUnifiedModelVertices(
+  gl: WebGL2RenderingContext,
+  unified: UnifiedModelGeometry,
+  coreModel: UnifiedCoreModelLike
+): void {
+  unified.lastVao = null
+  if (unified.firstFrame) {
+    unified.firstFrame = false
+    return
+  }
+  const hasFlagFn: boolean =
+    typeof coreModel.getDrawableDynamicFlagVertexPositionsDidChange === 'function'
+  const count: number = unified.drawableCount
+  const vtxFloatOffsets: Int32Array = unified.vtxFloatOffsets
+  const vtxFloatCounts: Int32Array = unified.vtxFloatCounts
+  const packedVertices: Float32Array = unified.packedVertices
+
+  let minDirtyFloat: number = packedVertices.length
+  let maxDirtyFloat: number = 0
+
+  for (let i: number = 0; i < count; i += 1) {
+    if (hasFlagFn && !coreModel.getDrawableDynamicFlagVertexPositionsDidChange!(i)) {
+      continue
+    }
+    const verts: Float32Array = coreModel.getDrawableVertices!(i)
+    const offset: number = vtxFloatOffsets[i]
+    packedVertices.set(verts, offset)
+    if (offset < minDirtyFloat) minDirtyFloat = offset
+    const end: number = offset + vtxFloatCounts[i]
+    if (end > maxDirtyFloat) maxDirtyFloat = end
+  }
+
+  if (maxDirtyFloat > minDirtyFloat) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, unified.dynamicVtxBuf)
+    gl.bufferSubData(
+      gl.ARRAY_BUFFER,
+      minDirtyFloat * 4,
+      packedVertices.subarray(minDirtyFloat, maxDirtyFloat)
+    )
+  }
+}
+
 function patchCubismRendererProto(renderer: CubismRendererLike): void {
   const proto: object | null = Object.getPrototypeOf(renderer)
   if (!proto || PATCHED_RENDERER_PROTOS.has(proto)) {
@@ -342,12 +578,14 @@ function patchCubismRendererProto(renderer: CubismRendererLike): void {
   const origPreDraw: (() => void) | undefined = rendererProto.preDraw
   if (typeof origPreDraw === 'function') {
     rendererProto.preDraw = function (this: CubismRendererLike): void {
-      const gl2: WebGL2RenderingContext | null =
-        this.gl && typeof (this.gl as WebGL2RenderingContext).bindVertexArray === 'function'
-          ? (this.gl as WebGL2RenderingContext)
-          : null
-      if (gl2) {
-        gl2.bindVertexArray(null)
+      if (!this.__unifiedGeom) {
+        const gl2: WebGL2RenderingContext | null =
+          this.gl && typeof (this.gl as WebGL2RenderingContext).bindVertexArray === 'function'
+            ? (this.gl as WebGL2RenderingContext)
+            : null
+        if (gl2) {
+          gl2.bindVertexArray(null)
+        }
       }
       origPreDraw.call(this)
     }
@@ -366,6 +604,25 @@ function patchCubismRendererProto(renderer: CubismRendererLike): void {
         : null
       if (gl2 && prevVao !== null) {
         gl2.bindVertexArray(null)
+      }
+      if (gl2 && !this.__unifiedGeomFailed) {
+        const coreModel: UnifiedCoreModelLike | undefined = (this.getModel?.() ?? this._model) as
+          | UnifiedCoreModelLike
+          | undefined
+        if (coreModel) {
+          let unified: UnifiedModelGeometry | null | undefined = this.__unifiedGeom
+          if (!unified) {
+            unified = buildUnifiedModelGeometry(gl2, coreModel)
+            if (unified) {
+              this.__unifiedGeom = unified
+            } else {
+              this.__unifiedGeomFailed = true
+            }
+          }
+          if (unified) {
+            syncUnifiedModelVertices(gl2, unified, coreModel)
+          }
+        }
       }
       try {
         origDoDrawModel.call(this)
@@ -393,6 +650,16 @@ function patchCubismRendererProto(renderer: CubismRendererLike): void {
       }
 
       const skipState: SkipUploadState = (this.__skipState ??= getSkipState(gl))
+      const unified: UnifiedModelGeometry | null | undefined = this.__unifiedGeom
+      if (unified) {
+        skipState.unified = unified
+        skipState.inDrawMesh = true
+        skipState.activeIndex = index
+        origDrawMesh.call(this, model, index)
+        skipState.inDrawMesh = false
+        skipState.unified = null
+        return
+      }
       const vtxBuffers: (WebGLBuffer | null)[] = (this.__dynamicVertexBuffers ??= [])
       const vtxVersions: number[] = (this.__vertexBufferVersions ??= [])
       const uvBuffers: (WebGLBuffer | null)[] = (this.__staticUvBuffers ??= [])
@@ -481,6 +748,16 @@ function patchCubismRendererProto(renderer: CubismRendererLike): void {
         gl && typeof (gl as WebGL2RenderingContext).deleteVertexArray === 'function'
           ? (gl as WebGL2RenderingContext)
           : null
+      if (gl2 && this.__unifiedGeom) {
+        for (const vao of this.__unifiedGeom.vaos.values()) {
+          gl2.deleteVertexArray(vao)
+        }
+        this.__unifiedGeom.vaos.clear()
+        gl2.deleteBuffer(this.__unifiedGeom.dynamicVtxBuf)
+        gl2.deleteBuffer(this.__unifiedGeom.staticUvBuf)
+        gl2.deleteBuffer(this.__unifiedGeom.staticIdxBuf)
+        this.__unifiedGeom = null
+      }
       if (gl2 && this.__drawableVaosByProgram) {
         for (const vaos of this.__drawableVaosByProgram.values()) {
           for (const vao of vaos) {
@@ -521,6 +798,21 @@ function patchInternalModelProto(proto: InternalModelLike): void {
     return
   }
   PATCHED_INTERNAL_PROTOS.add(proto)
+
+  const origUpdateFocus: (() => void) | undefined = (
+    proto as InternalModelLike & { updateFocus?: () => void }
+  ).updateFocus
+  if (typeof origUpdateFocus === 'function') {
+    ;(proto as InternalModelLike & { updateFocus?: () => void }).updateFocus = function (
+      this: InternalModelLike & { focusController?: { x: number; y: number } }
+    ): void {
+      const fc: { x: number; y: number } | undefined = this.focusController
+      if (fc && fc.x === 0 && fc.y === 0) {
+        return
+      }
+      origUpdateFocus.call(this)
+    }
+  }
 
   const origDraw: ((gl: WebGL2RenderingContext | WebGLRenderingContext) => void) | undefined =
     proto.draw

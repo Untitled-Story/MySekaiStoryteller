@@ -291,9 +291,24 @@ export async function runVideoExport(params: RunVideoExportParams): Promise<Vide
     let lastProgressReportPerf: number = renderStartPerf
     let lastUiYieldPerf: number = renderStartPerf
 
-    await settleDispatcher(clock, () => storyFinished, signal)
+    const subSteps: readonly number[] = splitSubStepDeltas(frameDurationMs)
+    const attachedModels: readonly StoryModelInstance[] = Array.from(runtime.models.values())
+    const isFinished = (): boolean => storyFinished
+    const clearColor: [number, number, number, number] = config.transparentAlpha
+      ? [0, 0, 0, 0]
+      : [0, 0, 0, 1]
+    const renderOptions = renderTarget
+      ? {
+          container: app.stage,
+          target: renderTarget,
+          clear: true,
+          clearColor
+        }
+      : null
+
+    await settleDispatcher(clock, isFinished, signal)
     await scene.waitForVisualEffectsReady()
-    stepAttachedModels(runtime.models.values(), 0)
+    stepAttachedModels(attachedModels, 0)
 
     if (storyError) throw storyError
 
@@ -302,13 +317,8 @@ export async function runVideoExport(params: RunVideoExportParams): Promise<Vide
       throwIfAborted(signal)
       if (storyError) throw storyError
 
-      if (renderTarget) {
-        app.renderer.render({
-          container: app.stage,
-          target: renderTarget,
-          clear: true,
-          clearColor: config.transparentAlpha ? [0, 0, 0, 0] : [0, 0, 0, 1]
-        })
+      if (renderOptions) {
+        app.renderer.render(renderOptions)
       } else {
         app.renderer.render(app.stage)
       }
@@ -349,20 +359,22 @@ export async function runVideoExport(params: RunVideoExportParams): Promise<Vide
         break
       }
 
-      const subSteps: number[] = splitSubStepDeltas(frameDurationMs)
-      for (const subMs of subSteps) {
+      for (let s: number = 0; s < subSteps.length; s += 1) {
+        const subMs: number = subSteps[s]
         throwIfAborted(signal)
         if (storyError) throw storyError
 
         speechCoordinator.updateAt(clock.elapsedTimeMs)
-        clock.step(subMs)
-        await settleDispatcher(clock, () => storyFinished, signal)
-        if (storyError) throw storyError
+        const taskCompleted: boolean = clock.step(subMs)
+        if (taskCompleted || clock.activeTaskCount === 0) {
+          await settleDispatcher(clock, isFinished, signal)
+          if (storyError) throw storyError
+        }
 
         const vfxReady: Promise<void> | void = scene.waitForVisualEffectsReady()
         if (vfxReady) await vfxReady
         scene.stepVisualEffects(subMs)
-        stepAttachedModels(runtime.models.values(), subMs)
+        stepAttachedModels(attachedModels, subMs)
       }
     }
 
@@ -611,7 +623,7 @@ async function settleDispatcher(
 ): Promise<void> {
   await flushMicrotasks(2)
   let zeroTaskYields: number = 0
-  while (!isFinished() && clock.activeTaskCount === 0) {
+  while (!isFinished() && clock.activeTaskCount === 0 && zeroTaskYields < 5000) {
     throwIfAborted(signal)
     if (zeroTaskYields < 4) {
       await yieldToBrowser()
@@ -648,9 +660,9 @@ function yieldToBrowser(): Promise<void> {
   })
 }
 
-function stepAttachedModels(instances: Iterable<StoryModelInstance>, deltaMs: number): void {
-  for (const instance of instances) {
-    const model = instance.model as unknown as ModelUpdateTarget
+function stepAttachedModels(instances: readonly StoryModelInstance[], deltaMs: number): void {
+  for (let i: number = 0; i < instances.length; i += 1) {
+    const model = instances[i].model as unknown as ModelUpdateTarget
     if (!model.parent || !model.visible || !model.internalModel?.update) continue
     model.elapsedTime += deltaMs
     model.deltaTime = 0

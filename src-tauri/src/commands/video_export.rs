@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-#[cfg(any(test, not(any(target_os = "android", target_os = "ios"))))]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::{InvokeBody, Request};
@@ -531,7 +529,7 @@ pub async fn export_finish_session(
                 return Err("导出的视频文件为空".into());
             }
             let write_result =
-                write_picked_destination(&app, &destination_path, &session.output_path);
+                move_picked_destination(&app, &destination_path, &session.output_path);
             let _ = fs::remove_dir_all(&session.session_dir);
             write_result?;
             Ok(FinishExportResponse {
@@ -615,7 +613,7 @@ pub async fn export_finish_session(
                 return Err("FFmpeg 输出文件为空".into());
             }
 
-            let write_result = write_picked_destination(&app, &destination_path, source_file);
+            let write_result = move_picked_destination(&app, &destination_path, source_file);
             let _ = fs::remove_dir_all(&session.session_dir);
             write_result?;
 
@@ -627,6 +625,24 @@ pub async fn export_finish_session(
     })
     .await
     .map_err(|error| format!("完成导出任务失败: {error}"))?
+}
+
+fn move_picked_destination(
+    app: &AppHandle,
+    destination_path: &str,
+    source_file: &Path,
+) -> Result<(), String> {
+    let trimmed = destination_path.trim();
+    if !trimmed.is_empty() && !trimmed.contains("://") && source_file.is_file() {
+        let local = PathBuf::from(trimmed);
+        if let Some(parent) = local.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建导出目录失败: {error}"))?;
+        }
+        if fs::rename(source_file, &local).is_ok() {
+            return Ok(());
+        }
+    }
+    write_picked_destination(app, destination_path, source_file)
 }
 
 #[tauri::command]
@@ -1295,7 +1311,12 @@ fn build_ffmpeg_video_args(
                 "yuv420p".to_string(),
             ]);
             if let Some(crf) = request.crf {
-                args.extend(["-crf".to_string(), crf.to_string()]);
+                let rc_flag = if encoder == "libx264" && preset == "ultrafast" {
+                    "-qp"
+                } else {
+                    "-crf"
+                };
+                args.extend([rc_flag.to_string(), crf.to_string()]);
             } else {
                 args.extend([
                     "-b:v".to_string(),
@@ -1527,6 +1548,13 @@ mod tests {
             build_ffmpeg_video_args(&req, "libx264", Path::new("/tmp/v_x264.mp4")).unwrap();
         assert!(x264_args.windows(2).any(|w| w == ["-preset", "ultrafast"]));
         assert!(x264_args.windows(2).any(|w| w == ["-pix_fmt", "yuv420p"]));
+
+        let mut x264_crf_req = sample_request();
+        x264_crf_req.crf = Some(18);
+        let x264_qp_args =
+            build_ffmpeg_video_args(&x264_crf_req, "libx264", Path::new("/tmp/v_x264_qp.mp4"))
+                .unwrap();
+        assert!(x264_qp_args.windows(2).any(|w| w == ["-qp", "18"]));
     }
 
     #[test]

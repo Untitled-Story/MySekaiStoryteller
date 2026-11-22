@@ -3712,5 +3712,26 @@
       "description": "Opener scope entry.",
       "title": "OpenerScopeEntry"
     }
+  },
+  "webdriver-automation": {
+    "default_permission": {
+      "identifier": "default",
+      "description": "Default permissions for the WebDriver plugin",
+      "permissions": ["allow-resolve"]
+    },
+    "permissions": {
+      "allow-resolve": {
+        "identifier": "allow-resolve",
+        "description": "Enables the resolve command without any pre-configured scope.",
+        "commands": { "allow": ["resolve"], "deny": [] }
+      },
+      "deny-resolve": {
+        "identifier": "deny-resolve",
+        "description": "Denies the resolve command without any pre-configured scope.",
+        "commands": { "allow": [], "deny": ["resolve"] }
+      }
+    },
+    "permission_sets": {},
+    "global_scope_schema": null
   }
 }

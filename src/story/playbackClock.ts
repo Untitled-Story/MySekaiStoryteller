@@ -15,11 +15,15 @@ export class StoryPlaybackClock {
   private readonly app: Application
   private readonly offlineMode: boolean
   private readonly tasks: Set<ClockTask> = new Set()
+  private readonly taskScratch: ClockTask[] = []
   private readonly resumeWaiters: Set<() => void> = new Set()
-  private readonly tick = (ticker: Ticker): void => this.advance(ticker.elapsedMS)
+  private readonly tick = (ticker: Ticker): void => {
+    this.advance(ticker.elapsedMS)
+  }
   private paused = false
   private destroyed = false
   private totalElapsedMs = 0
+  private settledDuringAdvance = false
 
   constructor(app: Application, options: StoryPlaybackClockOptions = {}) {
     this.app = app
@@ -160,21 +164,32 @@ export class StoryPlaybackClock {
     }
   }
 
-  step(deltaMs: number): void {
-    this.advance(deltaMs)
+  step(deltaMs: number): boolean {
+    return this.advance(deltaMs)
   }
 
-  private advance(rawDeltaMs: number): void {
-    if (this.destroyed || this.paused) return
+  private advance(rawDeltaMs: number): boolean {
+    if (this.destroyed || this.paused) return false
 
     // A resumed browser ticker can report the entire paused interval. Cap it to prevent jumps.
     const deltaMs = this.offlineMode
       ? Math.max(rawDeltaMs, 0)
       : Math.min(Math.max(rawDeltaMs, 0), 20)
     this.totalElapsedMs += deltaMs
-    for (const task of [...this.tasks]) {
-      task.tick(deltaMs)
+    this.settledDuringAdvance = false
+    const count: number = this.tasks.size
+    if (count > 0) {
+      const scratch: ClockTask[] = this.taskScratch
+      scratch.length = 0
+      for (const task of this.tasks) {
+        scratch.push(task)
+      }
+      for (let i: number = 0; i < count; i += 1) {
+        scratch[i].tick(deltaMs)
+      }
+      scratch.length = 0
     }
+    return this.settledDuringAdvance
   }
 
   private createTask(
@@ -190,6 +205,7 @@ export class StoryPlaybackClock {
       const settle = (error?: unknown): void => {
         if (settled) return
         settled = true
+        this.settledDuringAdvance = true
         if (task) this.tasks.delete(task)
         signal?.removeEventListener('abort', abort)
         if (error) {
