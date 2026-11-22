@@ -137,6 +137,8 @@ export const en: LocaleShape = {
     title: 'Models',
     count: '{{count}} models',
     description: 'Manage the Live2D models and portraits shared by all projects.',
+    preview: 'Preview',
+    previewAria: 'Preview {{name}}',
     refresh: 'Refresh models',
     import: 'Import',
     importTitle: 'Import model',

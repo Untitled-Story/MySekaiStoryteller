@@ -131,6 +131,8 @@ export const zhHK: LocaleShape = {
     title: '模型',
     count: '{{count}} 個模型',
     description: '管理所有專案共用的 Live2D 模型和靜態立繪。',
+    preview: '預覽',
+    previewAria: '預覽 {{name}}',
     refresh: '重新整理模型',
     import: '匯入',
     importTitle: '匯入模型',

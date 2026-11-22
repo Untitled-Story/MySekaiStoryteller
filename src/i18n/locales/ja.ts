@@ -133,6 +133,8 @@ export const ja: typeof en = {
     title: 'モデル',
     count: '{{count}}件のモデル',
     description: 'すべてのプロジェクトで共有するLive2Dモデルと立ち絵を管理します。',
+    preview: 'プレビュー',
+    previewAria: '{{name}}をプレビュー',
     refresh: 'モデルを更新',
     import: 'インポート',
     importTitle: 'モデルをインポート',

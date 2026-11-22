@@ -127,6 +127,8 @@ export const zhCN = {
     title: '模型',
     count: '{{count}} 个模型',
     description: '管理所有项目共用的 Live2D 模型和静态立绘。',
+    preview: '预览',
+    previewAria: '预览 {{name}}',
     refresh: '刷新模型',
     import: '导入',
     importTitle: '导入模型',
