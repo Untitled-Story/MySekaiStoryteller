@@ -37,6 +37,10 @@ export function ModelOptionSheet({
           aria-describedby={undefined}
           onOpenAutoFocus={(event: Event): void => event.preventDefault()}
           onInteractOutside={(event: Event): void => event.preventDefault()}
+          // Opened from inside a modal dialog, this sheet is "outside" it, and the dialog's scroll
+          // lock cancels wheel and touch scrolling there. Keep those events from reaching it.
+          onWheel={(event): void => event.stopPropagation()}
+          onTouchMove={(event): void => event.stopPropagation()}
           className="fixed inset-x-0 bottom-0 z-50 flex h-[46dvh] flex-col rounded-t-2xl border-t bg-popover pb-[env(safe-area-inset-bottom)] text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom duration-200"
         >
           <SheetBody
