@@ -12,7 +12,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use super::assets::validate_assets;
 use super::model_registry::{
     find_unique_model_entry_file, get_model_registry, is_image_entry_name, is_model_entry_json,
-    is_model_entry_name, write_model_registry,
+    is_model_entry_name, validate_model_id, write_model_registry,
 };
 use super::{
     data_dir, materialize_picked_file, now_millis, project_path, projects_dir, read_json_file,
@@ -761,13 +761,6 @@ fn project_model_ids(assets: &Value) -> Result<Vec<String>, String> {
         validate_model_id(id)?;
     }
     Ok(ids)
-}
-
-pub(crate) fn validate_model_id(id: &str) -> Result<(), String> {
-    if id.is_empty() || id == "." || id == ".." || id.contains(['/', '\\']) || id.contains('\0') {
-        return Err(format!("模型 ID 无效: {id}"));
-    }
-    Ok(())
 }
 
 fn validate_model_directory(
