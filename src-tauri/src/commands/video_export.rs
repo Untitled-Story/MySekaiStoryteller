@@ -606,7 +606,7 @@ pub async fn export_push_video_delta(
 
     #[cfg(desktop)]
     {
-        let (tx, frame, frames) = {
+        let (tx, shared_frame, _frames) = {
             let map = sessions
                 .inner
                 .lock()
@@ -639,38 +639,13 @@ let (frame, frames) = apply_delta_payload(
                 .ok_or_else(|| "FFmpeg 视频输入通道已关闭".to_string())?;
             (tx, shared, frames)
         };
-        let _ = frames;
 
         tauri::async_runtime::spawn_blocking(move || {
-            tx.send(frame)
+            tx.send(shared_frame)
                 .map_err(|_| "FFmpeg 写入通道已断开（编码器可能已异常退出）".to_string())
         })
         .await
         .map_err(|error| format!("推送增量视频批次任务失败: {error}"))?
-    }
-}
-
-/// 调试期基准端点：只统计经 `invoke` 传入的原始字节数并丢弃，
-/// 与 `mss://` 协议的 `/__bench_upload` 做同载荷吞吐对比。发布构建返回错误。
-#[tauri::command]
-pub async fn bench_sink_bytes(request: Request<'_>) -> Result<u64, String> {
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = request;
-        Err("基准端点仅在调试构建可用".into())
-    }
-
-    #[cfg(debug_assertions)]
-    {
-        static TOTAL: AtomicU64 = AtomicU64::new(0);
-        let length = match request.body() {
-            tauri::ipc::InvokeBody::Raw(bytes) => bytes.len() as u64,
-            tauri::ipc::InvokeBody::Json(_) => {
-                return Err("基准端点只接受原始二进制缓冲区".into());
-            }
-        };
-        let total = TOTAL.fetch_add(length, std::sync::atomic::Ordering::Relaxed) + length;
-        Ok(total)
     }
 }
 
