@@ -1964,8 +1964,14 @@ mod tests {
     #[test]
     #[ignore = "4K pipeline breakdown benchmark (run with --release -- --ignored --nocapture --test-threads=1)"]
     fn bench_4k_pipeline_breakdown() {
-        const W: u32 = 3840;
-        const H: u32 = 2160;
+        let w: u32 = std::env::var("MSS_BENCH_W")
+            .ok()
+            .and_then(|v: String| v.parse::<u32>().ok())
+            .unwrap_or(3840);
+        let h: u32 = std::env::var("MSS_BENCH_H")
+            .ok()
+            .and_then(|v: String| v.parse::<u32>().ok())
+            .unwrap_or(2160);
         const FPS: u32 = 60;
         const REPEATS: usize = 3;
         const CAPTURE_FRAMES: usize = 15;
@@ -2207,8 +2213,8 @@ mod tests {
 
         let preset: VideoQualityPreset = bench_quality_preset();
         let base_cfg: VideoExportConfig = VideoExportConfig {
-            width: W,
-            height: H,
+            width: w,
+            height: h,
             fps: FPS,
             quality: preset,
             trailing_hold_ms: 1000,
@@ -2221,7 +2227,7 @@ mod tests {
             .map(|n: std::num::NonZeroUsize| n.get())
             .unwrap_or(2);
         eprintln!(
-            "[4K BENCH CONFIG] {W}x{H}@{FPS} quality={preset:?} qp={} gop={} bitrate_bps={} trailing_hold={}ms cores={cores} repeats={REPEATS}",
+            "[4K BENCH CONFIG] {w}x{h}@{FPS} quality={preset:?} qp={} gop={} bitrate_bps={} trailing_hold={}ms cores={cores} repeats={REPEATS}",
             base_cfg.resolved_video_qp(),
             base_cfg.resolved_gop_frames(),
             base_cfg.resolved_video_bitrate_bps(),
@@ -2312,7 +2318,7 @@ mod tests {
             // D1: pure single-thread rusty_h264 streaming encode.
             {
                 let mut enc: RustyH264VideoEncoder =
-                    RustyH264VideoEncoder::new_with_options(W, H, FPS, opts).expect("cpu enc");
+                    RustyH264VideoEncoder::new_with_options(w, h, FPS, opts).expect("cpu enc");
                 let started: Instant = Instant::now();
                 let mut bytes: usize = 0;
                 for i in 0..MICRO_FRAMES {
@@ -2363,8 +2369,8 @@ mod tests {
                                 let pkts: Vec<EncodedVideoPacket> = encode_yuv_gop_chunk(
                                     &batch,
                                     (ci * gop) as u64,
-                                    W,
-                                    H,
+                                    w,
+                                    h,
                                     FPS,
                                     opts,
                                 )
@@ -2399,7 +2405,7 @@ mod tests {
                 };
                 let mut enc: crate::renderer::encoder::video_vt::VideoVtEncoder =
                     crate::renderer::encoder::video_vt::VideoVtEncoder::new_with_options(
-                        W, H, FPS, vt_opts,
+                        w, h, FPS, vt_opts,
                     )
                     .expect("vt enc");
                 let hw: bool = enc.is_hardware_accelerated();
