@@ -27,7 +27,15 @@ export const DEFAULT_BACKGROUND_COLOR: string = '#000000'
 
 const HEX_COLOR_RE: RegExp = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 
-export const VideoQualityPresetSchema = z.enum(['fast', 'balanced', 'quality'])
+export const VideoQualityPresetSchema = z.enum([
+  'speed',
+  'fast',
+  'balanced',
+  'high',
+  'quality',
+  'nearlossless',
+  'archive'
+])
 export type VideoQualityPreset = z.infer<typeof VideoQualityPresetSchema>
 
 export const RenderBackendSchema = z.enum(['auto', 'metal', 'vulkan', 'cuda', 'dx12', 'gl', 'cpu'])
@@ -60,6 +68,7 @@ export const VideoExportConfigSchema = z.object({
   height: z.number().int().min(MIN_EXPORT_HEIGHT).max(MAX_EXPORT_HEIGHT),
   fps: z.number().int().min(MIN_EXPORT_FPS).max(MAX_EXPORT_FPS),
   quality: VideoQualityPresetSchema,
+  hybridHardwareEncoder: z.boolean().default(false),
   seedMode: VideoSeedModeSchema,
   trailingHoldMs: z.number().int().min(0).max(MAX_TRAILING_HOLD_MS),
   videoQp: z.number().int().min(0).max(MAX_VIDEO_QP).nullable().optional(),
@@ -152,6 +161,7 @@ export const DEFAULT_VIDEO_EXPORT_CONFIG: VideoExportConfig = {
   height: 1080,
   fps: 60,
   quality: 'balanced',
+  hybridHardwareEncoder: false,
   seedMode: {
     mode: 'fixed',
     seed: DEFAULT_VIDEO_SEED

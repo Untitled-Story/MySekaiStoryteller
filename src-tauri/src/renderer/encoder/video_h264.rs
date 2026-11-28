@@ -88,7 +88,26 @@ fn build_encoder_config(
 
     cfg.coded_path_v2 = true;
     match options.quality {
-        VideoQualityPreset::Fast | VideoQualityPreset::Balanced => {
+        VideoQualityPreset::Speed | VideoQualityPreset::Fast => {
+            cfg.preset = Preset::Fast;
+            cfg.num_ref_frames = 1;
+            cfg.weightp = false;
+            cfg.mbtree = false;
+            cfg.scenecut = 0;
+            cfg.lookahead = 0;
+            cfg.cabac = false;
+            cfg.profile = Profile::Baseline;
+            cfg.aq_strength = 0.0;
+            cfg.me_wide = Some(false);
+            cfg.bframes = 0;
+            cfg.cabac_rdoq = 0.0;
+            cfg.cabac_rdoq_p = 0.0;
+            cfg.tune_sub8x8_split = false;
+            cfg.tune_sub8_rd = false;
+            cfg.tune_shape_rd = false;
+            cfg.tune_intra_rd = false;
+        }
+        VideoQualityPreset::Balanced | VideoQualityPreset::High => {
             cfg.preset = Preset::Fast;
             cfg.num_ref_frames = 1;
             cfg.weightp = false;
@@ -99,7 +118,9 @@ fn build_encoder_config(
             cfg.tune_shape_rd = false;
             cfg.tune_intra_rd = false;
         }
-        VideoQualityPreset::Quality => {
+        VideoQualityPreset::Quality
+        | VideoQualityPreset::NearLossless
+        | VideoQualityPreset::Archive => {
             // Balanced + QP 14 yields sub-pel quality at ~7x higher throughput than Preset::Quality.
             cfg.preset = Preset::Balanced;
             cfg.num_ref_frames = 3;
@@ -620,6 +641,122 @@ mod tests {
             .expect("decode abr/intra stream");
         assert_eq!(decoded.len(), 4);
     }
+    /// 4K micro-benchmark: how expensive is encoding a frame that is byte-identical to its
+        /// predecessor, compared with one that has motion? Answers whether a duplicate-frame
+        /// fast path has anything left to save (the encoder may already emit P_Skip cheaply).
+        #[test]
+        #[ignore = "4K identical vs moving frame encode cost"]
+        fn bench_4k_identical_vs_moving() {
+            use std::time::Instant;
+
+            const W: u32 = 3840;
+            const H: u32 = 2160;
+            const FPS: u32 = 60;
+            const FRAMES: usize = 30;
+
+            let w: usize = W as usize;
+            let h: usize = H as usize;
+
+            fn build(w: usize, h: usize) -> YuvFrame {
+                let mut y: Vec<u8> = vec![0u8; w * h];
+                for row in 0..h {
+                    for col in 0..w {
+                        y[row * w + col] = ((((row / 8) + (col / 8)) % 2) * 40 + 60) as u8;
+                    }
+                }
+                YuvFrame {
+                    width: w,
+                    height: h,
+                    y,
+                    u: vec![128u8; (w / 2) * (h / 2)],
+                    v: vec![128u8; (w / 2) * (h / 2)],
+                }
+            }
+
+            let opts: H264EncoderOptions = H264EncoderOptions {
+                quality: VideoQualityPreset::Balanced,
+                qp: 19,
+                bitrate_bps: 0,
+                gop_size: 15,
+            };
+
+            let frame: YuvFrame = build(w, h);
+            let mut enc = RustyH264VideoEncoder::new_with_options(W, H, FPS, opts).expect("init");
+            let started: Instant = Instant::now();
+            let mut first_secs: f64 = 0.0;
+            for i in 0..FRAMES {
+                let t: Instant = Instant::now();
+                let _ = enc.encode_yuv(&frame, i as f64 / FPS as f64).expect("enc");
+                if i == 0 {
+                    first_secs = t.elapsed().as_secs_f64();
+                }
+            }
+            let _ = enc.finish().expect("finish");
+            let total: f64 = started.elapsed().as_secs_f64();
+            eprintln!(
+                "[IDENTICAL] frames={FRAMES} total={total:.3}s ms_per_frame={:.1} idr={:.1}ms p_frames_avg={:.1}ms",
+                total * 1000.0 / FRAMES as f64,
+                first_secs * 1000.0,
+                (total - first_secs) * 1000.0 / (FRAMES as f64 - 1.0)
+            );
+
+            let mut moving: YuvFrame = build(w, h);
+            let mut enc2 = RustyH264VideoEncoder::new_with_options(W, H, FPS, opts).expect("init");
+            let started2: Instant = Instant::now();
+            let mut first2: f64 = 0.0;
+            for i in 0..FRAMES {
+                let band_top: usize = (i * 37) % (h - 64);
+                for row in band_top..(band_top + 64) {
+                    let base: usize = row * w;
+                    for col in 0..w {
+                        moving.y[base + col] = ((row + i * 3) % 200 + 20) as u8;
+                    }
+                }
+                let t: Instant = Instant::now();
+                let _ = enc2.encode_yuv(&moving, i as f64 / FPS as f64).expect("enc");
+                if i == 0 {
+                    first2 = t.elapsed().as_secs_f64();
+                }
+            }
+            let _ = enc2.finish().expect("finish");
+            let total2: f64 = started2.elapsed().as_secs_f64();
+            eprintln!(
+                "[MOVING] frames={FRAMES} total={total2:.3}s ms_per_frame={:.1} idr={:.1}ms p_frames_avg={:.1}ms",
+                total2 * 1000.0 / FRAMES as f64,
+                first2 * 1000.0,
+                (total2 - first2) * 1000.0 / (FRAMES as f64 - 1.0)
+            );
+        }
+        /// 4K measurement: cost of constructing an `Encoder` (per-GOP-chunk today) versus
+            /// encoding work, to judge whether per-worker encoder reuse is worth it.
+            #[test]
+            #[ignore = "4K encoder construction cost"]
+            fn bench_4k_encoder_init_cost() {
+                use std::time::Instant;
+
+                const W: u32 = 3840;
+                const H: u32 = 2160;
+                const FPS: u32 = 60;
+                const INIT_CALLS: usize = 20;
+
+                let opts: H264EncoderOptions = H264EncoderOptions {
+                    quality: VideoQualityPreset::Balanced,
+                    qp: 19,
+                    bitrate_bps: 0,
+                    gop_size: 15,
+                };
+
+                let started: Instant = Instant::now();
+                for _ in 0..INIT_CALLS {
+                    let _enc = RustyH264VideoEncoder::new_with_options(W, H, FPS, opts).expect("init");
+                }
+                let secs: f64 = started.elapsed().as_secs_f64();
+                eprintln!(
+                    "[INIT COST] calls={INIT_CALLS} total={secs:.3}s per_init={:.2}ms per_chunk_frame_cost_if_15={:.2}ms",
+                    secs * 1000.0 / INIT_CALLS as f64,
+                    secs * 1000.0 / INIT_CALLS as f64 / 15.0
+                );
+            }
 
     #[test]
     fn fused_bt709_conversion_matches_reference() {

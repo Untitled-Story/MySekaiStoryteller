@@ -176,6 +176,7 @@ export function ExportVideoDialog({
   const [gopFramesText, setGopFramesText] = useState<string>('120')
 
   const [includeAudio, setIncludeAudio] = useState<boolean>(true)
+  const [hybridHardwareEncoder, setHybridHardwareEncoder] = useState<boolean>(false)
   const [audioBitrateOption, setAudioBitrateOption] = useState<string>('auto')
   const [audioVolumeText, setAudioVolumeText] = useState<string>('100')
 
@@ -410,6 +411,7 @@ export function ExportVideoDialog({
       height: selectedDimensions.height,
       fps: resolvedFps,
       quality,
+      hybridHardwareEncoder,
       renderBackend,
       seedMode:
         seedModeKind === 'fixed'
@@ -626,9 +628,13 @@ export function ExportVideoDialog({
                 }
                 className={SELECT_CLASS}
               >
+                <option value="speed">{t('videoExport.qualitySpeed')}</option>
                 <option value="fast">{t('videoExport.qualityFast')}</option>
                 <option value="balanced">{t('videoExport.qualityBalanced')}</option>
+                <option value="high">{t('videoExport.qualityHigh')}</option>
                 <option value="quality">{t('videoExport.qualityQuality')}</option>
+                <option value="nearlossless">{t('videoExport.qualityNearLossless')}</option>
+                <option value="archive">{t('videoExport.qualityArchive')}</option>
               </select>
             </div>
           </div>
@@ -821,6 +827,23 @@ export function ExportVideoDialog({
                   />
                 </div>
               )}
+
+              <div className="space-y-1 border-t pt-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t('videoExport.hybridHardwareEncoder')}
+                  </span>
+                  <Switch
+                    checked={hybridHardwareEncoder}
+                    disabled={exporting}
+                    aria-label={t('videoExport.hybridHardwareEncoder')}
+                    onCheckedChange={setHybridHardwareEncoder}
+                  />
+                </div>
+                <p className="text-[11px] leading-tight text-muted-foreground/70">
+                  {t('videoExport.hybridHardwareEncoderHint')}
+                </p>
+              </div>
 
               <div className="flex items-center justify-between border-t pt-2.5">
                 <span className="text-xs font-medium text-muted-foreground">
