@@ -161,6 +161,7 @@ pub fn run() {
             video_export::export_write_chunk,
             video_export::export_push_video_batch,
             video_export::export_repeat_video_batch,
+            video_export::export_push_video_delta,
             video_export::bench_sink_bytes,
             video_export::export_upload_wav,
             video_export::export_finish_session,

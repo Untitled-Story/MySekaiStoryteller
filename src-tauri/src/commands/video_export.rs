@@ -76,6 +76,9 @@ struct FfmpegSession {
     last_batch: Option<Arc<Vec<u8>>>,
     /// last_batch 中包含的帧数，用于重复写入时正确累加 frames_written。
     last_batch_frames: u64,
+    /// 块级增量传输的工作缓冲：保存上一批的完整字节，按前端下发的块索引打补丁后
+    /// 再整批写入管道。让动态内容也能只传变化的块。
+    delta_frame: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -306,6 +309,7 @@ pub async fn export_start_session(
                     frames_written: 0,
                     last_batch: None,
                     last_batch_frames: 0,
+                    delta_frame: None,
                 })));
                 (entry, Some(selected_encoder))
             }
@@ -447,6 +451,8 @@ pub async fn export_push_video_batch(
             let shared: Arc<Vec<u8>> = Arc::new(bytes);
             session.last_batch = Some(Arc::clone(&shared));
             session.last_batch_frames = batch_frames;
+            // 整帧路径会替换批次内容，之前的补丁缓冲已失效；下次增量以此为基底重建。
+            session.delta_frame = None;
             (tx, shared)
         };
 
@@ -456,6 +462,191 @@ pub async fn export_push_video_batch(
         })
         .await
         .map_err(|error| format!("推送视频批次任务失败: {error}"))?
+    }
+}
+
+/// 块级增量载荷的魔数（'NFDS'）。
+#[cfg(desktop)]
+const DELTA_PAYLOAD_MAGIC: u32 = 0x4E46_4453;
+/// 单次增量载荷允许的最大块数，防止恶意/错误载荷触发超大分配。
+#[cfg(desktop)]
+const MAX_DELTA_BLOCKS: u32 = 8_192;
+
+#[cfg(desktop)]
+fn read_u32_le(data: &[u8], offset: usize) -> Result<u32, String> {
+    let end = offset
+        .checked_add(4)
+        .ok_or_else(|| "增量载荷偏移溢出".to_string())?;
+    let slice = data
+        .get(offset..end)
+        .ok_or_else(|| "增量载荷头部长度不足".to_string())?;
+    let mut buf = [0u8; 4];
+    buf.copy_from_slice(slice);
+    Ok(u32::from_le_bytes(buf))
+}
+
+/// 纯函数：校验增量载荷并在基底缓冲上打补丁，返回（完整缓冲, 帧数）。
+/// 抽成纯函数以便单元测试覆盖越界、乱序、长度不符等恶意/错误载荷。
+#[cfg(desktop)]
+fn apply_delta_payload(
+    payload: &[u8],
+    expected_frame_bytes: usize,
+    base: Option<Vec<u8>>,
+) -> Result<(Vec<u8>, u64), String> {
+    let magic = read_u32_le(payload, 0)?;
+    if magic != DELTA_PAYLOAD_MAGIC {
+        return Err("增量载荷魔数不匹配".into());
+    }
+    let block_bytes = read_u32_le(payload, 4)? as usize;
+    let changed_count = read_u32_le(payload, 8)? as usize;
+    let batch_bytes = read_u32_le(payload, 12)? as usize;
+
+    if block_bytes == 0 {
+        return Err("增量载荷块大小不能为 0".into());
+    }
+    if changed_count == 0 || changed_count as u32 > MAX_DELTA_BLOCKS {
+        return Err(format!("增量载荷变化块数非法: {changed_count}"));
+    }
+    if batch_bytes == 0 || expected_frame_bytes == 0 {
+        return Err("增量载荷批次字节数非法".into());
+    }
+    if batch_bytes % expected_frame_bytes != 0 {
+        return Err(format!(
+            "增量载荷不是整帧的整数倍: bytes={batch_bytes}, frame={expected_frame_bytes}"
+        ));
+    }
+
+    // 批次被切分为 ceil(batch_bytes / block_bytes) 个块，仅最后一块可能更短。
+    let total_blocks = batch_bytes.div_ceil(block_bytes);
+    if changed_count > total_blocks {
+        return Err(format!(
+            "增量载荷变化块数超过总块数: {changed_count} > {total_blocks}"
+        ));
+    }
+
+    let index_bytes = changed_count
+        .checked_mul(4)
+        .ok_or_else(|| "增量载荷索引长度溢出".to_string())?;
+
+    // 第一遍：校验索引并累计实际携带的字节数（最后一块可能短于 block_bytes）。
+    let mut previous_index: Option<u32> = None;
+    let mut data_len: usize = 0;
+    for i in 0..changed_count {
+        let index = read_u32_le(payload, 16 + i * 4)?;
+        if (index as usize) >= total_blocks {
+            return Err(format!("增量载荷块索引越界: {index} >= {total_blocks}"));
+        }
+        if let Some(prev) = previous_index {
+            if index <= prev {
+                return Err(format!("增量载荷块索引非递增: {prev} -> {index}"));
+            }
+        }
+        previous_index = Some(index);
+        let block_start = (index as usize)
+            .checked_mul(block_bytes)
+            .ok_or_else(|| "块偏移溢出".to_string())?;
+        data_len = data_len
+            .checked_add(block_bytes.min(batch_bytes - block_start))
+            .ok_or_else(|| "增量载荷数据长度溢出".to_string())?;
+    }
+
+    let expected_len = 16usize
+        .checked_add(index_bytes)
+        .and_then(|v| v.checked_add(data_len))
+        .ok_or_else(|| "增量载荷总长度溢出".to_string())?;
+    if payload.len() != expected_len {
+        return Err(format!(
+            "增量载荷长度不符: got={}, expect={expected_len}",
+            payload.len()
+        ));
+    }
+
+    let mut frame: Vec<u8> = match base {
+        Some(existing) if existing.len() == batch_bytes => existing,
+        _ => return Err("缺少可用于增量的完整批次基底".into()),
+    };
+
+    // 第二遍：按索引把携带的数据块写入基底。
+    let mut previous_index: Option<u32> = None;
+    let mut consumed: usize = 0;
+    for i in 0..changed_count {
+        let index = read_u32_le(payload, 16 + i * 4)?;
+        if let Some(prev) = previous_index {
+            if index <= prev {
+                return Err(format!("增量载荷块索引非递增: {prev} -> {index}"));
+            }
+        }
+        previous_index = Some(index);
+        let block_start = index as usize * block_bytes;
+        let block_size = block_bytes.min(batch_bytes - block_start);
+        let src_start = 16 + index_bytes + consumed;
+        let src = payload
+            .get(src_start..src_start + block_size)
+            .ok_or_else(|| "增量载荷块数据不足".to_string())?;
+        frame[block_start..block_start + block_size].copy_from_slice(src);
+        consumed += block_size;
+    }
+
+    Ok((frame, (batch_bytes / expected_frame_bytes) as u64))
+}
+
+/// 块级增量传输：载荷内只包含发生变化的定长块，后端在保留的完整批次缓冲上打补丁，
+/// 然后把完整批次写入管道。使动态内容也只需传输变化的区域。
+#[tauri::command]
+pub async fn export_push_video_delta(
+    sessions: State<'_, VideoExportSessions>,
+    session_id: String,
+    payload: Vec<u8>,
+) -> Result<(), String> {
+    #[cfg(not(desktop))]
+    {
+        let _ = (sessions, session_id, payload);
+        Err("移动平台暂不支持 FFmpeg 后端，请使用 WebCodecs 引擎。".into())
+    }
+
+    #[cfg(desktop)]
+    {
+        let (tx, frame, frames) = {
+            let map = sessions
+                .inner
+                .lock()
+                .map_err(|_| "视频导出会话锁已损坏".to_string())?;
+            let session_arc = match map.get(&session_id) {
+                Some(ExportSessionEntry::Ffmpeg(arc)) => Arc::clone(arc),
+                Some(ExportSessionEntry::WebCodecs(_)) => {
+                    return Err("WebCodecs 会话不接受原始视频帧批次".into());
+                }
+                None => return Err("视频导出会话不存在或已取消".into()),
+            };
+            let mut session = session_arc
+                .lock()
+                .map_err(|_| "FFmpeg 导出会话锁已损坏".to_string())?;
+
+let (frame, frames) = apply_delta_payload(
+                &payload,
+                session.expected_frame_bytes,
+                session.delta_frame.take(),
+            )?;
+            session.frames_written = session.frames_written.saturating_add(frames);
+            let shared: Arc<Vec<u8>> = Arc::new(frame.clone());
+            session.last_batch = Some(Arc::clone(&shared));
+            session.last_batch_frames = frames;
+            session.delta_frame = Some(frame);
+            let tx = session
+                .frame_tx
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| "FFmpeg 视频输入通道已关闭".to_string())?;
+            (tx, shared, frames)
+        };
+        let _ = frames;
+
+        tauri::async_runtime::spawn_blocking(move || {
+            tx.send(frame)
+                .map_err(|_| "FFmpeg 写入通道已断开（编码器可能已异常退出）".to_string())
+        })
+        .await
+        .map_err(|error| format!("推送增量视频批次任务失败: {error}"))?
     }
 }
 
@@ -1807,5 +1998,95 @@ mod tests {
         assert_eq!(decode_base64("YQ==").unwrap(), b"a");
         assert!(decode_base64("abc").is_err());
         assert!(decode_base64("SGVs$G8=").is_err());
+    }
+
+    /// 构造增量载荷：[magic][blockBytes][blockCount][payloadBytes][indices][blocks]
+    fn build_delta(payload_bytes: u32, block_bytes: u32, indices: &[u32], blocks: &[&[u8]]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&DELTA_PAYLOAD_MAGIC.to_le_bytes());
+        out.extend_from_slice(&block_bytes.to_le_bytes());
+        out.extend_from_slice(&(indices.len() as u32).to_le_bytes());
+        out.extend_from_slice(&payload_bytes.to_le_bytes());
+        for index in indices {
+            out.extend_from_slice(&index.to_le_bytes());
+        }
+        for block in blocks {
+            out.extend_from_slice(block);
+        }
+        out
+    }
+
+    #[test]
+    fn applies_delta_patch_only_to_listed_blocks() {
+        const FRAME: usize = 8;
+        const BLOCK: usize = 4;
+        let base: Vec<u8> = vec![0u8; 16];
+        let payload = build_delta(16, BLOCK as u32, &[1, 3], &[&[1, 2, 3, 4], &[9, 9, 9, 9]]);
+        let (frame, frames) = apply_delta_payload(&payload, FRAME, Some(base)).unwrap();
+        assert_eq!(frames, 2);
+        assert_eq!(&frame[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&frame[4..8], &[1, 2, 3, 4]);
+        assert_eq!(&frame[8..12], &[0, 0, 0, 0]);
+        assert_eq!(&frame[12..16], &[9, 9, 9, 9]);
+    }
+
+    #[test]
+    fn rejects_malformed_delta_payloads() {
+        const FRAME: usize = 8;
+        const BLOCK: usize = 4;
+        let base = || Some(vec![0u8; 16]);
+
+        // 魔数错误
+        let mut bad_magic = build_delta(16, 4, &[0, 1, 2, 3], &[&[1; 4], &[1; 4], &[1; 4], &[1; 4]]);
+        bad_magic[0] ^= 0xff;
+        assert!(apply_delta_payload(&bad_magic, FRAME, base()).is_err());
+
+        // 块大小为 0
+        let zero_block = build_delta(16, 0, &[0], &[&[1; 4]]);
+        assert!(apply_delta_payload(&zero_block, FRAME, base()).is_err());
+
+        // 块数为 0
+        let zero_count = build_delta(16, BLOCK as u32, &[], &[]);
+        assert!(apply_delta_payload(&zero_count, FRAME, base()).is_err());
+
+        // 载荷字节数不是整帧倍数
+        let not_frame = build_delta(12, BLOCK as u32, &[0], &[&[1; 4]]);
+        assert!(apply_delta_payload(&not_frame, FRAME, base()).is_err());
+
+        // 索引越界（>= blockCount）
+        let out_of_range = build_delta(16, BLOCK as u32, &[4], &[&[1; 4]]);
+        assert!(apply_delta_payload(&out_of_range, FRAME, base()).is_err());
+
+        // 索引乱序
+        let unsorted = build_delta(16, BLOCK as u32, &[2, 1], &[&[1; 4], &[1; 4]]);
+        assert!(apply_delta_payload(&unsorted, FRAME, base()).is_err());
+
+        // 索引重复（非严格递增）
+        let duplicated = build_delta(16, BLOCK as u32, &[1, 1], &[&[1; 4], &[1; 4]]);
+        assert!(apply_delta_payload(&duplicated, FRAME, base()).is_err());
+
+        // 总长度与声明不符
+        let mut truncated = build_delta(16, BLOCK as u32, &[0, 1, 2, 3], &[&[1; 4], &[1; 4], &[1; 4], &[1; 4]]);
+        truncated.pop();
+        assert!(apply_delta_payload(&truncated, FRAME, base()).is_err());
+
+        // 缺少基底
+        let ok = build_delta(16, BLOCK as u32, &[0, 1, 2, 3], &[&[1; 4], &[1; 4], &[1; 4], &[1; 4]]);
+        assert!(apply_delta_payload(&ok, FRAME, None).is_err());
+
+        // 基底尺寸不符
+        assert!(apply_delta_payload(&ok, FRAME, Some(vec![0u8; 8])).is_err());
+    }
+
+    #[test]
+    fn delta_full_coverage_replaces_whole_batch() {
+        const FRAME: usize = 8;
+        const BLOCK: usize = 4;
+        let base: Vec<u8> = vec![7u8; 16];
+        let payload = build_delta(16, BLOCK as u32, &[0, 1, 2, 3], &[&[1; 4], &[2; 4], &[3; 4], &[4; 4]]);
+        let (frame, frames) = apply_delta_payload(&payload, FRAME, Some(base)).unwrap();
+        assert_eq!(frames, 2);
+        assert_eq!(&frame[0..4], &[1, 1, 1, 1]);
+        assert_eq!(&frame[12..16], &[4, 4, 4, 4]);
     }
 }
