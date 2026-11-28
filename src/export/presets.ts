@@ -1,6 +1,8 @@
 import type {
+  ChromaMode,
   ExportAudioCodec,
   ExportVideoCodec,
+  RenderQuality,
   ResolutionPreset,
   VideoContainerFormat,
   VideoExportConfig
@@ -106,6 +108,33 @@ export function computeRecommendedBitrateMbps(
   return Math.min(400, Math.max(2, Math.round(raw)))
 }
 
+/**
+ * 把「渲染质量」档位解析成实际可用的色度采样率。
+ *
+ * 编码器的承载能力优先：H.264 / HEVC / VP9 / AV1 最终都按 4:2:0 输出，
+ * 给它们喂 4:2:2 或 4:4:4 只会成倍增加 GPU 读回与 IPC 传输量（4K 下 4:4:4 每帧
+ * 比 4:2:0 多 2.7 倍字节），而画质不会有任何提升，因此直接钉在 4:2:0。
+ *
+ * 只有 ProRes 系列真的能承载 4:2:2 / 4:4:4，此时档位才有意义：
+ * - speed    → 4:2:0（~64 fps @4K，色度 V 平面约 35.95 dB）
+ * - balanced → 4:2:2（色度 V 平面约 38.33 dB，垂直方向不降采样）
+ * - quality  → 4:4:4（色度无损）
+ */
+export function resolveChromaMode(
+  renderQuality: RenderQuality | undefined,
+  videoCodec: ExportVideoCodec
+): ChromaMode {
+  if (videoCodec !== 'prores') {
+    return '420'
+  }
+  const requested: RenderQuality = renderQuality ?? 'quality'
+  if (requested === 'speed') return '420'
+  if (requested === 'balanced') return '422'
+  // 质量档默认走 GPU 侧直出的平面 4:4:4：每帧字节比 RGBA 少 25%，且省掉后端一次
+  // 全分辨率 RGBA→YUV 转换。带 alpha 或非满舞台时打包器会自动回落到 RGBA。
+  return '444p'
+}
+
 export function createDefaultExportConfig(memorySizeMb: number): VideoExportConfig {
   return {
     presetId: '1080p',
@@ -120,6 +149,7 @@ export function createDefaultExportConfig(memorySizeMb: number): VideoExportConf
     crf: 18,
     hardwareAccel: true,
     transparentAlpha: false,
+    renderQuality: 'quality',
     memorySizeMb
   }
 }

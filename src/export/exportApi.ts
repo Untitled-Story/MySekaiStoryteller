@@ -7,7 +7,7 @@ export type StartExportRequest = {
   container: 'mp4' | 'webm' | 'mov'
   videoCodec: 'h264' | 'hevc' | 'vp9' | 'av1' | 'prores'
   audioCodec: 'aac' | 'opus' | 'pcm_s16le'
-  pixelFormat: 'encoded' | 'nv12' | 'rgba'
+  pixelFormat: 'encoded' | 'nv12' | 'nv16' | 'yuv444p' | 'rgba'
   width: number
   height: number
   fps: number
@@ -17,10 +17,28 @@ export type StartExportRequest = {
   ffmpegPath?: string
 }
 
+/** 能力探测会启动子进程执行 `ffmpeg -encoders`（实测 80~112 ms）。导出流程与设置界面
+ *  都会调用它，因此按 ffmpegPath 缓存结果，避免每次导出都付这笔固定开销。 */
+const FFMPEG_CAPABILITY_TTL_MS: number = 5 * 60 * 1000
+const ffmpegCapabilityCache: Map<string, { at: number; value: FfmpegCapabilities }> = new Map()
+
 export function probeFfmpegCapabilities(ffmpegPath?: string): Promise<FfmpegCapabilities> {
+  const key: string = ffmpegPath ?? ''
+  const cached = ffmpegCapabilityCache.get(key)
+  if (cached && Date.now() - cached.at < FFMPEG_CAPABILITY_TTL_MS) {
+    return Promise.resolve(cached.value)
+  }
   return invoke<FfmpegCapabilities>('probe_ffmpeg_capabilities', {
     ffmpegPath: ffmpegPath ?? null
+  }).then((value: FfmpegCapabilities): FfmpegCapabilities => {
+    ffmpegCapabilityCache.set(key, { at: Date.now(), value })
+    return value
   })
+}
+
+/** 用户更改 ffmpeg 路径或重新安装后，主动作废缓存。 */
+export function invalidateFfmpegCapabilityCache(): void {
+  ffmpegCapabilityCache.clear()
 }
 
 export function startExportSession(request: StartExportRequest): Promise<StartExportResponse> {
@@ -57,6 +75,14 @@ export function pushVideoBatch(sessionId: string, batchData: Uint8Array): Promis
       'x-export-id': sessionId
     }
   })
+}
+
+/**
+ * 让后端把「上一批已写入的原始字节」再写 repeatCount 遍。
+ * 用于重复帧：像素与上一批完全相同时，不必再走一次 IPC 传输。
+ */
+export function repeatVideoBatch(sessionId: string, repeatCount: number): Promise<void> {
+  return invoke<void>('export_repeat_video_batch', { sessionId, repeatCount })
 }
 
 export function uploadExportWav(sessionId: string, wavData: Uint8Array): Promise<void> {

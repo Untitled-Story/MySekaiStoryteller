@@ -5,10 +5,33 @@ use http::header::{
 };
 use percent_encoding::percent_decode_str;
 use std::{fs, path::PathBuf};
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{
     http::{Method, Request, Response, StatusCode},
     Runtime, UriSchemeContext,
 };
+
+/// 调试期基准端点：仅统计上传字节数并丢弃，用于对比「自定义 URI 协议」与 `invoke`
+/// 两条通道的二进制吞吐。发布构建不编译该分支。
+#[cfg(debug_assertions)]
+static BENCH_UPLOAD_BYTES: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(debug_assertions)]
+fn build_bench_response(request: &Request<Vec<u8>>, total: u64) -> Response<Vec<u8>> {
+    let body = format!("{{\"bytes\":{total}}}").into_bytes();
+    let content_length = body.len().to_string();
+    Response::builder()
+        .header(ACCESS_CONTROL_ALLOW_ORIGIN, response_origin(request))
+        // 资产协议默认只允许 GET/HEAD，基准端点需要 POST，故单独声明。
+        .header(ACCESS_CONTROL_ALLOW_METHODS, "POST, OPTIONS")
+        .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
+        .header(CONTENT_TYPE, "application/json")
+        .header(CONTENT_LENGTH, content_length)
+        .status(StatusCode::OK)
+        .body(body)
+        .unwrap()
+}
 
 fn decode_request_path(request: &Request<Vec<u8>>) -> Option<PathBuf> {
     decode_uri_path(request.uri().host(), request.uri().path())
@@ -115,6 +138,21 @@ pub fn register_story_protocol<R: Runtime>(builder: tauri::Builder<R>) -> tauri:
         "mss",
         |_ctx: UriSchemeContext<'_, R>, request: Request<Vec<u8>>, responder| {
             std::thread::spawn(move || {
+                #[cfg(debug_assertions)]
+                if request.uri().path().starts_with("/__bench_upload") {
+                    if request.method() == Method::OPTIONS {
+                        responder.respond(build_bench_response(
+                            &request,
+                            BENCH_UPLOAD_BYTES.load(Ordering::Relaxed),
+                        ));
+                        return;
+                    }
+                    let length = request.body().len() as u64;
+                    let total = BENCH_UPLOAD_BYTES.fetch_add(length, Ordering::Relaxed) + length;
+                    responder.respond(build_bench_response(&request, total));
+                    return;
+                }
+
                 if request.method() == Method::OPTIONS {
                     responder.respond(build_error_response(&request, StatusCode::NO_CONTENT, ""));
                     return;

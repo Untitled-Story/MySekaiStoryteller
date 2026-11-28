@@ -1,4 +1,5 @@
 import { computeStageFitLayout, type StageFitLayout } from './presets'
+import type { ChromaMode } from './types'
 
 export function rgbToBt709LimitedY(r: number, g: number, b: number): number {
   const luma: number = 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -97,6 +98,46 @@ void main() {
 }
 `
 
+// 平面式 4:4:4 色度：每个 texel 打包 4 个相邻采样，uChromaChannel 选择输出 U 还是 V。
+// 与 NV12 的交织 UV 不同，这里 U/V 各自独立成平面，可直接喂给 ffmpeg 的 yuv444p 输入，
+// 省掉后端一次全分辨率的 RGBA→YUV 转换。
+const YUV444_CHROMA_FRAGMENT_SHADER_SOURCE: string = `#version 300 es
+precision mediump float;
+
+uniform sampler2D uSource;
+uniform highp float uStepX;
+uniform int uChromaChannel;
+in highp vec2 vUv;
+out vec4 fragColor;
+
+const vec3 Y_WEIGHTS = vec3(0.2126, 0.7152, 0.0722);
+const float CB_SCALE = 224.0 / (255.0 * 2.0 * (1.0 - 0.0722));
+const float CR_SCALE = 224.0 / (255.0 * 2.0 * (1.0 - 0.2126));
+const float UV_BIAS = 128.0 / 255.0;
+const float UV_MIN = 16.0 / 255.0;
+const float UV_MAX = 240.0 / 255.0;
+
+vec2 calcUv(vec3 rgb) {
+  float y = dot(rgb, Y_WEIGHTS);
+  return clamp(
+    vec2((rgb.b - y) * CB_SCALE + UV_BIAS, (rgb.r - y) * CR_SCALE + UV_BIAS),
+    UV_MIN,
+    UV_MAX
+  );
+}
+
+void main() {
+  highp float baseU = vUv.x - 1.5 * uStepX;
+  vec2 a = calcUv(texture(uSource, vec2(baseU, vUv.y)).rgb);
+  vec2 b = calcUv(texture(uSource, vec2(baseU + uStepX, vUv.y)).rgb);
+  vec2 c = calcUv(texture(uSource, vec2(baseU + 2.0 * uStepX, vUv.y)).rgb);
+  vec2 d = calcUv(texture(uSource, vec2(baseU + 3.0 * uStepX, vUv.y)).rgb);
+  fragColor = (uChromaChannel == 0)
+    ? vec4(a.x, b.x, c.x, d.x)
+    : vec4(a.y, b.y, c.y, d.y);
+}
+`
+
 // Uses hardware GL_LINEAR filtering on the source texture so a single midpoint tap at
 // (baseX + 1.0, py0 + 1.0) computes an exact 2x2 block average for 4:2:0 chroma subsampling
 // while integer+0.5 centers yield exact 1:1 texels for full-resolution luma.
@@ -107,6 +148,7 @@ uniform sampler2D uSource;
 uniform ivec2 uOutputSize;
 uniform ivec4 uStageRect;
 uniform int uFlipY;
+uniform int uChromaVerticalStep;
 
 out vec4 fragColor;
 
@@ -142,6 +184,19 @@ vec3 sampleStage2x2Average(int px0, int py0) {
   );
 }
 
+// 4:2:2 只在水平方向降采样，垂直方向保留全分辨率
+vec3 sampleStage2x1Average(int px0, int py0) {
+  int relX = px0 - uStageRect.x;
+  int relY = py0 - uStageRect.y;
+  if (relY < 0 || relY >= uStageRect.w) {
+    return vec3(0.0);
+  }
+  if (relX >= 0 && relX + 1 < uStageRect.z) {
+    return texture(uSource, toStageUv(float(relX) + 1.0, float(relY) + 0.5)).rgb;
+  }
+  return 0.5 * (sampleStagePixel(px0, py0) + sampleStagePixel(px0 + 1, py0));
+}
+
 float calcLuma(vec3 rgb) {
   float y = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
   return clamp((16.0 + 219.0 * y) / 255.0, 16.0 / 255.0, 235.0 / 255.0);
@@ -172,11 +227,18 @@ void main() {
   }
 
   int uvRow = fboY - height;
-  int py0 = uvRow * 2;
+  int py0 = uvRow * uChromaVerticalStep;
   int baseX = fboX * 4;
 
-  vec2 uv0 = calcUv(sampleStage2x2Average(baseX, py0));
-  vec2 uv1 = calcUv(sampleStage2x2Average(baseX + 2, py0));
+  vec2 uv0;
+  vec2 uv1;
+  if (uChromaVerticalStep == 2) {
+    uv0 = calcUv(sampleStage2x2Average(baseX, py0));
+    uv1 = calcUv(sampleStage2x2Average(baseX + 2, py0));
+  } else {
+    uv0 = calcUv(sampleStage2x1Average(baseX, py0));
+    uv1 = calcUv(sampleStage2x1Average(baseX + 2, py0));
+  }
   fragColor = vec4(uv0.x, uv0.y, uv1.x, uv1.y);
 }
 `
@@ -259,10 +321,18 @@ export type GlFramePackerOptions = {
   sharedGl?: WebGL2RenderingContext
   resetExternalState?: () => void
   flipTextureY?: boolean
+  /**
+   * 目标色度采样率。决定打包布局与每帧字节数：
+   * - '420' → NV12（默认，最小带宽）
+   * - '422' → NV16（半平面 4:2:2，色度垂直分辨率不损失）
+   * - '444' → RGBA（全分辨率色度，无损）
+   * 透明通道导出时会强制走 '444'，因为 alpha 只能由 RGBA 承载。
+   */
+  chromaMode?: ChromaMode
 }
 
 export class GlFramePacker {
-  readonly pixelFormat: 'nv12' | 'rgba'
+  readonly pixelFormat: 'nv12' | 'nv16' | 'yuv444p' | 'rgba'
   readonly frameBytes: number
   readonly batchGroupFrames: number
   readonly sharedContext: boolean
@@ -307,12 +377,45 @@ export class GlFramePacker {
     this.flipTextureY = options?.flipTextureY ?? false
     this.layout = computeStageFitLayout(width, height)
 
-    // NV12 packs 4 bytes per RGBA texel so width must be divisible by 4;
-    // alpha mode and non-multiple-of-4 widths stream straight RGBA instead.
-    this.pixelFormat = !transparentAlpha && width % 4 === 0 ? 'nv12' : 'rgba'
-    this.fboWidth = this.pixelFormat === 'nv12' ? width / 4 : width
-    this.fboHeight = this.pixelFormat === 'nv12' ? height + height / 2 : height
-    this.frameBytes = this.pixelFormat === 'nv12' ? (width * height * 3) / 2 : width * height * 4
+    // 打包器把 4 个连续采样塞进 1 个 RGBA texel，所以半平面格式要求 width 能被 4 整除。
+    // alpha 只能由 RGBA 承载。
+    const layoutIsFullStage: boolean =
+      this.layout.offsetX === 0 &&
+      this.layout.offsetY === 0 &&
+      this.layout.renderedWidth === width &&
+      this.layout.renderedHeight === height
+    const requestedChroma: ChromaMode = options?.chromaMode ?? '420'
+    const canPackSemiPlanar: boolean = !transparentAlpha && width % 4 === 0
+    if (transparentAlpha || requestedChroma === '444') {
+      this.pixelFormat = 'rgba'
+    } else if (requestedChroma === '444p' && canPackSemiPlanar && layoutIsFullStage) {
+      // 平面 4:4:4 只在满舞台下启用（带信箱的通用三平面着色器未实现）；
+      // 退化到 RGBA 时画质等价，只是多传字节并在后端多一次格式转换。
+      this.pixelFormat = 'yuv444p'
+    } else if (requestedChroma === '422' && canPackSemiPlanar) {
+      this.pixelFormat = 'nv16'
+    } else if (canPackSemiPlanar && height % 2 === 0) {
+      this.pixelFormat = 'nv12'
+    } else {
+      this.pixelFormat = 'rgba'
+    }
+    this.fboWidth = this.pixelFormat === 'rgba' ? width : width / 4
+    this.fboHeight =
+      this.pixelFormat === 'rgba'
+        ? height
+        : this.pixelFormat === 'nv12'
+          ? height + height / 2
+          : this.pixelFormat === 'yuv444p'
+            ? height * 3
+            : height * 2
+    this.frameBytes =
+      this.pixelFormat === 'rgba'
+        ? width * height * 4
+        : this.pixelFormat === 'nv12'
+          ? (width * height * 3) / 2
+          : this.pixelFormat === 'yuv444p'
+            ? width * height * 3
+            : width * height * 2
     this.batchGroupFrames = computeOptimalPboGroupFrames(this.frameBytes)
     const baseSlotCount: number = computeOptimalPboSlotCount(this.frameBytes)
     const inFlightBatches: number = Math.max(2, Math.ceil(baseSlotCount / this.batchGroupFrames))
@@ -342,13 +445,9 @@ export class GlFramePacker {
     }
     this.gl = gl
 
-    const isFullStage: boolean =
-      this.layout.offsetX === 0 &&
-      this.layout.offsetY === 0 &&
-      this.layout.renderedWidth === width &&
-      this.layout.renderedHeight === height
+    const isFullStage: boolean = layoutIsFullStage
 
-    if (this.pixelFormat === 'nv12' && isFullStage) {
+    if (this.pixelFormat !== 'rgba' && isFullStage) {
       // Branchless two-pass Y + UV pack eliminates per-pixel bounds/plane branches when stage
       // fills the output frame without letterboxing or pillarboxing.
       this.program = createShaderProgram(
@@ -359,7 +458,9 @@ export class GlFramePacker {
       this.uvProgram = createShaderProgram(
         gl,
         FULL_STAGE_VERTEX_SHADER_SOURCE,
-        NV12_UV_FRAGMENT_SHADER_SOURCE
+        this.pixelFormat === 'yuv444p'
+          ? YUV444_CHROMA_FRAGMENT_SHADER_SOURCE
+          : NV12_UV_FRAGMENT_SHADER_SOURCE
       )
       const stepX: number = 1 / this.width
       const flipFlag: number = this.flipTextureY ? 1 : 0
@@ -371,7 +472,7 @@ export class GlFramePacker {
       }
     } else {
       const fragSource: string =
-        this.pixelFormat === 'nv12' ? NV12_FRAGMENT_SHADER_SOURCE : RGBA_FRAGMENT_SHADER_SOURCE
+        this.pixelFormat === 'rgba' ? RGBA_FRAGMENT_SHADER_SOURCE : NV12_FRAGMENT_SHADER_SOURCE
       this.program = createShaderProgram(gl, VERTEX_SHADER_SOURCE, fragSource)
       this.uvProgram = null
       gl.useProgram(this.program)
@@ -384,12 +485,17 @@ export class GlFramePacker {
         this.layout.renderedHeight
       )
       gl.uniform1i(gl.getUniformLocation(this.program, 'uFlipY'), this.flipTextureY ? 1 : 0)
-      if (this.pixelFormat === 'nv12') {
-        gl.uniform2i(gl.getUniformLocation(this.program, 'uOutputSize'), this.width, this.height)
-      } else {
+      if (this.pixelFormat === 'rgba') {
         gl.uniform1i(
           gl.getUniformLocation(this.program, 'uUnpremultiply'),
           this.transparentAlpha ? 1 : 0
+        )
+      } else {
+        gl.uniform2i(gl.getUniformLocation(this.program, 'uOutputSize'), this.width, this.height)
+        // 4:2:0 每两行共享一行的色度（垂直步长 2），4:2:2 每行都有自己的色度（步长 1）
+        gl.uniform1i(
+          gl.getUniformLocation(this.program, 'uChromaVerticalStep'),
+          this.pixelFormat === 'nv16' ? 1 : 2
         )
       }
     }
@@ -677,9 +783,22 @@ export class GlFramePacker {
       gl.useProgram(this.program)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 
-      gl.viewport(0, this.height, this.fboWidth, this.height / 2)
-      gl.useProgram(this.uvProgram)
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+      if (this.pixelFormat === 'yuv444p') {
+        // 平面 4:4:4：U、V 各自占一个全高平面，用 uChromaChannel 复用同一个着色器。
+        for (let channel = 0; channel < 2; channel += 1) {
+          gl.viewport(0, this.height * (1 + channel), this.fboWidth, this.height)
+          gl.useProgram(this.uvProgram)
+          gl.uniform1i(gl.getUniformLocation(this.uvProgram, 'uChromaChannel'), channel)
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+        }
+      } else {
+        // 4:2:0 的色度平面是半高（垂直方向 2x2 平均）；4:2:2 的色度平面是全高，只做水平平均。
+        const chromaPlaneHeight: number =
+          this.pixelFormat === 'nv16' ? this.height : this.height / 2
+        gl.viewport(0, this.height, this.fboWidth, chromaPlaneHeight)
+        gl.useProgram(this.uvProgram)
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+      }
     } else {
       gl.viewport(0, 0, this.fboWidth, this.fboHeight)
       gl.useProgram(this.program)

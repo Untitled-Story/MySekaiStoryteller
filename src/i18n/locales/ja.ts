@@ -564,6 +564,16 @@ export const ja: typeof en = {
     hardwareAccel: 'ハードウェアアクセラレーション優先',
     hardwareAccelHint:
       'GPU エンコーダー（VideoToolbox / NVENC 等）を使用し、4K120fps の書き出しを高速化します。',
+    renderQuality: 'レンダリング品質',
+    renderQualityHint:
+      '画質と書き出し速度のトレードオフ：品質優先は色度をフル解像度で保持し、速度優先は色度を犠牲にしてフレームレートを稼ぎます。',
+    renderQualityLocked:
+      'このエンコーダーは常に 4:2:0 で出力するため、この設定を上げても画質は改善せず、書き出しが遅くなるだけです。',
+    renderQualityAlphaLocked:
+      '背景透過が有効なため、常に 4:4:4 でパックされ、この設定は固定されます。',
+    renderQualitySpeed: '速度優先（4:2:0）',
+    renderQualityBalanced: 'バランス（4:2:2）',
+    renderQualityQuality: '品質優先（4:4:4、可逆）',
     transparentAlpha: '背景を透過（アルファチャンネル保持）',
     transparentAlphaHint: '透過背景は WebM (VP9/AV1) または MOV (ProRes) のみ対応しています。',
     codecH264: 'H.264 (AVC)',

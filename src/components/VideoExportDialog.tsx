@@ -54,6 +54,7 @@ import {
   type ExportEngineMode,
   type ExportVideoCodec,
   type FfmpegCapabilities,
+  type RenderQuality,
   type ResolutionPreset,
   type ResolutionPresetId,
   type VideoContainerFormat,
@@ -641,6 +642,15 @@ export function VideoExportDialog({
   }
 
   const supportsAlpha: boolean = config.container === 'webm' || config.videoCodec === 'prores'
+  // 只有 ProRes 系列能承载高于 4:2:0 的色度；H.264/HEVC/VP9/AV1 一律按 4:2:0 输出，
+  // 提升档位只会成倍增加读回与 IPC 传输量而不会改善画质，因此控件置灰并显示实际生效档位。
+  // 透明通道只能由 RGBA 承载，此时无论选哪档，实际都按 4:4:4 打包。
+  const supportsFineChroma: boolean = config.videoCodec === 'prores'
+  const effectiveRenderQuality: RenderQuality = config.transparentAlpha
+    ? 'quality'
+    : supportsFineChroma
+      ? (config.renderQuality ?? 'quality')
+      : 'speed'
   const allowedVideoCodecs: readonly ExportVideoCodec[] = CONTAINER_VIDEO_CODECS[config.container]
   const allowedAudioCodecs: readonly ExportAudioCodec[] = CONTAINER_AUDIO_CODECS[config.container]
 
@@ -1042,6 +1052,40 @@ export function VideoExportDialog({
                         )
                       }}
                     />
+                  </div>
+
+                  {/* Render Quality */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">{t('videoExport.renderQuality')}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {config.transparentAlpha
+                          ? t('videoExport.renderQualityAlphaLocked')
+                          : supportsFineChroma
+                            ? t('videoExport.renderQualityHint')
+                            : t('videoExport.renderQualityLocked')}
+                      </div>
+                    </div>
+                    <select
+                      id="video-export-render-quality"
+                      disabled={isExporting || !supportsFineChroma || config.transparentAlpha}
+                      aria-label={t('videoExport.renderQuality')}
+                      value={effectiveRenderQuality}
+                      onChange={(e: ChangeEvent<HTMLSelectElement>): void => {
+                        const next: RenderQuality = e.target.value as RenderQuality
+                        setConfig(
+                          (prev: VideoExportConfig): VideoExportConfig => ({
+                            ...prev,
+                            renderQuality: next
+                          })
+                        )
+                      }}
+                      className="border-input bg-background h-9 rounded-md border px-2 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                    >
+                      <option value="speed">{t('videoExport.renderQualitySpeed')}</option>
+                      <option value="balanced">{t('videoExport.renderQualityBalanced')}</option>
+                      <option value="quality">{t('videoExport.renderQualityQuality')}</option>
+                    </select>
                   </div>
 
                   {/* Transparent Alpha */}

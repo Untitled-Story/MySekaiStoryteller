@@ -32,6 +32,9 @@ const FFMPEG_PIPE_QUEUE_CAPACITY: usize = 12;
 const WRITER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(desktop)]
 const STDERR_CAPTURE_LIMIT_BYTES: usize = 64 * 1024;
+/// 单次「重复上一批」允许的最大批次数，防止前端异常传入超大值把管道撑爆。
+#[cfg(desktop)]
+const MAX_REPEAT_BATCH_COUNT: u32 = 100_000;
 
 static NEXT_SESSION_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -62,12 +65,17 @@ struct FfmpegSession {
     ffmpeg_path: PathBuf,
     container: String,
     audio_codec: String,
-    frame_tx: Option<SyncSender<Vec<u8>>>,
+    frame_tx: Option<SyncSender<Arc<Vec<u8>>>>,
     writer_handle: Option<JoinHandle<Result<(), String>>>,
     stderr_handle: Option<JoinHandle<String>>,
     child: Option<Child>,
     expected_frame_bytes: usize,
     frames_written: u64,
+    /// 最近一批已写入管道的原始字节。前端识别出「与上一批逐字节相同」的重复帧时，
+    /// 只需发一条 repeat 指令，由后端把这些字节再次写入管道，避免重复过 IPC 传输。
+    last_batch: Option<Arc<Vec<u8>>>,
+    /// last_batch 中包含的帧数，用于重复写入时正确累加 frames_written。
+    last_batch_frames: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,14 +260,14 @@ pub async fn export_start_session(
                 })?;
                 let stderr = child.stderr.take();
 
-                let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(FFMPEG_PIPE_QUEUE_CAPACITY);
+                let (tx, rx) = mpsc::sync_channel::<Arc<Vec<u8>>>(FFMPEG_PIPE_QUEUE_CAPACITY);
                 let writer_handle = std::thread::Builder::new()
                     .name(format!("ffmpeg-pipe-{session_id}"))
                     .spawn(move || {
                         let mut writer = BufWriter::with_capacity(WRITER_BUFFER_BYTES, stdin);
                         for chunk in rx {
                             writer
-                                .write_all(&chunk)
+                                .write_all(&chunk[..])
                                 .map_err(|error| format!("写入 FFmpeg 视频管道失败: {error}"))?;
                         }
                         writer
@@ -296,6 +304,8 @@ pub async fn export_start_session(
                     child: Some(child),
                     expected_frame_bytes,
                     frames_written: 0,
+                    last_batch: None,
+                    last_batch_frames: 0,
                 })));
                 (entry, Some(selected_encoder))
             }
@@ -402,7 +412,7 @@ pub async fn export_push_video_batch(
             return Ok(());
         }
 
-        let (tx, expected_frame_bytes) = {
+        let (tx, shared) = {
             let map = sessions
                 .inner
                 .lock()
@@ -432,16 +442,111 @@ pub async fn export_push_video_batch(
                 .as_ref()
                 .cloned()
                 .ok_or_else(|| "FFmpeg 视频输入通道已关闭".to_string())?;
-            (tx, session.expected_frame_bytes)
+            // 用 Arc 共享同一份字节：一路送进写管道，一路留在会话里供「重复帧」复用，
+            // 这样保留副本不需要再拷贝一次整批（4K RGBA 批次可达 95 MB）。
+            let shared: Arc<Vec<u8>> = Arc::new(bytes);
+            session.last_batch = Some(Arc::clone(&shared));
+            session.last_batch_frames = batch_frames;
+            (tx, shared)
         };
-        let _ = expected_frame_bytes;
 
         tauri::async_runtime::spawn_blocking(move || {
-            tx.send(bytes)
+            tx.send(shared)
                 .map_err(|_| "FFmpeg 写入通道已断开（编码器可能已异常退出）".to_string())
         })
         .await
         .map_err(|error| format!("推送视频批次任务失败: {error}"))?
+    }
+}
+
+/// 调试期基准端点：只统计经 `invoke` 传入的原始字节数并丢弃，
+/// 与 `mss://` 协议的 `/__bench_upload` 做同载荷吞吐对比。发布构建返回错误。
+#[tauri::command]
+pub async fn bench_sink_bytes(request: Request<'_>) -> Result<u64, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = request;
+        Err("基准端点仅在调试构建可用".into())
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        static TOTAL: AtomicU64 = AtomicU64::new(0);
+        let length = match request.body() {
+            tauri::ipc::InvokeBody::Raw(bytes) => bytes.len() as u64,
+            tauri::ipc::InvokeBody::Json(_) => {
+                return Err("基准端点只接受原始二进制缓冲区".into());
+            }
+        };
+        let total = TOTAL.fetch_add(length, std::sync::atomic::Ordering::Relaxed) + length;
+        Ok(total)
+    }
+}
+
+/// 重复写入上一批帧数据，供前端在检测到「与上一批逐字节相同」时复用，
+/// 避免重复帧再走一次 IPC 传输。repeat_count 表示额外再写几遍。
+#[tauri::command]
+pub async fn export_repeat_video_batch(
+    sessions: State<'_, VideoExportSessions>,
+    session_id: String,
+    repeat_count: u32,
+) -> Result<(), String> {
+    #[cfg(not(desktop))]
+    {
+        let _ = (sessions, session_id, repeat_count);
+        Err("移动平台暂不支持 FFmpeg 后端，请使用 WebCodecs 引擎。".into())
+    }
+
+    #[cfg(desktop)]
+    {
+        if repeat_count == 0 {
+            return Ok(());
+        }
+        if repeat_count > MAX_REPEAT_BATCH_COUNT {
+            return Err(format!(
+                "重复帧数超出上限 ({MAX_REPEAT_BATCH_COUNT}): {repeat_count}"
+            ));
+        }
+
+        let (tx, bytes) = {
+            let map = sessions
+                .inner
+                .lock()
+                .map_err(|_| "视频导出会话锁已损坏".to_string())?;
+            let session_arc = match map.get(&session_id) {
+                Some(ExportSessionEntry::Ffmpeg(arc)) => Arc::clone(arc),
+                Some(ExportSessionEntry::WebCodecs(_)) => {
+                    return Err("WebCodecs 会话不接受原始视频帧批次".into());
+                }
+                None => return Err("视频导出会话不存在或已取消".into()),
+            };
+            let mut session = session_arc
+                .lock()
+                .map_err(|_| "FFmpeg 导出会话锁已损坏".to_string())?;
+            let Some(bytes) = session.last_batch.as_ref().map(Arc::clone) else {
+                return Err("没有可重复的视频批次（尚未收到任何帧）".into());
+            };
+            let tx = session
+                .frame_tx
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| "FFmpeg 视频输入通道已关闭".to_string())?;
+            let frames = session.last_batch_frames;
+            session.frames_written = session
+                .frames_written
+                .saturating_add(frames.saturating_mul(repeat_count as u64));
+            (tx, bytes)
+        };
+
+        tauri::async_runtime::spawn_blocking(move || {
+            for _ in 0..repeat_count {
+                tx.send(Arc::clone(&bytes))
+                    .map_err(|_| "FFmpeg 写入通道已断开（编码器可能已异常退出）".to_string())?;
+            }
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|error| format!("重复写入视频批次任务失败: {error}"))?
     }
 }
 
@@ -846,7 +951,10 @@ fn validate_export_request(request: &StartExportRequest) -> Result<(), String> {
                 request.pixel_format
             ));
         }
-    } else if !matches!(request.pixel_format.as_str(), "nv12" | "rgba") {
+    } else if !matches!(
+        request.pixel_format.as_str(),
+        "nv12" | "nv16" | "yuv444p" | "rgba"
+    ) {
         return Err(format!("不支持的像素输入格式: {}", request.pixel_format));
     }
     if let Some(bitrate_kbps) = request.bitrate_kbps {
@@ -875,6 +983,14 @@ fn expected_raw_frame_bytes(width: u32, height: u32, pixel_format: &str) -> Resu
         }
         "rgba" => pixels
             .checked_mul(4)
+            .ok_or_else(|| "帧字节大小溢出".to_string()),
+        // NV16：Y 全分辨率 + UV 交错、色度水平减半 → 每像素 2 字节
+        "nv16" => pixels
+            .checked_mul(2)
+            .ok_or_else(|| "帧字节大小溢出".to_string()),
+        // 平面 4:4:4：Y/U/V 各占全分辨率一个字节
+        "yuv444p" => pixels
+            .checked_mul(3)
             .ok_or_else(|| "帧字节大小溢出".to_string()),
         _ => Err(format!("不支持的像素格式: {pixel_format}")),
     }
@@ -1099,6 +1215,11 @@ fn select_ffmpeg_encoder(
 
     if transparent_alpha {
         if requested_codec == "prores" {
+            // VideoToolbox 的 ProRes 编码器在 4K 下实测支持 4444 + alpha（约 70 fps），
+            // 比软件 prores_ks（约 21 fps）快得多，因此优先硬件。
+            if has_hw("prores_videotoolbox") {
+                return Some("prores_videotoolbox".to_string());
+            }
             return if has_sw("prores_ks") {
                 Some("prores_ks".to_string())
             } else {
@@ -1200,7 +1321,7 @@ fn build_ffmpeg_video_args(
         format_fps_arg(request.fps),
     ];
 
-    if request.pixel_format == "nv12" {
+    if request.pixel_format != "rgba" {
         args.extend([
             "-color_range".to_string(),
             "tv".to_string(),
@@ -1253,12 +1374,25 @@ fn build_ffmpeg_video_args(
             }
         }
         "prores_videotoolbox" | "prores_ks" => {
-            if encoder == "prores_ks" && request.pixel_format == "rgba" {
+            // 上游像素格式决定 ProRes 档位，避免"付了 4:4:4 体积却只传了降采样色度"：
+            // - rgba   → ProRes 4444 + alpha（yuva444p10le）
+            // - yuv444p → ProRes 4444（yuv444p10le）：输入已是平面 4:4:4，
+            //             ffmpeg 只需做位深提升，省掉一次全分辨率 RGBA→YUV 转换
+            // - nv16   → ProRes 422，输入本身就是 4:2:2
+            // - nv12   → ProRes 422，输入是 4:2:0，由 ffmpeg 上采样到 4:2:2
+            if request.pixel_format == "rgba" {
                 args.extend([
                     "-profile:v".to_string(),
                     "4".to_string(),
                     "-pix_fmt".to_string(),
                     "yuva444p10le".to_string(),
+                ]);
+            } else if request.pixel_format == "yuv444p" {
+                args.extend([
+                    "-profile:v".to_string(),
+                    "4".to_string(),
+                    "-pix_fmt".to_string(),
+                    "yuv444p10le".to_string(),
                 ]);
             } else {
                 args.extend([
@@ -1500,6 +1634,20 @@ mod tests {
             expected_raw_frame_bytes(3840, 2160, "nv12").unwrap(),
             12_441_600
         );
+        // 4:2:2 半平面每像素 2 字节，正好是 4:2:0 的 4/3、4:4:4 的一半
+        assert_eq!(
+            expected_raw_frame_bytes(3840, 2160, "nv16").unwrap(),
+            16_588_800
+        );
+        assert_eq!(
+            expected_raw_frame_bytes(3840, 2160, "rgba").unwrap(),
+            33_177_600
+        );
+        // 平面 4:4:4：每像素 3 字节，比 RGBA 少 25%
+        assert_eq!(
+            expected_raw_frame_bytes(3840, 2160, "yuv444p").unwrap(),
+            24_883_200
+        );
 
         req.width = 1921;
         assert!(validate_export_request(&req).is_err());
@@ -1516,6 +1664,34 @@ mod tests {
 
         webcodecs_req.pixel_format = "nv12".to_string();
         assert!(validate_export_request(&webcodecs_req).is_err());
+    }
+
+    #[test]
+    fn accepts_nv16_and_maps_prores_to_422() {
+        // nv16 是渲染质量档位 "balanced" 的输出格式，必须被校验接受
+        let mut req = sample_request();
+        req.container = "mov".to_string();
+        req.video_codec = "prores".to_string();
+        req.audio_codec = "pcm_s16le".to_string();
+        req.pixel_format = "nv16".to_string();
+        assert!(validate_export_request(&req).is_ok());
+
+        // nv16 输入已经就是 4:2:2，ProRes 应当直接吃 yuv422p10le，不做额外色度转换
+        let video_args =
+            build_ffmpeg_video_args(&req, "prores_videotoolbox", Path::new("/tmp/v.mov")).unwrap();
+        assert!(video_args.windows(2).any(|w| w == ["-profile:v", "2"]));
+        assert!(video_args
+            .windows(2)
+            .any(|w| w == ["-pix_fmt", "yuv422p10le"]));
+        assert!(video_args.windows(2).any(|w| w == ["-pixel_format", "nv16"]));
+
+        // 4:2:2 属于有限范围 BT.709 的 YUV 格式，色彩标记必须照常下发
+        assert!(video_args
+            .windows(2)
+            .any(|w| w == ["-color_range", "tv"]));
+        assert!(video_args
+            .windows(2)
+            .any(|w| w == ["-colorspace", "bt709"]));
     }
 
     #[test]

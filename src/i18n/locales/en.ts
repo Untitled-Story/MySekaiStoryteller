@@ -567,6 +567,16 @@ export const en: LocaleShape = {
     hardwareAccel: 'Hardware Acceleration',
     hardwareAccelHint:
       'Use GPU hardware encoders (VideoToolbox / NVENC) to accelerate 4K 120fps exports.',
+    renderQuality: 'Render Quality',
+    renderQualityHint:
+      'Trade quality for export speed: quality keeps full-resolution chroma, speed trades chroma for frame rate.',
+    renderQualityLocked:
+      'This encoder always outputs 4:2:0, so raising this setting only slows exports without improving quality.',
+    renderQualityAlphaLocked:
+      'Transparent alpha is enabled, so frames are always packed as 4:4:4 and this setting is fixed.',
+    renderQualitySpeed: 'Speed (4:2:0)',
+    renderQualityBalanced: 'Balanced (4:2:2)',
+    renderQualityQuality: 'Quality (4:4:4, lossless)',
     transparentAlpha: 'Keep Transparent Background (Alpha)',
     transparentAlphaHint: 'Alpha transparency requires WebM (VP9/AV1) or MOV (ProRes).',
     codecH264: 'H.264 (AVC)',
